@@ -131,8 +131,8 @@ export function findArcNewCenter(originalCenter, start, end, r) {
     const possibleCenters = findPossibleCenters(start, end, r);
 
     // Calculate distances to the original center
-    const dist1 = distanceBetweenPoints(originalCenter, possibleCenters[0]);
-    const dist2 = distanceBetweenPoints(originalCenter, possibleCenters[1]);
+    const dist1 = getDistance(originalCenter, possibleCenters[0]);
+    const dist2 = getDistance(originalCenter, possibleCenters[1]);
 
     // Return the center that's closer to the original center
     return dist1 < dist2 ? possibleCenters[0] : possibleCenters[1];
@@ -201,10 +201,14 @@ export function moveCenterEquidistant(start, end, originalCenter, delta) {
     return { x: centerX, y: centerY };
 }
 
-export function distanceBetweenPoints(point1, point2) {
+export function getDistance(point1, point2) {
     const dx = point1.x - point2.x;
     const dy = point1.y - point2.y;
     return Math.sqrt(dx * dx + dy * dy);
+}
+
+export function getAngle(point1, point2) {
+    return Math.atan2(point1.y - point2.y, point1.x - point2.x);
 }
 
 export function getMidPoint(point1, point2) {
@@ -218,6 +222,21 @@ export function getPerpendicularSegment(point1, point2) {
     let dx = -(point2.y - point1.y) / 2;
     let dy = (point2.x - point1.x) / 2;
     return { p1: { x: mid.x - dx, y: mid.y - dy }, p2: { x: mid.x + dx, y: mid.y + dy } };
+}
+
+export function getTextPosAngle(point1, point2) {
+    const mid = getMidPoint(point1, point2);
+    let dx = -(point2.y - point1.y) / getDistance(point1, point2);
+    let dy = (point2.x - point1.x) / getDistance(point1, point2);
+    let angle = getAngle(point2, point1);
+    if (point2.x > point1.x)
+        return {
+            pos: { x: mid.x + dx * 5, y: mid.y + dy * 5 }, angle: - angle
+        };
+    else
+        return {
+            pos: { x: mid.x - dx * 5, y: mid.y - dy * 5 }, angle: Math.PI - angle
+        };
 }
 
 export function snapToGrid(value, gridSpacing) {

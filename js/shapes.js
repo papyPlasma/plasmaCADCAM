@@ -1,7 +1,7 @@
 import {
     isPointOnPoint, isPointOnSegment, isPointOnArc, isPointOnBezier, isPointOnEllipse,
-    findArcCenter, moveCenterEquidistant, findArcNewCenter, distanceBetweenPoints,
-    snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment
+    findArcCenter, moveCenterEquidistant, findArcNewCenter, getDistance, getAngle,
+    snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment, getTextPosAngle
 } from './math.js';
 
 export const strokeSelected = getComputedStyle(document.documentElement).getPropertyValue('--canvas-stroke-selection').trim();
@@ -52,6 +52,18 @@ class Shape {
         this.ctx.fill();
         this.ctx.stroke();
     }
+    drawDimension(start, end, val) {
+        const mid = getMidPoint(start, end);
+        this.ctx.save();
+        this.ctx.scale(1, -1);
+        const param = getTextPosAngle(start, end);
+        this.ctx.translate(this.rX(param.pos), -this.rY(param.pos));
+        this.ctx.rotate(param.angle);
+        this.ctx.textAlign = "center";
+        this.ctx.fillStyle = "red";
+        this.ctx.fillText(Math.round(val * 10) / 10, 0, 0);
+        this.ctx.restore();
+    }
 }
 
 export class Line extends Shape {
@@ -68,6 +80,44 @@ export class Line extends Shape {
         p.moveTo(this.rX(start), this.rY(start));
         p.lineTo(this.rX(end), this.rY(end));
         this.ctx.stroke(p);
+        // Draw dotted line horizontal or vertical
+        if (this.selection > -2) {
+            if (Math.abs(Math.abs(start.x) - Math.abs(end.x)) < 2) {
+                this.ctx.strokeStyle = strokeLight;
+                this.ctx.setLineDash([3, 3]);
+                this.ctx.beginPath();
+                if (start.y < end.y) {
+                    this.ctx.moveTo(this.rX(start), this.rY(start) - 50);
+                    this.ctx.lineTo(this.rX(end), this.rY(end) + 50);
+                } else {
+                    this.ctx.moveTo(this.rX(end), this.rY(end) - 50);
+                    this.ctx.lineTo(this.rX(start), this.rY(start) + 50);
+                }
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+                this.ctx.strokeStyle = strokeDefault;
+            } else {
+                if (Math.abs(Math.abs(start.y) - Math.abs(end.y)) < 2) {
+                    this.ctx.strokeStyle = strokeLight;
+                    this.ctx.setLineDash([3, 3]);
+                    this.ctx.beginPath();
+                    if (start.x < end.x) {
+                        this.ctx.moveTo(this.rX(start) - 50, this.rY(start));
+                        this.ctx.lineTo(this.rX(end) + 50, this.rY(end));
+                    } else {
+                        this.ctx.moveTo(this.rX(end) - 50, this.rY(end));
+                        this.ctx.lineTo(this.rX(start) + 50, this.rY(start));
+                    }
+                    this.ctx.stroke();
+                    this.ctx.setLineDash([]);
+                    this.ctx.strokeStyle = strokeDefault;
+                }
+            }
+        }
+        if (this.selection > -2) {
+            const dist = getDistance(start, end);
+            this.drawDimension(start, end, dist);
+        }
         switch (this.selection) {
             case -1:
                 this.selectNoFill(this.rXY(start));
@@ -107,6 +157,20 @@ export class Line extends Shape {
             this.move(delta);
         else {
             this.handles[this.selection] = add(this.handles[this.selection], delta);
+            // Snap
+            if (Math.abs(this.handles[0].x - this.handles[1].x) < 3) {
+                if (this.selection === 0)
+                    this.handles[0].x = this.handles[1].x;
+                else
+                    this.handles[1].x = this.handles[0].x;
+            }
+            if (Math.abs(this.handles[0].y - this.handles[1].y) < 3) {
+                if (this.selection === 0)
+                    this.handles[0].y = this.handles[1].y;
+                else
+                    this.handles[1].y = this.handles[0].y;
+            }
+
         }
     }
     snap(spacing) {
@@ -141,8 +205,8 @@ export class Arc extends Shape {
         const start = this.handles[0];
         const end = this.handles[1];
         const center = this.handles[2];
-        const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
-        const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+        const startAngle = getAngle(start, center);
+        const endAngle = getAngle(end, center);
         p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
         this.ctx.stroke(p);
         // Snap line
@@ -229,12 +293,12 @@ export class Arc extends Shape {
             if (this.selection == 0) {
                 const tmp = this.handles[2];
                 this.handles[0] = add(this.handles[0], delta);
-                this.radius = distanceBetweenPoints(this.handles[0], this.handles[1]);
+                this.radius = getDistance(this.handles[0], this.handles[1]);
                 this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
             } else if (this.selection == 1) {
                 const tmp = this.handles[2];
                 this.handles[1] = add(this.handles[1], delta);
-                this.radius = distanceBetweenPoints(this.handles[0], this.handles[1]);
+                this.radius = getDistance(this.handles[0], this.handles[1]);
                 this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
             } else {
                 this.handles[2] = moveCenterEquidistant(this.handles[0], this.handles[1], this.handles[2], delta);
@@ -243,7 +307,7 @@ export class Arc extends Shape {
                 if (Math.abs(midPoint.x - this.handles[2].x) < 5 && Math.abs(midPoint.y - this.handles[2].y) < 5) {
                     this.handles[2] = midPoint;
                 }
-                this.radius = distanceBetweenPoints(this.handles[0], this.handles[2]);
+                this.radius = getDistance(this.handles[0], this.handles[2]);
             }
         }
     }

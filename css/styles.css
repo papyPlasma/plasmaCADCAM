@@ -13,6 +13,7 @@ body, html {
 }
 
 .left-panel {
+    font-size: 12px;
     position: absolute;
     top: 50px; /* Starts right below the menuBar */
     left: 0;
@@ -21,6 +22,20 @@ body, html {
     background-color: #eee;
     overflow-y: auto; /* scroll if there are many tools */
     z-index: 1;  
+}
+
+#settingsPanel {
+    font-size: 12px;
+    display: none;
+    position: absolute;
+    top: 50px; 
+    left: 0;
+    width: 10%; 
+    height: calc(100% - 100px);
+    background-color: #eee;
+    overflow-y: auto;
+    z-index: 1;
+    padding: 5px 10px 5px 10px;
 }
 
 .tool-icon {
@@ -65,18 +80,6 @@ canvas {
     margin-top: 60px; /* same as the height of the top menu */
     margin-left: 60px; /* same as the width of the left panel */
     overflow: hidden; /*    Hide the overflowing parts of the canvas */
-}
-
-#settingsPanel {
-    display: none;
-    position: absolute;
-    top: 50px; 
-    left: 0;
-    width: 10%; 
-    height: calc(100% - 100px);
-    background-color: #eee;
-    overflow-y: auto;
-    z-index: 1;
 }
 
 .status-bar {

@@ -57,10 +57,11 @@ class PlayingArea {
                     this.canvasCursor = cursorCrossHair;
                     break;
             }
-        });
+            this.canvas.cursor = this.canvasCursor;
+        }.bind(this));
         this.canvas.addEventListener('mouseleave', function () {
             this.canvasCursor = 'default';  // Reset to default cursor
-        });
+        }.bind(this));
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             // Hack to have always good contextMenu dimensions
