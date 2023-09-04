@@ -1,40 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plasma Cutter Controller</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <title>CAD/CAM Plasma cutting machines</title>
+    <link rel="stylesheet" href="./css/styles.css">
 </head>
-
 <body>
-    <div id="container">
-        <div id="sidePanel">
-            <div class="icon-container">
-                <div id="icon-pointer" class="icon icon-selected" data-tooltip="Select element, move the canvas"></div>
-                <div id="icon-selection" class="icon" data-tooltip="Select multiple elements inside the area"></div>
-                <div class="icon-separator"></div>
-                <div id="icon-line" class="icon" data-tooltip="Draw a line"></div>
-                <div id="icon-arc" class="icon" data-tooltip="Draw an arc"></div>
-                <div id="icon-bezier" class="icon" data-tooltip="Draw a Bezier curve"></div>
-                <div class="icon-separator"></div>
-                <div id="icon-square" class="icon" data-tooltip="Draw a square"></div>
-                <div id="icon-circle" class="icon" data-tooltip="Draw a circle"></div>
-            </div>
+    <div class="left-panel" id="left-panel">
+        <!-- Tools go here -->
+        <div class="icon-container">
+            <div id="icon-pointer" class="icon icon-selected" data-tooltip="Select element, move the canvas"></div>
+            <div id="icon-selection" class="icon" data-tooltip="Select multiple elements inside the area"></div>
+            <div class="icon-separator"></div>
+            <div id="icon-line" class="icon" data-tooltip="Draw a line"></div>
+            <div id="icon-arc" class="icon" data-tooltip="Draw an arc"></div>
+            <div id="icon-bezier" class="icon" data-tooltip="Draw a Bezier curve"></div>
+            <div class="icon-separator"></div>
+            <div id="icon-square" class="icon" data-tooltip="Draw a square"></div>
+            <div id="icon-circle" class="icon" data-tooltip="Draw a circle"></div>
+            <!-- ... -->
+            <div id="icon-cog" class="icon bottom-icon" data-tooltip="Preferences"></div>
         </div>
-
-        <div id="canvas-container">
-            <canvas id="myCanvas" tabindex="0"></canvas>
-            <div id="contextMenu" class="context-menu">
-                <a href="#" id="actionOne">Action One</a>
-                <a href="#" id="actionTwo">Action Two</a>
+    </div>
+    <div class="top-menu">
+        <div id="menuTitle">&nbsp;CAD/CAM Plasma V0.1</div>
+        <!-- Top menu items go here -->
+    </div>
+    <div id="canvas-container">
+        <canvas id="myCanvas" tabindex="0"></canvas>
+        <div id="contextMenu" class="context-menu">
+            <a href="#" id="actionOne">Action One</a>
+            <a href="#" id="actionTwo">Action Two</a>
+        </div>
+        <div class="status-bar">
+            <div class="status-section" id="status-gridsize">Grid size: NA</div>
+            <div class="status-section" id="status-info">Additional Info</div>
+            <div class="status-section" id="status-buttons">
+                <button>Button 1</button>
+                <button>Button 2</button>
             </div>
+            <!-- Add more sections as needed -->
+        </div>
+        <div id="settingsPanel">
+            <form id="canvasSettings">
+                <label>Canvas Width: 
+                    <input type="number" id="canvasWidthInput">
+                </label>
+                <br>
+                <label>Canvas Height: 
+                    <input type="number" id="canvasHeightInput">
+                </label>
+                <br>
+                <button type="button" id="apply-settings">Apply</button>
+            </form>
         </div>
     </div>
     <script type="module" src="./js/shapes.js" type="text/javascript"></script>
     <script type="module" src="./js/canvas.js" type="text/javascript"></script>
 </body>
-
 </html>

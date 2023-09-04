@@ -2,22 +2,22 @@ import { Line, Arc, Bezier, Square, Circle, strokeLight, strokeDefault } from '.
 import { snapToGrid, zero, isBoxInside } from './math.js';
 
 class PlayingArea {
-    constructor(window, canvasContainer) {
+    constructor(window, canvas, canvasContainer) {
         this.window = window;
         this.container = canvasContainer;
-        this.canvas = document.getElementById("myCanvas");
+        this.canvas = canvas;
         this.ctx = this.canvas.getContext("2d");
+        this.canvasCursor = cursorNormal;
 
         // Canvas parameters
-        this.gridSpacing = 10;  // Change to desired spacing
-        this.margin = 20;
+        this.gridSpacing = 10;  // 10mm
         this.axisColor = "#000";
         this.gridColor = "#eee";
+        this.headPosition = { x: 10, y: 10 };
 
         // Zoom 
         this.mouseIsDown = false;
-        this.prevX = 0;
-        this.prevY = 0;
+        this.prevAbolute = zero();
         this.prevCursor = zero();
         this.scale = 1;
         this.offsetX = 0;
@@ -25,18 +25,81 @@ class PlayingArea {
 
         // Event listeners
         this.window.addEventListener('resize', this.onResizeWindow.bind(this));
-        this.canvas.addEventListener("wheel", this.onWheel.bind(this), { passive: true });
+        this.canvas.addEventListener("wheel", this.onWheel.bind(this));
         this.canvas.addEventListener("mousedown", this.onMouseDown.bind(this));
         this.canvas.addEventListener("mouseup", this.onMouseUp.bind(this));
         this.canvas.addEventListener("mousemove", this.onMouseMove.bind(this));
         this.canvas.addEventListener("keydown", this.handleKeyDown.bind(this));
+        this.canvas.addEventListener('mouseenter', function () {
+            switch (editorState) {
+                case 'pointer':
+                    this.canvasCursor = cursorNormal;
+                    break;
+                case 'selection':
+                    this.canvasCursor = cursorCrossHair;
+                    break;
+                case 'drawLine':
+                    this.canvasCursor = cursorEditLine;
+                    break;
+                case 'drawArc':
+                    this.canvasCursor = cursorEditArc;
+                    break;
+                case 'drawBezier':
+                    this.canvasCursor = cursorEditBezier;
+                    break;
+                case 'drawSquare':
+                    this.canvasCursor = cursorEditSquare;
+                    break;
+                case 'drawCircle':
+                    this.canvasCursor = cursorEditCircle;
+                    break;
+                default:
+                    this.canvasCursor = cursorCrossHair;
+                    break;
+            }
+        });
+        this.canvas.addEventListener('mouseleave', function () {
+            this.canvasCursor = 'default';  // Reset to default cursor
+        });
+        this.canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            // Hack to have always good contextMenu dimensions
+            contextMenu.style.opacity = '0';
+            contextMenu.style.display = 'block';
+            let menuWidth = contextMenu.offsetWidth;
+            let menuHeight = contextMenu.offsetHeight;
+            contextMenu.style.display = 'none';
+            contextMenu.style.opacity = '';
+
+            const canvasBounds = canvas.getBoundingClientRect();
+            const x = e.clientX - canvasBounds.left;
+            const y = e.clientY - canvasBounds.top;
+
+            // Set the default position to the right and below the cursor
+            let posX = x;
+            let posY = y;
+
+            // If clicking near the right edge, display to the left of the cursor
+            if (x + menuWidth > canvasBounds.right - canvasBounds.left) {
+                posX = x - menuWidth;
+            }
+
+            // If clicking near the bottom edge, display above the cursor
+            if (y + menuHeight > canvasBounds.bottom) {
+                posY = y - menuHeight;
+            }
+
+            // Adjust the context menu position
+            contextMenu.style.left = posX + 'px';
+            contextMenu.style.top = posY + 'px';
+            contextMenu.style.display = 'block';
+        });
+        document.getElementById("apply-settings").addEventListener('click', this.applyCanvasSettings.bind(this));
+        document.getElementById("icon-cog").addEventListener('click', this.toggleSettings.bind(this));
 
         this.shapes = [];
         this.currentShape = undefined;
-        this.selectionArea = {
-            bl: { x: 0, y: 0 },
-            tr: { x: 0, y: 0 },
-        };
+        this.selectionArea = { bl: zero(), tr: zero() };
 
         // Few examples
         let line = new Line(this.ctx, { x: 500, y: 400 }, { x: 550, y: 500 });
@@ -56,8 +119,9 @@ class PlayingArea {
 
         this.onResizeWindow();
         this.canvas.focus();
-    }
 
+        document.getElementById('status-gridsize').textContent = "Grid size: " + this.gridSpacing + "mm";
+    }
     handleKeyDown(e) {
         console.log(e.key);
         if (e.key === "Delete" || e.key === "Backspace") {
@@ -70,66 +134,61 @@ class PlayingArea {
             }
         }
     }
-
     getRelativePositionCursor(cursor) {
         const rect = this.canvas.getBoundingClientRect();
         const clickX = cursor.x - rect.left - this.offsetX;
         const clickY = cursor.y - rect.top - this.offsetY;
-        const relativeX = clickX / this.scale - this.margin;
-        const relativeY = this.canvas.height - clickY / this.scale - this.margin;
+        const relativeX = clickX / this.scale;
+        const relativeY = this.canvas.height - clickY / this.scale;
         return { x: relativeX, y: relativeY };
     }
-
     onResizeWindow() {
-        this.canvas.width = this.container.offsetWidth;
-        this.canvas.height = this.container.offsetHeight;
+        this.offsetY = -(this.canvas.height - (window.innerHeight - 60)) * this.scale;
         this.render();
     }
-
     onWheel(event) {
         const zoomFactor = 0.1;
         let newScale;
 
         // Get mouse position relative to the canvas
         const rect = this.canvas.getBoundingClientRect();
-        const mouseX = event.clientX - rect.left - this.offsetX;
-        const mouseY = event.clientY - rect.top - this.offsetY;
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
 
-        // Calculate cursor's position relative to the content (before zooming)
-        const relativeX = mouseX / this.scale;
-        const relativeY = mouseY / this.scale;
+        // Compute the transformation center: We compute the current mouse position in "world coordinates"
+        const worldX = (mouseX - this.offsetX) / this.scale;
+        const worldY = (mouseY - this.offsetY) / this.scale;
 
         if (event.deltaY < 0) {
             // Zoom in
             newScale = this.scale * (1 + zoomFactor);
+            if (newScale > 10) {
+                newScale = 10;
+            }
         } else {
             // Zoom out
             newScale = this.scale / (1 + zoomFactor);
-
-            // Prevent zooming out beyond 100%
             if (newScale < 1) {
                 newScale = 1;
             }
         }
 
-        // Adjust offsets to ensure cursor's relative position remains the same after zooming
-        this.offsetX += mouseX - (relativeX * newScale);
-        this.offsetY += mouseY - (relativeY * newScale);
+        // Compute the new offset after the scaling: The idea here is to first apply the scaling transformation 
+        // and then translate the world so that the point under the mouse remains in the same place
+        this.offsetX = mouseX - worldX * newScale;
+        this.offsetY = mouseY - worldY * newScale;
 
         this.scale = newScale;
 
-        // Clamp offsets after adjusting for zoom
-        this.clampOffsets();
-
         this.render();
-        //  event.preventDefault();
+        event.preventDefault();
     }
     goToselectionMode() {
         let pointerIcon = document.getElementById('icon-selection');
         icons.forEach(i => i.classList.remove("icon-selected"));
         pointerIcon.classList.add("icon-selected");
         editorState = 'selection';
-        canvasCursor = cursorNormal;
+        this.canvasCursor = cursorNormal;
         canvas.style.cursor = cursorNormal;
     }
     goToPointerMode() {
@@ -137,15 +196,14 @@ class PlayingArea {
         icons.forEach(i => i.classList.remove("icon-selected"));
         pointerIcon.classList.add("icon-selected");
         editorState = 'pointer';
-        canvasCursor = cursorNormal;
+        this.canvasCursor = cursorNormal;
         canvas.style.cursor = cursorNormal;
     }
     onMouseDown(event) {
         let start;
         if (event.button === 0) {
             this.mouseIsDown = true;
-            this.prevX = event.clientX;
-            this.prevY = event.clientY;
+            this.prevAbolute = { x: event.clientX, y: event.clientY };
             let cursor = this.getRelativePositionCursor({ x: event.clientX, y: event.clientY });
             this.prevCursor = cursor;
             switch (editorState) {
@@ -208,7 +266,6 @@ class PlayingArea {
             this.render();
         }
     }
-
     onMouseUp(event) {
         if (event.button === 0) {
             this.mouseIsDown = false;
@@ -249,10 +306,7 @@ class PlayingArea {
                             }
                         }
                     }
-                    this.selectionArea = {
-                        bl: { x: 0, y: 0 },
-                        tr: { x: 0, y: 0 },
-                    };
+                    this.selectionArea = { bl: zero(), tr: zero() };
                     this.goToPointerMode();
                     break;
 
@@ -262,11 +316,10 @@ class PlayingArea {
         }
         this.onMouseMove(event);
     }
-
     onMouseMove(event) {
-        this.canvas.style.cursor = canvasCursor;
-        const deltaAbsoluteX = event.clientX - this.prevX;
-        const deltaAbsoluteY = event.clientY - this.prevY;
+        this.canvas.style.cursor = this.canvasCursor;
+        const deltaAbsoluteX = event.clientX - this.prevAbolute.x;
+        const deltaAbsoluteY = event.clientY - this.prevAbolute.y;
         let cursor = this.getRelativePositionCursor({ x: event.clientX, y: event.clientY });
         const deltaCursor = { x: cursor.x - this.prevCursor.x, y: cursor.y - this.prevCursor.y };
         if (this.mouseIsDown) {
@@ -288,8 +341,6 @@ class PlayingArea {
                         // Adjust offsets by this distance
                         this.offsetX += deltaAbsoluteX;
                         this.offsetY += deltaAbsoluteY;
-                        // Restrict the content from being dragged too far out of view.
-                        this.clampOffsets();
                     }
                     break;
 
@@ -307,97 +358,56 @@ class PlayingArea {
                     break;
 
                 default:
-                    this.canvas.style.cursor = canvasCursor;
+                    this.canvas.style.cursor = this.canvasCursor;
                     break;
             }
         }
         // Update previous cursor position for next movement calculation
-        this.prevX = event.clientX;
-        this.prevY = event.clientY;
+        this.prevAbolute = { x: event.clientX, y: event.clientY };
         this.prevCursor = cursor;
         this.render();
     }
-
-    clampOffsets() {
-        // Calculate the minimum permissible offsets.
-        const minX = this.canvas.width - this.canvas.width * this.scale;
-        const minY = this.canvas.height - this.canvas.height * this.scale;
-
-        // Maximum permissible offsets are always 0 because 
-        // the content should not drift away from the top-left corner.
-        const maxX = 0;
-        const maxY = 0;
-
-        // Clamp offsets to ensure content stays within the canvas boundaries.
-        this.offsetX = Math.min(Math.max(this.offsetX, minX), maxX);
-        this.offsetY = Math.min(Math.max(this.offsetY, minY), maxY);
-    }
-
     render() {
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.setTransform(this.scale, 0, 0, this.scale, this.offsetX, this.offsetY);
         // Set the origin to the bottom left
-        this.ctx.translate(this.margin, this.canvas.height - this.margin);  // Translate by the canvas height
+        this.ctx.translate(0, this.canvas.height);  // Translate by the canvas height
         this.ctx.scale(1, -1);  // Flip vertically
 
         this.drawAll();
     }
-
     drawAll() {
         this.drawGrid();
-        this.drawOrigin();
+        this.drawHeadPosition();
         this.drawContent();
     }
-
     drawGrid() {
-        // Draw the margins
-        this.ctx.fillStyle = "#ddd";
-        this.ctx.fillRect(-this.margin, -this.margin, this.canvas.width, this.margin);
-        this.ctx.fillRect(-this.margin, -this.margin, this.margin, this.canvas.height);
-        this.ctx.fillRect(-this.margin, this.canvas.height - 2 * this.margin, this.canvas.width, this.margin);
-        this.ctx.fillRect(this.canvas.width - 2 * this.margin, 0, this.margin, this.canvas.height);
-
         this.ctx.lineWidth = 1;
         this.ctx.strokeStyle = this.gridColor;
         // Vertical grid lines
-        for (let x = 0; x <= this.canvas.width - 2 * this.margin; x += this.gridSpacing) {
+        for (let x = 0; x <= this.canvas.width; x += this.gridSpacing) {
             this.ctx.beginPath();
             this.ctx.moveTo(x, 0);
-            this.ctx.lineTo(x, this.canvas.height - 2 * this.margin);
+            this.ctx.lineTo(x, this.canvas.height);
             this.ctx.stroke();
         }
 
         // Horizontal grid lines
-        for (let y = 0; y <= this.canvas.height - 2 * this.margin; y += this.gridSpacing) {
+        for (let y = 0; y <= this.canvas.height; y += this.gridSpacing) {
             this.ctx.beginPath();
             this.ctx.moveTo(0, y);
-            this.ctx.lineTo(this.canvas.width - 2 * this.margin, y);
+            this.ctx.lineTo(this.canvas.width, y);
             this.ctx.stroke();
         }
-
-        // Axis
-        this.ctx.strokeStyle = 'blue';
-        this.ctx.lineWidth = 2;
-
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, 0);
-        this.ctx.lineTo(this.canvas.width - 2 * this.margin, 0);
-        this.ctx.stroke();
-
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, 0);
-        this.ctx.lineTo(0, this.canvas.height - 2 * this.margin);
-        this.ctx.stroke();
     }
-
-    drawOrigin() {
+    drawHeadPosition() {
         const circleRadius = 10; // Adjust as needed
         const crossLength = 15;  // Adjust as needed
 
         // Draw circle
         this.ctx.beginPath();
-        this.ctx.arc(0, 0, circleRadius, 0, 2 * Math.PI);
+        this.ctx.arc(this.headPosition.x, this.headPosition.y, circleRadius, 0, 2 * Math.PI);
         this.ctx.fillStyle = "#000"; // Black color for the circle
         this.ctx.fill();
         this.ctx.closePath();
@@ -406,25 +416,20 @@ class PlayingArea {
         this.ctx.strokeStyle = "#FFF"; // White color for the cross to contrast with the black circle
         this.ctx.lineWidth = 2;        // Adjust as needed
 
-        this.ctx.save();
-        // Rotate by 45 degrees
-        this.ctx.rotate(Math.PI / 4);
+
 
         // Vertical line of the cross
         this.ctx.beginPath();
-        this.ctx.moveTo(0, -crossLength / 2);
-        this.ctx.lineTo(0, crossLength / 2);
+        this.ctx.moveTo(this.headPosition.x, -crossLength / 2 + this.headPosition.y);
+        this.ctx.lineTo(this.headPosition.x, crossLength / 2 + this.headPosition.y);
         this.ctx.stroke();
 
         // Horizontal line of the cross
         this.ctx.beginPath();
-        this.ctx.moveTo(-crossLength / 2, 0);
-        this.ctx.lineTo(crossLength / 2, 0);
+        this.ctx.moveTo(this.headPosition.x - crossLength / 2, this.headPosition.y);
+        this.ctx.lineTo(this.headPosition.x + crossLength / 2, this.headPosition.y);
         this.ctx.stroke();
-
-        this.ctx.restore();
     }
-
     drawContent() {
         for (const shape of this.shapes) {
             shape.draw();
@@ -448,7 +453,36 @@ class PlayingArea {
             this.ctx.strokeStyle = strokeDefault;
         }
     }
+    toggleSettings() {
+        const settingsPanel = document.getElementById("settingsPanel");
+        const leftPanel = document.getElementById("left-panel");
+        const canvasWidthInput = document.getElementById("canvasWidthInput");
+        const canvasHeightInput = document.getElementById("canvasHeightInput");
+        const canvas = document.getElementById("myCanvas");
 
+        // If the settings panel is not visible, show it and hide the left panel
+        if (settingsPanel.style.display === "none" || settingsPanel.style.display === "") {
+            settingsPanel.style.display = "block";
+            leftPanel.style.display = "none";
+
+            // Set the current canvas width and height values in the input fields
+            canvasWidthInput.value = canvas.width;
+            canvasHeightInput.value = canvas.height;
+        } else {
+            settingsPanel.style.display = "none";
+            leftPanel.style.display = "block";
+        }
+    }
+    applyCanvasSettings() {
+        const canvasWidthInput = document.getElementById("canvasWidthInput");
+        const canvasHeightInput = document.getElementById("canvasHeightInput");
+        const canvas = document.getElementById("myCanvas");
+
+        canvas.width = canvasWidthInput.value;
+        canvas.height = canvasHeightInput.value;
+
+        this.toggleSettings(); // Hide the settings panel
+    }
     // Destructor
     destroy() {
         this.window.removeEventListener('resize', this.onResizeWindow);
@@ -459,8 +493,31 @@ class PlayingArea {
     }
 }
 
+const cursorNormal = "url('../assets/icon-cursor-16.png'), auto";
+const cursorNormalCanMove = "url('../assets/icon-cursor-click-16.png'), auto";
+const cursorCrossHair = 'crosshair';
+const cursorEditLine = "url('../assets/cursor-edit-line.cur'), auto";
+const cursorEditArc = "url('../assets/cursor-edit-arc.cur'), auto";
+const cursorEditBezier = "url('../assets/cursor-edit-bezier.cur'), auto";
+const cursorEditSquare = "url('../assets/cursor-edit-square.cur'), auto";
+const cursorEditCircle = "url('../assets/cursor-edit-circle.cur'), auto";
+
 let editorState = 'pointer';
-let _workArea = new PlayingArea(window, document.getElementById("canvas-container"));
+const canvas = document.getElementById('myCanvas');
+const canvaContainer = document.getElementById('canvas-container');
+const contextMenu = document.getElementById('contextMenu');
+
+// Example action when clicking on a context menu item
+document.getElementById('actionOne').addEventListener('click', (e) => {
+    e.preventDefault();
+    console.log('Action One clicked!');
+});
+// Hide the context menu when clicking elsewhere
+window.addEventListener('click', (e) => {
+    if (e.button !== 2) {  // Not a right-click
+        contextMenu.style.display = 'none';
+    }
+});
 
 document.getElementById("icon-pointer").addEventListener('click', function () {
     editorState = 'pointer';
@@ -497,106 +554,19 @@ icons.forEach(icon => {
         tooltip.style.top = (e.pageY + 10) + 'px';   // 10 pixels below the mouse pointer
     });
     icon.addEventListener('click', function () {
-        // First, remove 'icon-selected' from all icons
-        icons.forEach(i => i.classList.remove("icon-selected"));
-
-        // Then, add 'icon-selected' to the clicked icon
-        icon.classList.add("icon-selected");
+        if (icon.id !== 'icon-cog') {
+            // First, remove 'icon-selected' from all icons
+            icons.forEach(i => i.classList.remove("icon-selected"));
+            // Then, add 'icon-selected' to the clicked icon
+            icon.classList.add("icon-selected");
+        }
     });
     icon.addEventListener('mouseout', function () {
         tooltip.style.display = 'none';
     });
 });
 
-let canvasCursor;
-const cursorNormal = "url('../assets/icon-cursor-16.png'), auto";
-const cursorNormalCanMove = "url('../assets/icon-cursor-click-16.png'), auto";
-const cursorCrossHair = 'crosshair';
-const cursorEditLine = "url('../assets/cursor-edit-line.cur'), auto";
-const cursorEditArc = "url('../assets/cursor-edit-arc.cur'), auto";
-const cursorEditBezier = "url('../assets/cursor-edit-bezier.cur'), auto";
-const cursorEditSquare = "url('../assets/cursor-edit-square.cur'), auto";
-const cursorEditCircle = "url('../assets/cursor-edit-circle.cur'), auto";
-
-const canvas = document.getElementById('myCanvas');
-const contextMenu = document.getElementById('contextMenu');
-canvas.addEventListener('mouseenter', function () {
-    switch (editorState) {
-        case 'pointer':
-            canvasCursor = cursorNormal;
-            break;
-        case 'selection':
-            canvasCursor = cursorCrossHair;
-            break;
-        case 'drawLine':
-            canvasCursor = cursorEditLine;
-            break;
-        case 'drawArc':
-            canvasCursor = cursorEditArc;
-            break;
-        case 'drawBezier':
-            canvasCursor = cursorEditBezier;
-            break;
-        case 'drawSquare':
-            canvasCursor = cursorEditSquare;
-            break;
-        case 'drawCircle':
-            canvasCursor = cursorEditCircle;
-            break;
-        default:
-            canvasCursor = cursorCrossHair;
-            break;
-    }
-});
-
-canvas.addEventListener('mouseleave', function () {
-    canvasCursor = 'default';  // Reset to default cursor
-});
-
-canvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    // Hack to have always good contextMenu dimensions
-    contextMenu.style.opacity = '0';
-    contextMenu.style.display = 'block';
-    let menuWidth = contextMenu.offsetWidth;
-    let menuHeight = contextMenu.offsetHeight;
-    contextMenu.style.display = 'none';
-    contextMenu.style.opacity = '';
-
-    const canvasBounds = canvas.getBoundingClientRect();
-    const x = e.clientX - canvasBounds.left;
-    const y = e.clientY - canvasBounds.top;
-
-    // Set the default position to the right and below the cursor
-    let posX = x;
-    let posY = y;
-
-    // If clicking near the right edge, display to the left of the cursor
-    if (x + menuWidth > canvasBounds.right - canvasBounds.left) {
-        posX = x - menuWidth;
-    }
-
-    // If clicking near the bottom edge, display above the cursor
-    if (y + menuHeight > canvasBounds.bottom) {
-        posY = y - menuHeight;
-    }
-
-    // Adjust the context menu position
-    contextMenu.style.left = posX + 'px';
-    contextMenu.style.top = posY + 'px';
-    contextMenu.style.display = 'block';
-});
-
-// Hide the context menu when clicking elsewhere
-window.addEventListener('click', (e) => {
-    if (e.button !== 2) {  // Not a right-click
-        contextMenu.style.display = 'none';
-    }
-});
-
-// Example action when clicking on a context menu item
-document.getElementById('actionOne').addEventListener('click', (e) => {
-    e.preventDefault();
-    console.log('Action One clicked!');
-});
+canvas.width = 1500;  // minus left-panel width
+canvas.height = 3000; // minus top-menu height
+let workArea = new PlayingArea(window, canvas, canvaContainer);
 
