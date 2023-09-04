@@ -201,11 +201,23 @@ export function moveCenterEquidistant(start, end, originalCenter, delta) {
     return { x: centerX, y: centerY };
 }
 
-
 export function distanceBetweenPoints(point1, point2) {
     const dx = point1.x - point2.x;
     const dy = point1.y - point2.y;
     return Math.sqrt(dx * dx + dy * dy);
+}
+
+export function getMidPoint(point1, point2) {
+    const x = (point1.x + point2.x) / 2;
+    const y = (point1.y + point2.y) / 2;
+    return { x, y };
+}
+
+export function getPerpendicularSegment(point1, point2) {
+    const mid = getMidPoint(point1, point2);
+    let dx = -(point2.y - point1.y) / 2;
+    let dy = (point2.x - point1.x) / 2;
+    return { p1: { x: mid.x - dx, y: mid.y - dy }, p2: { x: mid.x + dx, y: mid.y + dy } };
 }
 
 export function snapToGrid(value, gridSpacing) {

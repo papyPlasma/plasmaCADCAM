@@ -1,7 +1,7 @@
 import {
     isPointOnPoint, isPointOnSegment, isPointOnArc, isPointOnBezier, isPointOnEllipse,
     findArcCenter, moveCenterEquidistant, findArcNewCenter, distanceBetweenPoints,
-    snapToGrid, add, sub, zero
+    snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment
 } from './math.js';
 
 export const strokeSelected = getComputedStyle(document.documentElement).getPropertyValue('--canvas-stroke-selection').trim();
@@ -145,6 +145,21 @@ export class Arc extends Shape {
         const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
         p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
         this.ctx.stroke(p);
+        // Snap line
+        if (this.selection > -2) {
+            const midPoint = getMidPoint(start, end);
+            if (Math.abs(midPoint.x - center.x) < 5 && Math.abs(midPoint.y - center.y) < 5) {
+                const seg = getPerpendicularSegment(start, end);
+                this.ctx.strokeStyle = strokeLight;
+                this.ctx.setLineDash([3, 3]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.rX(seg.p1), this.rY(seg.p1));
+                this.ctx.lineTo(this.rX(seg.p2), this.rY(seg.p2));
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+                this.ctx.strokeStyle = strokeDefault;
+            }
+        }
         if (this.selection > -2) {
             this.ctx.strokeStyle = strokeLight;
             this.ctx.setLineDash([3, 3]);
@@ -214,32 +229,20 @@ export class Arc extends Shape {
             if (this.selection == 0) {
                 const tmp = this.handles[2];
                 this.handles[0] = add(this.handles[0], delta);
-                this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0],
-                    this.handles[1], this.radius);
-                if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
-                    this.handles[0] = sub(this.handles[0], delta);
-                    this.handles[2] = tmp;
-                }
+                this.radius = distanceBetweenPoints(this.handles[0], this.handles[1]);
+                this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
             } else if (this.selection == 1) {
                 const tmp = this.handles[2];
                 this.handles[1] = add(this.handles[1], delta);
-
-                if (this.init) {
-                    // Move also the center
-                    this.radius = distanceBetweenPoints(this.handles[0], this.handles[1]);
-                    this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
-                } else {
-                    this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0],
-                        this.handles[1], this.radius);
-
-                    if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
-                        this.handles[1] = sub(this.handles[1], delta);
-                        this.handles[2] = tmp;
-                    }
-                }
-
+                this.radius = distanceBetweenPoints(this.handles[0], this.handles[1]);
+                this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
             } else {
                 this.handles[2] = moveCenterEquidistant(this.handles[0], this.handles[1], this.handles[2], delta);
+                // Snap for half circle
+                const midPoint = getMidPoint(this.handles[0], this.handles[1]);
+                if (Math.abs(midPoint.x - this.handles[2].x) < 5 && Math.abs(midPoint.y - this.handles[2].y) < 5) {
+                    this.handles[2] = midPoint;
+                }
                 this.radius = distanceBetweenPoints(this.handles[0], this.handles[2]);
             }
         }
@@ -250,10 +253,10 @@ export class Arc extends Shape {
         else if (this.selection == 0 || this.selection == 1) {
             this.handles[this.selection] = snapToGrid(this.handles[this.selection], spacing);
             this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
-            if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
-                this.radius += spacing; // Hack
-                this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
-            }
+            // if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
+            //     this.radius += spacing; // Hack
+            //     this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
+            // }
         }
         this.init = false;
     }
@@ -627,7 +630,10 @@ export class Square extends Shape {
                 this.offset.y += delta.y;
                 this.edge.y = tr.y - br.y - delta.y;
             }
-
+            // Snap
+            if (Math.abs(this.edge.x - this.edge.y) < 5) {
+                this.edge.x = this.edge.y;
+            }
             this.handles = [zero(), { x: 0, y: this.edge.y },
             { x: this.edge.x, y: 0 }, this.edge,
             { x: 0, y: this.edge.y / 2 }, { x: this.edge.x / 2, y: this.edge.y },
@@ -719,6 +725,21 @@ export class Circle extends Shape {
         let p = new Path2D();
         p.ellipse(this.rX(center), this.rY(center), this.radius.x, this.radius.y, 0, 0, 2 * Math.PI);
         this.ctx.stroke(p);
+        // Draw dotted line if circle
+        if (this.selection > -2) {
+            if (Math.abs(this.radius.x - this.radius.y) < 0.1) {
+                this.ctx.strokeStyle = strokeLight;
+                this.ctx.setLineDash([3, 3]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.rX(l), this.rY(l));
+                this.ctx.lineTo(this.rX(r), this.rY(r));
+                this.ctx.moveTo(this.rX(b), this.rY(b));
+                this.ctx.lineTo(this.rX(t), this.rY(t));
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+                this.ctx.strokeStyle = strokeDefault;
+            }
+        }
         switch (this.selection) {
             case -1:
                 this.selectNoFill(this.rXY(center));
@@ -837,6 +858,11 @@ export class Circle extends Shape {
                 this.radius.x = -this.radius.x;
             if (this.radius.y < 0)
                 this.radius.y = -this.radius.y;
+
+            // Snap
+            if (Math.abs(this.radius.x - this.radius.y) < 5) {
+                this.radius.x = this.radius.y;
+            }
             this.handles = [zero(), { x: -this.radius.x, y: 0 },
             { x: 0, y: this.radius.y }, { x: this.radius.x, y: 0 },
             { x: 0, y: -this.radius.y }, { x: this.radius.x, y: this.radius.y }
