@@ -102,7 +102,7 @@ export class Line extends Shape {
         else
             return false;
     }
-    modify(delta) {
+    modify(dcursor, delta) {
         if (this.selection === -1)
             this.move(delta);
         else {
@@ -207,7 +207,7 @@ export class Arc extends Shape {
         else
             return false;
     }
-    modify(delta) {
+    modify(cursor, delta) {
         if (this.selection === -1)
             this.move(delta);
         else {
@@ -370,7 +370,7 @@ export class Bezier extends Shape {
         else
             return false;
     }
-    modify(delta) {
+    modify(cursor, delta) {
         if (this.selection === -1)
             this.move(delta);
         else {
@@ -579,7 +579,7 @@ export class Square extends Shape {
         else
             return false;
     }
-    modify(delta) {
+    modify(cursor, delta) {
         const bl = this.handles[0];
         const tl = this.handles[1];
         const br = this.handles[2];
@@ -809,8 +809,7 @@ export class Circle extends Shape {
         else
             return false;
     }
-    modify(delta) {
-        console.log(this.selection);
+    modify(cursor, delta) {
         const center = this.handles[0];
         const l = this.handles[1];
         const t = this.handles[2];
@@ -831,11 +830,8 @@ export class Circle extends Shape {
             else if (this.selection === 4) {
                 this.radius.y -= delta.y;
             } else if (this.selection === 5) {
-                if (this.radius.x === this.radius.y) {
-                    delta.x = delta.y;
-                }
-                this.radius.x += delta.x;
-                this.radius.y += delta.y;
+                this.radius.x = Math.abs(cursor.x - this.rX(center));
+                this.radius.y = Math.abs(cursor.y - this.rY(center));
             }
             if (this.radius.x < 0)
                 this.radius.x = -this.radius.x;

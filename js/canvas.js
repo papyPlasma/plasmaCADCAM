@@ -1,5 +1,5 @@
 import { Line, Arc, Bezier, Square, Circle, strokeLight, strokeDefault } from './shapes.js';
-import { snapToGrid, zero, isBoxInside } from './math.js';
+import { snapToGrid, zero, isBoxInside, sub } from './math.js';
 
 class PlayingArea {
     constructor(window, canvas, canvasContainer) {
@@ -285,7 +285,6 @@ class PlayingArea {
                 case 'drawCircle':
                     this.currentShape.snap(this.gridSpacing);
                     if (this.currentShape.valid()) {
-                        console.log("add shape");
                         this.shapes.push(this.currentShape);
                     }
                     this.currentShape = undefined;
@@ -301,7 +300,6 @@ class PlayingArea {
                             const bb = shape.getBoundingBox();
 
                             if (isBoxInside(this.selectionArea, bb)) {
-                                console.log(bb);
                                 shape.selection = -1;
                             }
                         }
@@ -321,14 +319,15 @@ class PlayingArea {
         const deltaAbsoluteX = event.clientX - this.prevAbolute.x;
         const deltaAbsoluteY = event.clientY - this.prevAbolute.y;
         let cursor = this.getRelativePositionCursor({ x: event.clientX, y: event.clientY });
-        const deltaCursor = { x: cursor.x - this.prevCursor.x, y: cursor.y - this.prevCursor.y };
+        const deltaCursor = sub(cursor, this.prevCursor);
+
         if (this.mouseIsDown) {
             switch (editorState) {
                 case 'pointer':
                     let somethingSelected = false;
                     for (const shape of this.shapes) {
                         if (shape.selection > -2) {
-                            shape.modify(deltaCursor);
+                            shape.modify(cursor, deltaCursor);
                             somethingSelected = true;
                         }
                     }
@@ -349,7 +348,7 @@ class PlayingArea {
                 case 'drawBezier':
                 case 'drawSquare':
                 case 'drawCircle':
-                    this.currentShape.modify(deltaCursor);
+                    this.currentShape.modify(cursor, deltaCursor);
                     break;
 
                 case 'selection':
