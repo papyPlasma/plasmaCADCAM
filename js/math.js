@@ -207,8 +207,32 @@ export function getDistance(point1, point2) {
     return Math.sqrt(dx * dx + dy * dy);
 }
 
-export function getAngle(point1, point2) {
-    return Math.atan2(point1.y - point2.y, point1.x - point2.x);
+export function getAngle(pt1, pt2) {
+    let a;
+    if (pt1.x === pt2.x) {
+        if (pt1.y < pt2.y)
+            return Math.PI / 2;
+        else
+            return -Math.PI / 2;
+    }
+    if (pt1.y === pt2.y) {
+        if (pt1.x < pt2.x)
+            return 0;
+        else
+            return Math.PI;
+    }
+    a = Math.PI - Math.atan2(-(pt1.y - pt2.y), pt1.x - pt2.x);
+    if (a > Math.PI)
+        a = -(2 * Math.PI - a);
+    return a;
+}
+export function subAngle(endAngle, startAngle) {
+    let res = endAngle - startAngle;
+    if (res > Math.PI)
+        res -= Math.PI;
+    if (res < -Math.PI)
+        res += Math.PI;
+    return res;
 }
 
 export function getMidPoint(point1, point2) {
@@ -228,7 +252,7 @@ export function getTextPosAngle(point1, point2) {
     const mid = getMidPoint(point1, point2);
     let dx = -(point2.y - point1.y) / getDistance(point1, point2);
     let dy = (point2.x - point1.x) / getDistance(point1, point2);
-    let angle = getAngle(point2, point1);
+    let angle = getAngle(point1, point2);
     if (point2.x > point1.x)
         return {
             pos: { x: mid.x + dx * 5, y: mid.y + dy * 5 }, angle: - angle
@@ -263,4 +287,7 @@ export function sub(a, b) {
 }
 export function zero() {
     return { x: 0, y: 0 }
+}
+export function one() {
+    return { x: 1, y: 0 }
 }

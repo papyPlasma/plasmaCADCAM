@@ -103,15 +103,15 @@ class PlayingArea {
         this.selectionArea = { bl: zero(), tr: zero() };
 
         // Few examples
-        let line = new Line(this.ctx, { x: 500, y: 400 }, { x: 550, y: 500 });
+        let line = new Line(this.ctx, { x: 300, y: 600 }, { x: 550, y: 800 });
         this.shapes.push(line);
 
-        let arc = new Arc(this.ctx, { x: 400, y: 400 }, { x: 450, y: 430 });
-        this.shapes.push(arc);
+        // let arc = new Arc(this.ctx, { x: 400, y: 400 }, { x: 450, y: 430 });
+        // this.shapes.push(arc);
 
-        let bezier = new Bezier(this.ctx, zero(), { x: 100, y: 100 },
-            { x: 200, y: 0 }, { x: 300, y: 100 });
-        bezier.move({ x: 400, y: 100 });
+        let bezier = new Bezier(this.ctx, zero(), { x: 100, y: -150 },
+            { x: 200, y: 50 }, { x: 500, y: 100 });
+        bezier.move({ x: 500, y: 500 });
         this.shapes.push(bezier);
 
         for (const shape of this.shapes) {

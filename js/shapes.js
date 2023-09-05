@@ -1,7 +1,8 @@
 import {
     isPointOnPoint, isPointOnSegment, isPointOnArc, isPointOnBezier, isPointOnEllipse,
     findArcCenter, moveCenterEquidistant, findArcNewCenter, getDistance, getAngle,
-    snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment, getTextPosAngle
+    snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment, getTextPosAngle,
+    subAngle, one
 } from './math.js';
 
 export const strokeSelected = getComputedStyle(document.documentElement).getPropertyValue('--canvas-stroke-selection').trim();
@@ -29,15 +30,12 @@ class Shape {
     move(delta) {
         this.offset = add(this.offset, delta);
     }
-
     removeSelection() {
         this.selection = -2;
     }
-
     hasSelection() {
         return this.selection > -2;
     }
-
     selectNoFill(pos) {
         this.ctx.fillStyle = "white";
         this.select(pos);
@@ -52,7 +50,129 @@ class Shape {
         this.ctx.fill();
         this.ctx.stroke();
     }
-    drawDimension(start, end, val) {
+    snapHorizontal(seg, start) {
+
+        if (Math.abs(seg.start.y - seg.end.y) < 2) {
+            if (start)
+                seg.start.y = seg.end.y;
+            else
+                seg.end.y = seg.start.y;
+        }
+        return seg;
+    }
+    snapVertical(seg, start) {
+        if (Math.abs(seg.start.x - seg.end.x) < 2) {
+            if (start)
+                seg.start.x = seg.end.x;
+            else
+                seg.end.x = seg.start.x;
+        }
+        return seg;
+    }
+    snap45(seg, start) {
+        if ((seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) > 0.97 &&
+            (seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) < 1 / 0.97) {
+            if (start)
+                seg.start.y = seg.start.x;
+            else
+                seg.end.y = seg.end.x;
+        }
+        return seg;
+    }
+    snap135(seg, start) {
+        if ((seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) < -0.97 &&
+            (seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) > -1 / 0.97) {
+            if (start)
+                seg.start.y = -seg.start.x;
+            else
+                seg.end.y = -seg.end.x;
+        }
+        return seg;
+    }
+    drawHorizontal(start, end) {
+        if (Math.abs(Math.abs(start.y - end.y)) < 2) {
+            this.ctx.strokeStyle = strokeLight;
+            this.ctx.setLineDash([3, 3]);
+            this.ctx.beginPath();
+            if (start.x < end.x) {
+                this.ctx.moveTo(this.rX(start) - 50, this.rY(start));
+                this.ctx.lineTo(this.rX(end) + 50, this.rY(end));
+            } else {
+                this.ctx.moveTo(this.rX(end) - 50, this.rY(end));
+                this.ctx.lineTo(this.rX(start) + 50, this.rY(start));
+            }
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.strokeStyle = strokeDefault;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    drawVertical(start, end) {
+        if (Math.abs(Math.abs(start.x - end.x)) < 2) {
+            this.ctx.strokeStyle = strokeLight;
+            this.ctx.setLineDash([3, 3]);
+            this.ctx.beginPath();
+            if (start.y < end.y) {
+                this.ctx.moveTo(this.rX(start), this.rY(start) - 50);
+                this.ctx.lineTo(this.rX(end), this.rY(end) + 50);
+            } else {
+                this.ctx.moveTo(this.rX(end), this.rY(end) - 50);
+                this.ctx.lineTo(this.rX(start), this.rY(start) + 50);
+            }
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.strokeStyle = strokeDefault;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    draw45(start, end) {
+        if ((start.y - end.y) / (start.x - end.x) > 0.95 &&
+            (start.y - end.y) / (start.x - end.x) < 1 / 0.95) {
+            this.ctx.strokeStyle = strokeLight;
+            this.ctx.setLineDash([3, 3]);
+            this.ctx.beginPath();
+            if (start.x < end.x) {
+                this.ctx.moveTo(this.rX(start) - 50, this.rY(start) - 50);
+                this.ctx.lineTo(this.rX(end) + 50, this.rY(end) + 50);
+            } else {
+                this.ctx.moveTo(this.rX(end) - 50, this.rY(end) - 50);
+                this.ctx.lineTo(this.rX(start) + 50, this.rY(start) + 50);
+            }
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.strokeStyle = strokeDefault;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    draw135(start, end) {
+        if ((start.y - end.y) / (start.x - end.x) < -0.95 &&
+            (start.y - end.y) / (start.x - end.x) > -1 / 0.95) {
+            this.ctx.strokeStyle = strokeLight;
+            this.ctx.setLineDash([3, 3]);
+            this.ctx.beginPath();
+            if (start.x < end.x) {
+                this.ctx.moveTo(this.rX(start) - 50, this.rY(start) + 50);
+                this.ctx.lineTo(this.rX(end) + 50, this.rY(end) - 50);
+            } else {
+                this.ctx.moveTo(this.rX(end) - 50, this.rY(end) + 50);
+                this.ctx.lineTo(this.rX(start) + 50, this.rY(start) - 50);
+            }
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.strokeStyle = strokeDefault;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    drawDimension(start, end) {
+        const val = getDistance(start, end);
         const mid = getMidPoint(start, end);
         this.ctx.save();
         this.ctx.scale(1, -1);
@@ -62,6 +182,40 @@ class Shape {
         this.ctx.textAlign = "center";
         this.ctx.fillStyle = "red";
         this.ctx.fillText(Math.round(val * 10) / 10, 0, 0);
+        this.ctx.restore();
+    }
+    drawAngle(start, end) {
+        // Distance to arc
+        const d = 40;
+        const angle = getAngle(start, end);
+
+        // console.log(dAngle);
+        this.ctx.strokeStyle = strokeLight;
+        this.ctx.setLineDash([3, 3]);
+        let p = new Path2D();
+
+        if (start.y < end.y) {
+            p.moveTo(this.rX(start), this.rY(start));
+            p.lineTo(this.rX(start) + 100, this.rY(start));
+            p.moveTo(this.rX(start), this.rY(start));
+            p.arc(this.rX(start), this.rY(start), d - 10, 0, angle);
+        } else {
+            p.moveTo(this.rX(end), this.rY(end));
+            p.lineTo(this.rX(end) + 100, this.rY(end));
+            p.moveTo(this.rX(end), this.rY(end));
+            p.arc(this.rX(end), this.rY(end), d - 10, 0, angle);
+        }
+        this.ctx.stroke(p);
+        this.ctx.setLineDash([]);
+        this.ctx.strokeStyle = strokeDefault;
+
+        this.ctx.save();
+        this.ctx.scale(1, -1);
+        this.ctx.translate(this.rX(start) + (d + 5) * Math.cos(angle / 2),
+            -this.rY(start) - d * Math.sin(angle / 2));
+        this.ctx.textAlign = "center";
+        this.ctx.fillStyle = "red";
+        this.ctx.fillText(Math.round(angle / Math.PI * 180 * 10) / 10, 0, 0);
         this.ctx.restore();
     }
 }
@@ -76,48 +230,25 @@ export class Line extends Shape {
         this.ctx.strokeStyle = strokeDefault;
         const start = this.handles[0];
         const end = this.handles[1];
+        // Draw non cutting things
+        if (this.selection > -2) {
+            this.drawDimension(start, end);
+            this.drawVertical(start, end);
+            this.draw45(start, end);
+            this.draw135(start, end);
+            if (start.y < end.y) {
+                if (!this.drawHorizontal(start, end))
+                    this.drawAngle(start, end);
+            } else
+                if (!this.drawHorizontal(start, end))
+                    this.drawAngle(end, start);
+        }
+        // Draw actual line
         let p = new Path2D();
         p.moveTo(this.rX(start), this.rY(start));
         p.lineTo(this.rX(end), this.rY(end));
         this.ctx.stroke(p);
-        // Draw dotted line horizontal or vertical
-        if (this.selection > -2) {
-            if (Math.abs(Math.abs(start.x) - Math.abs(end.x)) < 2) {
-                this.ctx.strokeStyle = strokeLight;
-                this.ctx.setLineDash([3, 3]);
-                this.ctx.beginPath();
-                if (start.y < end.y) {
-                    this.ctx.moveTo(this.rX(start), this.rY(start) - 50);
-                    this.ctx.lineTo(this.rX(end), this.rY(end) + 50);
-                } else {
-                    this.ctx.moveTo(this.rX(end), this.rY(end) - 50);
-                    this.ctx.lineTo(this.rX(start), this.rY(start) + 50);
-                }
-                this.ctx.stroke();
-                this.ctx.setLineDash([]);
-                this.ctx.strokeStyle = strokeDefault;
-            } else {
-                if (Math.abs(Math.abs(start.y) - Math.abs(end.y)) < 2) {
-                    this.ctx.strokeStyle = strokeLight;
-                    this.ctx.setLineDash([3, 3]);
-                    this.ctx.beginPath();
-                    if (start.x < end.x) {
-                        this.ctx.moveTo(this.rX(start) - 50, this.rY(start));
-                        this.ctx.lineTo(this.rX(end) + 50, this.rY(end));
-                    } else {
-                        this.ctx.moveTo(this.rX(end) - 50, this.rY(end));
-                        this.ctx.lineTo(this.rX(start) + 50, this.rY(start));
-                    }
-                    this.ctx.stroke();
-                    this.ctx.setLineDash([]);
-                    this.ctx.strokeStyle = strokeDefault;
-                }
-            }
-        }
-        if (this.selection > -2) {
-            const dist = getDistance(start, end);
-            this.drawDimension(start, end, dist);
-        }
+        // Draw handles
         switch (this.selection) {
             case -1:
                 this.selectNoFill(this.rXY(start));
@@ -157,27 +288,40 @@ export class Line extends Shape {
             this.move(delta);
         else {
             this.handles[this.selection] = add(this.handles[this.selection], delta);
+            let seg = { start: this.handles[0], end: this.handles[1] };
             // Snap
-            if (Math.abs(this.handles[0].x - this.handles[1].x) < 3) {
-                if (this.selection === 0)
-                    this.handles[0].x = this.handles[1].x;
-                else
-                    this.handles[1].x = this.handles[0].x;
-            }
-            if (Math.abs(this.handles[0].y - this.handles[1].y) < 3) {
-                if (this.selection === 0)
-                    this.handles[0].y = this.handles[1].y;
-                else
-                    this.handles[1].y = this.handles[0].y;
-            }
-
+            seg = this.snapHorizontal(seg, this.selection === 0);
+            seg = this.snapVertical(seg, this.selection === 0);
+            seg = this.snap45(seg, this.selection === 0);
+            seg = this.snap135(seg, this.selection === 0);
+            this.handles[0] = seg.start;
+            this.handles[1] = seg.end;
         }
     }
     snap(spacing) {
         if (this.selection == -1)
             this.offset = snapToGrid(this.offset, spacing);
-        else
-            this.handles[this.selection] = snapToGrid(this.handles[this.selection], spacing);
+        else {
+            if (this.selection === 0) {
+                this.handles[0] = snapToGrid(this.handles[0], spacing);
+                if (this.handles[0].x === this.handles[1].x &&
+                    this.handles[0].y === this.handles[1].y) {
+                    this.handles[0].x += spacing;
+                    this.handles[0].y += spacing;
+                }
+            } else {
+                if (this.selection === 1) {
+                    this.handles[1] = snapToGrid(this.handles[1], spacing);
+                    if (this.handles[0].x === this.handles[1].x &&
+                        this.handles[0].y === this.handles[1].y) {
+                        this.handles[1].x += spacing;
+                        this.handles[1].y += spacing;
+                    }
+                }
+            }
+
+        }
+
     }
     valid() {
         return (this.handles[0].x !== this.handles[1].x) || (this.handles[0].y !== this.handles[1].y);
@@ -205,8 +349,8 @@ export class Arc extends Shape {
         const start = this.handles[0];
         const end = this.handles[1];
         const center = this.handles[2];
-        const startAngle = getAngle(start, center);
-        const endAngle = getAngle(end, center);
+        const startAngle = getAngle(center, center, start);
+        const endAngle = getAngle(center, center, end);
         p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
         this.ctx.stroke(p);
         // Snap line
@@ -345,11 +489,37 @@ export class Bezier extends Shape {
     }
     draw() {
         this.ctx.strokeStyle = strokeDefault;
-        let p = new Path2D();
         const start = this.handles[0];
         const ctrl1 = this.handles[1];
         const ctrl2 = this.handles[2];
         const end = this.handles[3];
+        // Draw non cutting things
+        if (this.selection > -2) {
+            this.drawDimension(start, ctrl1);
+            this.drawDimension(ctrl2, end);
+            this.drawVertical(start, ctrl1);
+            this.drawVertical(ctrl2, end);
+            this.drawVertical(start, end);
+            this.drawHorizontal(start, end)
+            this.draw45(start, ctrl1);
+            this.draw135(start, ctrl1);
+            this.draw45(ctrl2, end);
+            this.draw135(ctrl2, end);
+            if (start.y < ctrl1.y) {
+                if (!this.drawHorizontal(start, ctrl1))
+                    this.drawAngle(start, ctrl1);
+            } else
+                if (!this.drawHorizontal(start, ctrl1))
+                    this.drawAngle(ctrl1, start);
+            if (ctrl2.y < end.y) {
+                if (!this.drawHorizontal(ctrl2, end))
+                    this.drawAngle(ctrl2, end);
+            } else
+                if (!this.drawHorizontal(ctrl2, end))
+                    this.drawAngle(end, ctrl2);
+        }
+        let p = new Path2D();
+
         p.moveTo(this.rX(start), this.rY(start));
         p.bezierCurveTo(this.rX(ctrl1), this.rY(ctrl1),
             this.rX(ctrl2), this.rY(ctrl2),
@@ -441,14 +611,33 @@ export class Bezier extends Shape {
         if (this.selection === -1)
             this.move(delta);
         else {
+            let seg;
             this.handles[this.selection] = add(this.handles[this.selection], delta);
             if (this.init)
                 if (this.selection === 3) {
                     this.handles[1].x = this.handles[3].x / 3;
-                    this.handles[1].y = this.handles[3].y / 3 + 30;
+                    this.handles[1].y = this.handles[3].y / 3 + 60;
                     this.handles[2].x = 2 * this.handles[3].x / 3;
-                    this.handles[2].y = 2 * this.handles[3].y / 3 - 30;
+                    this.handles[2].y = 2 * this.handles[3].y / 3 - 60;
                 }
+            // if (this.selection === 0 || this.selection === 1) {
+            //     seg = { start: this.handles[0], end: this.handles[1] };
+            //     seg = this.snapHorizontal(seg, this.selection == 0);
+            //     seg = this.snapVertical(seg, this.selection == 0);
+            //     seg = this.snap45(seg, this.selection == 0);
+            //     seg = this.snap135(seg, this.selection == 0);
+            //     this.handles[0] = seg.start;
+            //     this.handles[1] = seg.end;
+            // }
+            // if (this.selection === 2 || this.selection === 3) {
+            //     seg = { start: zero(), end: sub(this.handles[3], this.handles[2]) };
+            //     // seg = this.snapHorizontal(seg, this.selection == 2);
+            //     // seg = this.snapVertical(seg, this.selection == 2);
+            //     seg = this.snap45(seg, this.selection == 2);
+            //     // seg = this.snap135(seg, this.selection == 3);
+            //     this.handles[2] = add(seg.start, this.handles[2]);
+            //     this.handles[3] = add(seg.end, this.handles[2]);
+            // }
         }
     }
     snap(spacing) {
