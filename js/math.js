@@ -200,11 +200,18 @@ export function moveCenterEquidistant(start, end, originalCenter, delta) {
 
     return { x: centerX, y: centerY };
 }
-
 export function getDistance(point1, point2) {
     const dx = point1.x - point2.x;
     const dy = point1.y - point2.y;
     return Math.sqrt(dx * dx + dy * dy);
+}
+export function getDistanceX(point1, point2) {
+    const dx = Math.abs(point1.x - point2.x);
+    return dx;
+}
+export function getDistanceY(point1, point2) {
+    const dy = Math.abs(point1.y - point2.y);
+    return dy;
 }
 
 export function getAngle(pt1, pt2) {

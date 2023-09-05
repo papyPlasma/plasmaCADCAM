@@ -2,7 +2,7 @@ import {
     isPointOnPoint, isPointOnSegment, isPointOnArc, isPointOnBezier, isPointOnEllipse,
     findArcCenter, moveCenterEquidistant, findArcNewCenter, getDistance, getAngle,
     snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment, getTextPosAngle,
-    subAngle, one
+    subAngle, one, getDistanceX, getDistanceY
 } from './math.js';
 
 export const strokeSelected = getComputedStyle(document.documentElement).getPropertyValue('--canvas-stroke-selection').trim();
@@ -50,56 +50,71 @@ class Shape {
         this.ctx.fill();
         this.ctx.stroke();
     }
-    snapHorizontal(seg, start) {
-
-        if (Math.abs(seg.start.y - seg.end.y) < 2) {
-            if (start)
-                seg.start.y = seg.end.y;
-            else
+    snapY(start, end, snapVal) {
+        return Math.abs(start.y - end.y) < snapVal;
+    }
+    snapX(start, end, snapVal) {
+        return Math.abs(start.x - end.x) < snapVal;
+    }
+    snapHorizontal(seg, moveEnd, snapVal) {
+        if (this.snapY(seg.start, seg.end, snapVal)) {
+            if (moveEnd)
                 seg.end.y = seg.start.y;
-        }
-        return seg;
-    }
-    snapVertical(seg, start) {
-        if (Math.abs(seg.start.x - seg.end.x) < 2) {
-            if (start)
-                seg.start.x = seg.end.x;
             else
+                seg.start.y = seg.end.y;
+        }
+    }
+    snapVertical(seg, moveEnd, snapVal) {
+        if (this.snapX(seg.start, seg.end, snapVal)) {
+            if (moveEnd)
                 seg.end.x = seg.start.x;
-        }
-        return seg;
-    }
-    snap45(seg, start) {
-        if ((seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) > 0.97 &&
-            (seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) < 1 / 0.97) {
-            if (start)
-                seg.start.y = seg.start.x;
             else
-                seg.end.y = seg.end.x;
+                seg.start.x = seg.end.x;
         }
-        return seg;
     }
-    snap135(seg, start) {
-        if ((seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) < -0.97 &&
-            (seg.start.y - seg.end.y) / (seg.start.x - seg.end.x) > -1 / 0.97) {
-            if (start)
-                seg.start.y = -seg.start.x;
-            else
-                seg.end.y = -seg.end.x;
+    snap45(seg, moveEnd) {
+        let dy = seg.end.y - seg.start.y;
+        let dx = seg.end.x - seg.start.x;
+        const m = dy / dx;
+        if (m > 0.95 && m < (1 / 0.95)) {
+            dy = dx;
+            if (moveEnd) {
+                seg.end.x = seg.start.x + dx;
+                seg.end.y = seg.start.y + dy;
+            }
+            else {
+                seg.start.x = seg.end.x - dx;
+                seg.start.y = seg.end.y - dy;
+            }
         }
-        return seg;
     }
-    drawHorizontal(start, end) {
-        if (Math.abs(Math.abs(start.y - end.y)) < 2) {
+    snap135(seg, moveEnd) {
+        let dy = seg.end.y - seg.start.y;
+        let dx = seg.end.x - seg.start.x;
+        const m = dy / dx;
+        if (m < -0.95 && m > -(1 / 0.95)) {
+            dy = -dx;
+            if (moveEnd) {
+                seg.end.x = seg.start.x + dx;
+                seg.end.y = seg.start.y + dy;
+            }
+            else {
+                seg.start.x = seg.end.x - dx;
+                seg.start.y = seg.end.y - dy;
+            }
+        }
+    }
+    drawHorizontal(start, end, snapVal, overDraw) {
+        if (this.snapY(start, end, snapVal)) {
             this.ctx.strokeStyle = strokeLight;
             this.ctx.setLineDash([3, 3]);
             this.ctx.beginPath();
             if (start.x < end.x) {
-                this.ctx.moveTo(this.rX(start) - 50, this.rY(start));
-                this.ctx.lineTo(this.rX(end) + 50, this.rY(end));
+                this.ctx.moveTo(this.rX(start) - overDraw, this.rY(start));
+                this.ctx.lineTo(this.rX(end) + overDraw, this.rY(end));
             } else {
-                this.ctx.moveTo(this.rX(end) - 50, this.rY(end));
-                this.ctx.lineTo(this.rX(start) + 50, this.rY(start));
+                this.ctx.moveTo(this.rX(end) - overDraw, this.rY(end));
+                this.ctx.lineTo(this.rX(start) + overDraw, this.rY(start));
             }
             this.ctx.stroke();
             this.ctx.setLineDash([]);
@@ -109,17 +124,17 @@ class Shape {
             return false;
         }
     }
-    drawVertical(start, end) {
-        if (Math.abs(Math.abs(start.x - end.x)) < 2) {
+    drawVertical(start, end, snapVal, overDraw) {
+        if (this.snapX(start, end, snapVal)) {
             this.ctx.strokeStyle = strokeLight;
             this.ctx.setLineDash([3, 3]);
             this.ctx.beginPath();
             if (start.y < end.y) {
-                this.ctx.moveTo(this.rX(start), this.rY(start) - 50);
-                this.ctx.lineTo(this.rX(end), this.rY(end) + 50);
+                this.ctx.moveTo(this.rX(start), this.rY(start) - overDraw);
+                this.ctx.lineTo(this.rX(end), this.rY(end) + overDraw);
             } else {
-                this.ctx.moveTo(this.rX(end), this.rY(end) - 50);
-                this.ctx.lineTo(this.rX(start), this.rY(start) + 50);
+                this.ctx.moveTo(this.rX(end), this.rY(end) - overDraw);
+                this.ctx.lineTo(this.rX(start), this.rY(start) + overDraw);
             }
             this.ctx.stroke();
             this.ctx.setLineDash([]);
@@ -184,6 +199,38 @@ class Shape {
         this.ctx.fillText(Math.round(val * 10) / 10, 0, 0);
         this.ctx.restore();
     }
+    drawDimensionX(start, end, snapVal) {
+        const val = getDistanceX(start, end);
+        if (val > 0) {
+            const midX = start.x + val / 2;
+            const midY = (start.y + end.y) / 2;
+            this.ctx.save();
+            this.ctx.scale(1, -1);
+            this.ctx.translate(this.offset.x + midX, -(this.offset.y + midY) + 10);
+            this.ctx.rotate(0);
+            this.ctx.textAlign = "center";
+            this.ctx.fillStyle = "red";
+            this.ctx.fillText(Math.round(val * 10) / 10, 0, 0);
+            this.ctx.restore();
+        }
+
+    }
+    drawDimensionY(start, end, snapVal) {
+        const val = getDistanceY(start, end);
+        if (val > 0) {
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+            this.ctx.save();
+            this.ctx.scale(1, -1);
+            this.ctx.translate(this.offset.x + midX, -(this.offset.y + midY) - 10);
+            this.ctx.rotate(Math.PI / 2);
+            this.ctx.textAlign = "center";
+            this.ctx.fillStyle = "red";
+            this.ctx.fillText(Math.round(val * 10) / 10, 0, 0);
+            this.ctx.restore();
+        }
+
+    }
     drawAngle(start, end) {
         // Distance to arc
         const d = 40;
@@ -227,20 +274,21 @@ export class Line extends Shape {
         this.selection = 1; // end selected
     }
     draw() {
+        const snapVal = 2;
         this.ctx.strokeStyle = strokeDefault;
         const start = this.handles[0];
         const end = this.handles[1];
         // Draw non cutting things
         if (this.selection > -2) {
             this.drawDimension(start, end);
-            this.drawVertical(start, end);
+            this.drawVertical(start, end, snapVal, 50);
             this.draw45(start, end);
             this.draw135(start, end);
             if (start.y < end.y) {
-                if (!this.drawHorizontal(start, end))
+                if (!this.drawHorizontal(start, end, snapVal, 50))
                     this.drawAngle(start, end);
             } else
-                if (!this.drawHorizontal(start, end))
+                if (!this.drawHorizontal(start, end, snapVal, 50))
                     this.drawAngle(end, start);
         }
         // Draw actual line
@@ -287,13 +335,24 @@ export class Line extends Shape {
         if (this.selection === -1)
             this.move(delta);
         else {
+            const snapVal = 2;
             this.handles[this.selection] = add(this.handles[this.selection], delta);
-            let seg = { start: this.handles[0], end: this.handles[1] };
-            // Snap
-            seg = this.snapHorizontal(seg, this.selection === 0);
-            seg = this.snapVertical(seg, this.selection === 0);
-            seg = this.snap45(seg, this.selection === 0);
-            seg = this.snap135(seg, this.selection === 0);
+            let seg = {
+                start: this.handles[0],
+                end: this.handles[1]
+            };
+            if (this.selection === 1) {
+                this.snapHorizontal(seg, true, snapVal);
+                this.snapVertical(seg, true, snapVal);
+                this.snap135(seg, true);
+                this.snap45(seg, true);
+            }
+            else {
+                this.snapHorizontal(seg, false, snapVal);
+                this.snapVertical(seg, false, snapVal);
+                this.snap135(seg, false);
+                this.snap45(seg, false);
+            }
             this.handles[0] = seg.start;
             this.handles[1] = seg.end;
         }
@@ -349,8 +408,8 @@ export class Arc extends Shape {
         const start = this.handles[0];
         const end = this.handles[1];
         const center = this.handles[2];
-        const startAngle = getAngle(center, center, start);
-        const endAngle = getAngle(center, center, end);
+        const startAngle = getAngle(center, start);
+        const endAngle = getAngle(center, end);
         p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
         this.ctx.stroke(p);
         // Snap line
@@ -488,6 +547,7 @@ export class Bezier extends Shape {
         this.selection = 3; // end selected
     }
     draw() {
+        const snapVal = 2;
         this.ctx.strokeStyle = strokeDefault;
         const start = this.handles[0];
         const ctrl1 = this.handles[1];
@@ -495,27 +555,29 @@ export class Bezier extends Shape {
         const end = this.handles[3];
         // Draw non cutting things
         if (this.selection > -2) {
+            this.drawDimensionX(start, end, 1000);
+            this.drawDimensionY(start, end, 1000);
             this.drawDimension(start, ctrl1);
             this.drawDimension(ctrl2, end);
-            this.drawVertical(start, ctrl1);
-            this.drawVertical(ctrl2, end);
-            this.drawVertical(start, end);
-            this.drawHorizontal(start, end)
+            this.drawVertical(start, ctrl1, snapVal, 50);
+            this.drawVertical(ctrl2, end, snapVal, 50);
+            this.drawVertical(start, end, snapVal, 50);
+            this.drawHorizontal(start, end, snapVal, 50)
             this.draw45(start, ctrl1);
             this.draw135(start, ctrl1);
             this.draw45(ctrl2, end);
             this.draw135(ctrl2, end);
             if (start.y < ctrl1.y) {
-                if (!this.drawHorizontal(start, ctrl1))
+                if (!this.drawHorizontal(start, ctrl1, snapVal, 50))
                     this.drawAngle(start, ctrl1);
             } else
-                if (!this.drawHorizontal(start, ctrl1))
+                if (!this.drawHorizontal(start, ctrl1, snapVal, 50))
                     this.drawAngle(ctrl1, start);
             if (ctrl2.y < end.y) {
-                if (!this.drawHorizontal(ctrl2, end))
+                if (!this.drawHorizontal(ctrl2, end, snapVal, 50))
                     this.drawAngle(ctrl2, end);
             } else
-                if (!this.drawHorizontal(ctrl2, end))
+                if (!this.drawHorizontal(ctrl2, end, snapVal, 50))
                     this.drawAngle(end, ctrl2);
         }
         let p = new Path2D();
@@ -611,6 +673,7 @@ export class Bezier extends Shape {
         if (this.selection === -1)
             this.move(delta);
         else {
+            const snapVal = 2;
             let seg;
             this.handles[this.selection] = add(this.handles[this.selection], delta);
             if (this.init)
@@ -620,24 +683,43 @@ export class Bezier extends Shape {
                     this.handles[2].x = 2 * this.handles[3].x / 3;
                     this.handles[2].y = 2 * this.handles[3].y / 3 - 60;
                 }
-            // if (this.selection === 0 || this.selection === 1) {
-            //     seg = { start: this.handles[0], end: this.handles[1] };
-            //     seg = this.snapHorizontal(seg, this.selection == 0);
-            //     seg = this.snapVertical(seg, this.selection == 0);
-            //     seg = this.snap45(seg, this.selection == 0);
-            //     seg = this.snap135(seg, this.selection == 0);
-            //     this.handles[0] = seg.start;
-            //     this.handles[1] = seg.end;
-            // }
-            // if (this.selection === 2 || this.selection === 3) {
-            //     seg = { start: zero(), end: sub(this.handles[3], this.handles[2]) };
-            //     // seg = this.snapHorizontal(seg, this.selection == 2);
-            //     // seg = this.snapVertical(seg, this.selection == 2);
-            //     seg = this.snap45(seg, this.selection == 2);
-            //     // seg = this.snap135(seg, this.selection == 3);
-            //     this.handles[2] = add(seg.start, this.handles[2]);
-            //     this.handles[3] = add(seg.end, this.handles[2]);
-            // }
+            if (this.selection === 0 || this.selection === 1) {
+                seg = {
+                    start: this.handles[0], // start
+                    end: this.handles[1] // ctrl1
+                };
+                this.snapHorizontal(seg, this.selection === 1, snapVal);
+                this.snapVertical(seg, this.selection === 1, snapVal);
+                this.snap135(seg, this.selection === 1);
+                this.snap45(seg, this.selection === 1);
+
+                this.handles[0] = seg.start;
+                this.handles[1] = seg.end;
+            }
+            if (this.selection === 2 || this.selection === 3) {
+                seg = {
+                    start: this.handles[2], // ctrl2
+                    end: this.handles[3] // end
+                };
+                this.snapHorizontal(seg, this.selection === 3, snapVal);
+                this.snapVertical(seg, this.selection === 3, snapVal);
+                this.snap135(seg, this.selection === 3);
+                this.snap45(seg, this.selection === 3);
+
+                this.handles[2] = seg.start;
+                this.handles[3] = seg.end;
+            }
+            if (this.selection === 0 || this.selection === 3) {
+                seg = {
+                    start: this.handles[0], // start
+                    end: this.handles[3] // end
+                };
+                this.snapHorizontal(seg, this.selection === 3, snapVal);
+                this.snapVertical(seg, this.selection === 3, snapVal);
+
+                this.handles[0] = seg.start;
+                this.handles[3] = seg.end;
+            }
         }
     }
     snap(spacing) {
