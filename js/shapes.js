@@ -2,7 +2,7 @@ import {
     isPointOnPoint, isPointOnSegment, isPointOnArc, isPointOnBezier, isPointOnEllipse,
     findArcCenter, moveCenterEquidistant, findArcNewCenter, getDistance, getAngle,
     snapToGrid, add, sub, zero, getMidPoint, getPerpendicularSegment, getTextPosAngle,
-    subAngle, one, getDistanceX, getDistanceY
+    subAngle, one, getDistanceX, getDistanceY, addAngle, isPointOnQuadraticBezier, constrainControlPoint
 } from './math.js';
 
 export const strokeSelected = getComputedStyle(document.documentElement).getPropertyValue('--canvas-stroke-selection').trim();
@@ -265,6 +265,39 @@ class Shape {
         this.ctx.fillText(Math.round(angle / Math.PI * 180 * 10) / 10, 0, 0);
         this.ctx.restore();
     }
+    drawCenterAngle(center, start, end) {
+        // Distance to arc
+        const d = 40;
+        const angleStart = getAngle(center, start);
+        const angleEnd = getAngle(center, end);
+        const angle = subAngle(angleEnd, angleStart);
+        const middleAngle = addAngle(angleStart, angle / 2);
+
+        // console.log(dAngle);
+        this.ctx.strokeStyle = strokeLight;
+        this.ctx.setLineDash([3, 3]);
+        let p = new Path2D();
+
+        if (start.y < end.y) {
+            p.moveTo(this.rX(center), this.rY(center));
+            p.arc(this.rX(center), this.rY(center), d - 10, angleStart, angleEnd);
+        } else {
+            p.moveTo(this.rX(center), this.rY(center));
+            p.arc(this.rX(center), this.rY(center), d - 10, angleStart, angleEnd);
+        }
+        this.ctx.stroke(p);
+        this.ctx.setLineDash([]);
+        this.ctx.strokeStyle = strokeDefault;
+
+        this.ctx.save();
+        this.ctx.scale(1, -1);
+        this.ctx.translate(this.rX(center) + (d + 5) * Math.cos(middleAngle),
+            -this.rY(center) - d * Math.sin(middleAngle));
+        this.ctx.textAlign = "center";
+        this.ctx.fillStyle = "red";
+        this.ctx.fillText(Math.round(angle / Math.PI * 180 * 10) / 10, 0, 0);
+        this.ctx.restore();
+    }
 }
 
 export class Line extends Shape {
@@ -393,72 +426,199 @@ export class Line extends Shape {
     }
 }
 
-export class Arc extends Shape {
-    constructor(ctx, start, end) {
+// export class Arc extends Shape {
+//     constructor(ctx, start, end) {
+//         super(ctx, start, "arc");
+//         this.init = true;
+//         this.radius = 50;
+//         this.handles = [zero(), { x: end.x - start.x, y: end.y - start.y },
+//         findArcCenter(zero(), { x: end.x - start.x, y: end.y - start.y }, this.radius)];
+//         this.selection = 1; // end selected
+//     }
+//     draw() {
+//         this.ctx.strokeStyle = strokeDefault;
+//         let p = new Path2D();
+//         const start = this.handles[0];
+//         const end = this.handles[1];
+//         const center = this.handles[2];
+//         const startAngle = getAngle(center, start);
+//         const endAngle = getAngle(center, end);
+//         p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
+//         this.ctx.stroke(p);
+//         // Snap line
+//         if (this.selection > -2) {
+//             this.drawCenterAngle(center, start, end);
+//             const midPoint = getMidPoint(start, end);
+//             if (Math.abs(midPoint.x - center.x) < 5 && Math.abs(midPoint.y - center.y) < 5) {
+//                 const seg = getPerpendicularSegment(start, end);
+//                 this.ctx.strokeStyle = strokeLight;
+//                 this.ctx.setLineDash([3, 3]);
+//                 this.ctx.beginPath();
+//                 this.ctx.moveTo(this.rX(seg.p1), this.rY(seg.p1));
+//                 this.ctx.lineTo(this.rX(seg.p2), this.rY(seg.p2));
+//                 this.ctx.stroke();
+//                 this.ctx.setLineDash([]);
+//                 this.ctx.strokeStyle = strokeDefault;
+//             }
+//         }
+//         if (this.selection > -2) {
+//             this.ctx.strokeStyle = strokeLight;
+//             this.ctx.setLineDash([3, 3]);
+//             this.ctx.beginPath();
+//             this.ctx.moveTo(this.rX(start), this.rY(start));
+//             this.ctx.lineTo(this.rX(center), this.rY(center));
+//             this.ctx.moveTo(this.rX(end), this.rY(end));
+//             this.ctx.lineTo(this.rX(center), this.rY(center));
+//             this.ctx.stroke();
+//             this.ctx.setLineDash([]);
+//             this.ctx.strokeStyle = strokeDefault;
+//         }
+//         switch (this.selection) {
+//             case -1:
+//                 this.selectNoFill(this.rXY(start));
+//                 this.selectNoFill(this.rXY(end));
+//                 this.selectNoFill(this.rXY(center));
+//                 break;
+//             case 0:
+//                 this.selectFill(this.rXY(start));
+//                 this.selectNoFill(this.rXY(end));
+//                 this.selectNoFill(this.rXY(center));
+//                 break;
+//             case 1:
+//                 this.selectNoFill(this.rXY(start));
+//                 this.selectFill(this.rXY(end));
+//                 this.selectNoFill(this.rXY(center));
+//                 break;
+//             case 2:
+//                 this.selectNoFill(this.rXY(start));
+//                 this.selectNoFill(this.rXY(end));
+//                 this.selectFill(this.rXY(center));
+//                 break;
+//             default:
+//                 break;
+//         }
+//     }
+//     setSelection(pos) {
+//         const start = this.handles[0];
+//         const end = this.handles[1];
+//         const center = this.handles[2];
+//         const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+//         const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+//         if (isPointOnPoint(pos, this.rXY(start), 5))
+//             this.selection = 0;
+//         else if (isPointOnPoint(pos, this.rXY(end), 5))
+//             this.selection = 1;
+//         else if (isPointOnPoint(pos, this.rXY(center), 5)) {
+//             if (this.selection > -2)
+//                 this.selection = 2;
+//             else
+//                 this.selection = -2;
+//         }
+//         else if (isPointOnArc(pos, this.rXY(center), this.radius, startAngle, endAngle, 5))
+//             this.selection = -1;
+//         else
+//             this.selection = -2;
+//         if (this.selection > -2)
+//             return true;
+//         else
+//             return false;
+//     }
+//     modify(cursor, delta) {
+//         if (this.selection === -1)
+//             this.move(delta);
+//         else {
+//             if (this.selection == 0) {
+//                 const tmp = this.handles[2];
+//                 this.handles[0] = add(this.handles[0], delta);
+//                 this.radius = getDistance(this.handles[0], this.handles[1]);
+//                 this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
+//             } else if (this.selection == 1) {
+//                 const tmp = this.handles[2];
+//                 this.handles[1] = add(this.handles[1], delta);
+//                 this.radius = getDistance(this.handles[0], this.handles[1]);
+//                 this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
+//             } else {
+//                 this.handles[2] = moveCenterEquidistant(this.handles[0], this.handles[1], this.handles[2], delta);
+//                 // Snap for half circle
+//                 const midPoint = getMidPoint(this.handles[0], this.handles[1]);
+//                 if (Math.abs(midPoint.x - this.handles[2].x) < 5 && Math.abs(midPoint.y - this.handles[2].y) < 5) {
+//                     this.handles[2] = midPoint;
+//                 }
+//                 this.radius = getDistance(this.handles[0], this.handles[2]);
+//             }
+//         }
+//     }
+//     snap(spacing) {
+//         if (this.selection == -1)
+//             this.offset = snapToGrid(this.offset, spacing);
+//         else if (this.selection == 0 || this.selection == 1) {
+//             this.handles[this.selection] = snapToGrid(this.handles[this.selection], spacing);
+//             this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
+//             // if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
+//             //     this.radius += spacing; // Hack
+//             //     this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
+//             // }
+//         }
+//         this.init = false;
+//     }
+//     valid() {
+//         return (this.handles[0].x !== this.handles[1].x) || (this.handles[0].y !== this.handles[1].y);
+//     }
+//     getBoundingBox() {
+//         return {
+//             bl: this.offset,
+//             tr: add(this.offset, this.handles[1]),
+//         };
+//     }
+// }
+export class QuadBezier extends Shape {
+    constructor(ctx, start, ctrl, end) {
         super(ctx, start, "arc");
         this.init = true;
-        this.radius = 50;
-        this.handles = [zero(), { x: end.x - start.x, y: end.y - start.y },
-        findArcCenter(zero(), { x: end.x - start.x, y: end.y - start.y }, this.radius)];
-        this.selection = 1; // end selected
+        const ctrlmid = constrainControlPoint(start, ctrl, end);
+        this.handles = [zero(), sub(ctrlmid, start), sub(end, start)];
+        this.selection = 2; // end selected
+        console.log(this.handles[0], this.handles[1], this.handles[2]);
     }
     draw() {
+        const snapVal = 2;
+        const start = this.handles[0];
+        const ctrl = this.handles[1];
+        const end = this.handles[2];
+
         this.ctx.strokeStyle = strokeDefault;
         let p = new Path2D();
-        const start = this.handles[0];
-        const end = this.handles[1];
-        const center = this.handles[2];
-        const startAngle = getAngle(center, start);
-        const endAngle = getAngle(center, end);
-        p.arc(this.rX(center), this.rY(center), this.radius, startAngle, endAngle);
+        p.moveTo(this.rX(start), this.rY(start));
+        p.quadraticCurveTo(this.rX(ctrl), this.rY(ctrl), this.rX(end), this.rY(end));
         this.ctx.stroke(p);
-        // Snap line
+        // Draw non cutting things
         if (this.selection > -2) {
-            const midPoint = getMidPoint(start, end);
-            if (Math.abs(midPoint.x - center.x) < 5 && Math.abs(midPoint.y - center.y) < 5) {
-                const seg = getPerpendicularSegment(start, end);
-                this.ctx.strokeStyle = strokeLight;
-                this.ctx.setLineDash([3, 3]);
-                this.ctx.beginPath();
-                this.ctx.moveTo(this.rX(seg.p1), this.rY(seg.p1));
-                this.ctx.lineTo(this.rX(seg.p2), this.rY(seg.p2));
-                this.ctx.stroke();
-                this.ctx.setLineDash([]);
-                this.ctx.strokeStyle = strokeDefault;
-            }
-        }
-        if (this.selection > -2) {
-            this.ctx.strokeStyle = strokeLight;
-            this.ctx.setLineDash([3, 3]);
-            this.ctx.beginPath();
-            this.ctx.moveTo(this.rX(start), this.rY(start));
-            this.ctx.lineTo(this.rX(center), this.rY(center));
-            this.ctx.moveTo(this.rX(end), this.rY(end));
-            this.ctx.lineTo(this.rX(center), this.rY(center));
-            this.ctx.stroke();
-            this.ctx.setLineDash([]);
-            this.ctx.strokeStyle = strokeDefault;
+            this.drawDimension(start, end);
+            this.drawVertical(start, end, snapVal, 50);
+            this.drawHorizontal(start, end, snapVal, 50)
+            this.draw45(start, end);
+            this.draw135(start, end);
         }
         switch (this.selection) {
             case -1:
                 this.selectNoFill(this.rXY(start));
+                this.selectNoFill(this.rXY(ctrl));
                 this.selectNoFill(this.rXY(end));
-                this.selectNoFill(this.rXY(center));
                 break;
             case 0:
                 this.selectFill(this.rXY(start));
+                this.selectNoFill(this.rXY(ctrl));
                 this.selectNoFill(this.rXY(end));
-                this.selectNoFill(this.rXY(center));
                 break;
             case 1:
                 this.selectNoFill(this.rXY(start));
-                this.selectFill(this.rXY(end));
-                this.selectNoFill(this.rXY(center));
+                this.selectFill(this.rXY(ctrl));
+                this.selectNoFill(this.rXY(end));
                 break;
             case 2:
                 this.selectNoFill(this.rXY(start));
-                this.selectNoFill(this.rXY(end));
-                this.selectFill(this.rXY(center));
+                this.selectNoFill(this.rXY(ctrl));
+                this.selectFill(this.rXY(end));
                 break;
             default:
                 break;
@@ -466,24 +626,22 @@ export class Arc extends Shape {
     }
     setSelection(pos) {
         const start = this.handles[0];
-        const end = this.handles[1];
-        const center = this.handles[2];
-        const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
-        const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+        const ctrl = this.handles[1];
+        const end = this.handles[2];
         if (isPointOnPoint(pos, this.rXY(start), 5))
             this.selection = 0;
-        else if (isPointOnPoint(pos, this.rXY(end), 5))
-            this.selection = 1;
-        else if (isPointOnPoint(pos, this.rXY(center), 5)) {
+        else if (isPointOnPoint(pos, this.rXY(ctrl), 5)) {
             if (this.selection > -2)
-                this.selection = 2;
+                this.selection = 1;
             else
                 this.selection = -2;
-        }
-        else if (isPointOnArc(pos, this.rXY(center), this.radius, startAngle, endAngle, 5))
+        } else if (isPointOnPoint(pos, this.rXY(end), 5))
+            this.selection = 2;
+        else if (isPointOnQuadraticBezier(pos, this.rXY(start), this.rXY(ctrl), this.rXY(end), 10))
             this.selection = -1;
         else
             this.selection = -2;
+
         if (this.selection > -2)
             return true;
         else
@@ -493,37 +651,35 @@ export class Arc extends Shape {
         if (this.selection === -1)
             this.move(delta);
         else {
+            const snapVal = 2;
+            let seg;
             if (this.selection == 0) {
-                const tmp = this.handles[2];
                 this.handles[0] = add(this.handles[0], delta);
-                this.radius = getDistance(this.handles[0], this.handles[1]);
-                this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
+                // Snap
+                seg = { start: this.handles[0], end: this.handles[2] };
+                this.snapHorizontal(seg, false, snapVal);
+                this.snapVertical(seg, false, snapVal);
+                this.handles[0] = seg.start;
+                this.handles[1] = constrainControlPoint(this.handles[0], this.handles[1], this.handles[2]);
             } else if (this.selection == 1) {
-                const tmp = this.handles[2];
                 this.handles[1] = add(this.handles[1], delta);
-                this.radius = getDistance(this.handles[0], this.handles[1]);
-                this.handles[2] = findArcCenter(this.handles[0], this.handles[1], this.radius);
+                this.handles[1] = constrainControlPoint(this.handles[0], this.handles[1], this.handles[2]);
             } else {
-                this.handles[2] = moveCenterEquidistant(this.handles[0], this.handles[1], this.handles[2], delta);
-                // Snap for half circle
-                const midPoint = getMidPoint(this.handles[0], this.handles[1]);
-                if (Math.abs(midPoint.x - this.handles[2].x) < 5 && Math.abs(midPoint.y - this.handles[2].y) < 5) {
-                    this.handles[2] = midPoint;
-                }
-                this.radius = getDistance(this.handles[0], this.handles[2]);
+                this.handles[2] = add(this.handles[2], delta);
+                seg = { start: this.handles[0], end: this.handles[2] };
+                this.snapHorizontal(seg, true, snapVal);
+                this.snapVertical(seg, true, snapVal);
+                this.handles[2] = seg.end;
+                this.handles[1] = constrainControlPoint(this.handles[0], this.handles[1], this.handles[2]);
             }
         }
     }
     snap(spacing) {
         if (this.selection == -1)
             this.offset = snapToGrid(this.offset, spacing);
-        else if (this.selection == 0 || this.selection == 1) {
-            this.handles[this.selection] = snapToGrid(this.handles[this.selection], spacing);
-            this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
-            // if (Number.isNaN(this.handles[2].x) || Number.isNaN(this.handles[2].x)) {
-            //     this.radius += spacing; // Hack
-            //     this.handles[2] = findArcNewCenter(this.handles[2], this.handles[0], this.handles[1], this.radius);
-            // }
+        else {
+            if (this.selection == 0 || this.selection == 2)
+                this.handles[this.selection] = snapToGrid(this.handles[this.selection], spacing);
         }
         this.init = false;
     }
@@ -554,25 +710,29 @@ export class Bezier extends Shape {
         const ctrl2 = this.handles[2];
         const end = this.handles[3];
         // Draw non cutting things
-        if (this.selection > -2) {
+        if (this.selection == -1 || this.selection == 0 || this.selection == 3) {
             this.drawDimensionX(start, end, 1000);
             this.drawDimensionY(start, end, 1000);
-            this.drawDimension(start, ctrl1);
-            this.drawDimension(ctrl2, end);
-            this.drawVertical(start, ctrl1, snapVal, 50);
-            this.drawVertical(ctrl2, end, snapVal, 50);
             this.drawVertical(start, end, snapVal, 50);
             this.drawHorizontal(start, end, snapVal, 50)
+        }
+        if (this.selection == 1) {
+            this.drawDimension(start, ctrl1);
+            this.drawVertical(start, ctrl1, snapVal, 50);
             this.draw45(start, ctrl1);
             this.draw135(start, ctrl1);
-            this.draw45(ctrl2, end);
-            this.draw135(ctrl2, end);
             if (start.y < ctrl1.y) {
                 if (!this.drawHorizontal(start, ctrl1, snapVal, 50))
                     this.drawAngle(start, ctrl1);
             } else
                 if (!this.drawHorizontal(start, ctrl1, snapVal, 50))
                     this.drawAngle(ctrl1, start);
+        }
+        if (this.selection == 2) {
+            this.draw45(ctrl2, end);
+            this.draw135(ctrl2, end);
+            this.drawDimension(ctrl2, end);
+            this.drawVertical(ctrl2, end, snapVal, 50);
             if (ctrl2.y < end.y) {
                 if (!this.drawHorizontal(ctrl2, end, snapVal, 50))
                     this.drawAngle(ctrl2, end);
@@ -580,14 +740,15 @@ export class Bezier extends Shape {
                 if (!this.drawHorizontal(ctrl2, end, snapVal, 50))
                     this.drawAngle(end, ctrl2);
         }
-        let p = new Path2D();
 
+        let p = new Path2D();
         p.moveTo(this.rX(start), this.rY(start));
         p.bezierCurveTo(this.rX(ctrl1), this.rY(ctrl1),
             this.rX(ctrl2), this.rY(ctrl2),
             this.rX(end), this.rY(end)
         );
         this.ctx.stroke(p);
+
         if (this.selection > -2) {
             this.ctx.strokeStyle = strokeLight;
             this.ctx.setLineDash([3, 3]);
@@ -683,7 +844,7 @@ export class Bezier extends Shape {
                     this.handles[2].x = 2 * this.handles[3].x / 3;
                     this.handles[2].y = 2 * this.handles[3].y / 3 - 60;
                 }
-            if (this.selection === 0 || this.selection === 1) {
+            if (this.selection === 1) {
                 seg = {
                     start: this.handles[0], // start
                     end: this.handles[1] // ctrl1
@@ -696,7 +857,7 @@ export class Bezier extends Shape {
                 this.handles[0] = seg.start;
                 this.handles[1] = seg.end;
             }
-            if (this.selection === 2 || this.selection === 3) {
+            if (this.selection === 2) {
                 seg = {
                     start: this.handles[2], // ctrl2
                     end: this.handles[3] // end
@@ -768,9 +929,12 @@ export class Square extends Shape {
         p.lineTo(this.rX(br), this.rY(br));
         p.lineTo(this.rX(bl), this.rY(bl));
         this.ctx.stroke(p);
+
         // Draw dotted line if square
+        // Draw dimension(s)
         if (this.selection > -2) {
             if (Math.abs(Math.abs(this.edge.x) - Math.abs(this.edge.y)) < 2) {
+                this.drawDimension(tl, tr);
                 this.ctx.strokeStyle = strokeLight;
                 this.ctx.setLineDash([3, 3]);
                 this.ctx.beginPath();
@@ -781,6 +945,9 @@ export class Square extends Shape {
                 this.ctx.stroke();
                 this.ctx.setLineDash([]);
                 this.ctx.strokeStyle = strokeDefault;
+            } else {
+                this.drawDimension(tl, tr);
+                this.drawDimension(bl, tl);
             }
         }
         switch (this.selection) {
@@ -1061,8 +1228,10 @@ export class Circle extends Shape {
         p.ellipse(this.rX(center), this.rY(center), this.radius.x, this.radius.y, 0, 0, 2 * Math.PI);
         this.ctx.stroke(p);
         // Draw dotted line if circle
+        // Draw dimension(s)
         if (this.selection > -2) {
             if (Math.abs(this.radius.x - this.radius.y) < 0.1) {
+                this.drawDimension(l, r);
                 this.ctx.strokeStyle = strokeLight;
                 this.ctx.setLineDash([3, 3]);
                 this.ctx.beginPath();
@@ -1073,6 +1242,9 @@ export class Circle extends Shape {
                 this.ctx.stroke();
                 this.ctx.setLineDash([]);
                 this.ctx.strokeStyle = strokeDefault;
+            } else {
+                this.drawDimension(l, r);
+                this.drawDimension(t, b);
             }
         }
         switch (this.selection) {

@@ -57,7 +57,7 @@ export function isPointOnArc(p, c, r, startAngle, endAngle, e) {
     }
 }
 
-export function isPointOnBezier(P, P0, P1, P2, P3, epsilon) {
+export function isPointOnBezier(P, P0, P1, P2, P3, e) {
     let tMin = 0;
     let tMax = 1;
     let minDist = Infinity;
@@ -76,7 +76,7 @@ export function isPointOnBezier(P, P0, P1, P2, P3, epsilon) {
             minDist = dist;
         }
 
-        if (dist < epsilon) {
+        if (dist < e) {
             return true;  // We found a sufficiently close point
         }
 
@@ -89,7 +89,42 @@ export function isPointOnBezier(P, P0, P1, P2, P3, epsilon) {
             tMin = tMid;
         }
     }
-    return minDist <= epsilon;
+    return minDist <= e;
+}
+
+export function isPointOnQuadraticBezier(P, P0, P1, P2, e) {
+    let tMin = 0;
+    let tMax = 1;
+    let minDist = Infinity;
+
+    for (let i = 0; i < 100; i++) { // max iterations can be adjusted
+        let tMid = (tMin + tMax) / 2;
+
+        let Bt = {
+            x: Math.pow(1 - tMid, 2) * P0.x + 2 * (1 - tMid) * tMid * P1.x + Math.pow(tMid, 2) * P2.x,
+            y: Math.pow(1 - tMid, 2) * P0.y + 2 * (1 - tMid) * tMid * P1.y + Math.pow(tMid, 2) * P2.y
+        };
+
+        let dist = Math.sqrt(Math.pow(Bt.x - P.x, 2) + Math.pow(Bt.y - P.y, 2));
+
+        if (dist < minDist) {
+            minDist = dist;
+        }
+
+        if (dist < e) {
+            return true;  // We found a sufficiently close point
+        }
+
+        // Using gradient to decide the next tMid for the next iteration.
+        let gradient = (Bt.x - P.x) * (P2.x - P0.x) + (Bt.y - P.y) * (P2.y - P0.y);
+
+        if (gradient > 0) {
+            tMax = tMid;
+        } else {
+            tMin = tMid;
+        }
+    }
+    return minDist <= e;
 }
 
 export function isPointOnEllipse(p, c, r, e) {
@@ -241,11 +276,49 @@ export function subAngle(endAngle, startAngle) {
         res += Math.PI;
     return res;
 }
+export function addAngle(endAngle, startAngle) {
+    let res = endAngle + startAngle;
+    if (res > Math.PI)
+        res -= Math.PI;
+    if (res < -Math.PI)
+        res += Math.PI;
+    return res;
+}
 
 export function getMidPoint(point1, point2) {
     const x = (point1.x + point2.x) / 2;
     const y = (point1.y + point2.y) / 2;
     return { x, y };
+}
+
+export function constrainControlPoint(start, control, end) {
+    // Compute the midpoint of the segment (end - start)
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+
+    // Compute the direction of the segment (end - start)
+    let dirX = end.x - start.x;
+    let dirY = end.y - start.y;
+
+    // Normalize this direction
+    const length = Math.sqrt(dirX * dirX + dirY * dirY);
+    if (length === 0) {
+        return start;
+    }
+
+    dirX /= length;
+    dirY /= length;
+
+    // Compute the perpendicular direction
+    const perpX = -dirY;
+    const perpY = dirX;
+
+    // Project the control point onto the perpendicular bisector
+    const dotProduct = (control.x - midX) * perpX + (control.y - midY) * perpY;
+    const constrainedX = midX + dotProduct * perpX;
+    const constrainedY = midY + dotProduct * perpY;
+
+    return { x: constrainedX, y: constrainedY };
 }
 
 export function getPerpendicularSegment(point1, point2) {
@@ -257,8 +330,16 @@ export function getPerpendicularSegment(point1, point2) {
 
 export function getTextPosAngle(point1, point2) {
     const mid = getMidPoint(point1, point2);
-    let dx = -(point2.y - point1.y) / getDistance(point1, point2);
-    let dy = (point2.x - point1.x) / getDistance(point1, point2);
+    const d = getDistance(point1, point2);
+
+    if (d === 0) {
+        return {
+            pos: { x: point1.x, y: point1.y }, angle: 0
+        };
+    }
+
+    let dx = -(point2.y - point1.y) / d;
+    let dy = (point2.x - point1.x) / d;
     let angle = getAngle(point1, point2);
     if (point2.x > point1.x)
         return {

@@ -1,4 +1,4 @@
-import { Line, Arc, Bezier, Square, Circle, strokeLight, strokeDefault } from './shapes.js';
+import { Line, QuadBezier, Bezier, Square, Circle, strokeLight, strokeDefault } from './shapes.js';
 import { snapToGrid, zero, isBoxInside, sub } from './math.js';
 
 class PlayingArea {
@@ -41,8 +41,8 @@ class PlayingArea {
                 case 'drawLine':
                     this.canvasCursor = cursorEditLine;
                     break;
-                case 'drawArc':
-                    this.canvasCursor = cursorEditArc;
+                case 'drawQBezier':
+                    this.canvasCursor = cursorEditQBezier;
                     break;
                 case 'drawBezier':
                     this.canvasCursor = cursorEditBezier;
@@ -106,8 +106,8 @@ class PlayingArea {
         let line = new Line(this.ctx, { x: 300, y: 600 }, { x: 550, y: 800 });
         this.shapes.push(line);
 
-        let arc = new Arc(this.ctx, { x: 400, y: 400 }, { x: 450, y: 430 });
-        this.shapes.push(arc);
+        let qbezier = new QuadBezier(this.ctx, { x: 400, y: 400 }, { x: 450, y: 430 }, { x: 700, y: 200 });
+        this.shapes.push(qbezier);
 
         let bezier = new Bezier(this.ctx, zero(), { x: 100, y: -150 },
             { x: 200, y: 50 }, { x: 500, y: 100 });
@@ -122,6 +122,7 @@ class PlayingArea {
         this.canvas.focus();
 
         document.getElementById('status-gridsize').textContent = "Grid size: " + this.gridSpacing + "mm";
+        console.log(navigator.clipboard);
     }
     handleKeyDown(e) {
         console.log(e.key);
@@ -222,12 +223,12 @@ class PlayingArea {
                     this.currentShape = new Line(this.ctx, start, start);
                     break;
 
-                case 'drawArc':
+                case 'drawQBezier':
                     for (const shape of this.shapes) {
                         shape.removeSelection();
                     }
                     start = snapToGrid(cursor, this.gridSpacing);
-                    this.currentShape = new Arc(this.ctx, start, start)
+                    this.currentShape = new QuadBezier(this.ctx, start, start, start)
                     break;
 
                 case 'drawBezier':
@@ -280,7 +281,7 @@ class PlayingArea {
                     break;
 
                 case 'drawLine':
-                case 'drawArc':
+                case 'drawQBezier':
                 case 'drawBezier':
                 case 'drawSquare':
                 case 'drawCircle':
@@ -345,7 +346,7 @@ class PlayingArea {
                     break;
 
                 case 'drawLine':
-                case 'drawArc':
+                case 'drawQBezier':
                 case 'drawBezier':
                 case 'drawSquare':
                 case 'drawCircle':
@@ -497,7 +498,7 @@ const cursorNormal = "url('../assets/icon-cursor-16.png'), auto";
 const cursorNormalCanMove = "url('../assets/icon-cursor-click-16.png'), auto";
 const cursorCrossHair = 'crosshair';
 const cursorEditLine = "url('../assets/cursor-edit-line.cur'), auto";
-const cursorEditArc = "url('../assets/cursor-edit-arc.cur'), auto";
+const cursorEditQBezier = "url('../assets/cursor-edit-arc.cur'), auto";
 const cursorEditBezier = "url('../assets/cursor-edit-bezier.cur'), auto";
 const cursorEditSquare = "url('../assets/cursor-edit-square.cur'), auto";
 const cursorEditCircle = "url('../assets/cursor-edit-circle.cur'), auto";
@@ -529,7 +530,7 @@ document.getElementById("icon-line").addEventListener('click', function () {
     editorState = 'drawLine';
 });
 document.getElementById("icon-arc").addEventListener('click', function () {
-    editorState = 'drawArc';
+    editorState = 'drawQBezier';
 });
 document.getElementById("icon-bezier").addEventListener('click', function () {
     editorState = 'drawBezier';
