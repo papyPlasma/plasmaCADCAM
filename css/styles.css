@@ -176,10 +176,10 @@ button {
 #icon-line {
     background-image: url('../assets/icon-line.png');
 }
-#icon-arc {
+#icon-quadbezier {
     background-image: url('../assets/icon-arc.png');
 }
-#icon-bezier {
+#icon-cubicbezier {
     background-image: url('../assets/icon-bezier.png');
 }
 #icon-circle {
