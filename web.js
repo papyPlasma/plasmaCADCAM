@@ -358,6 +358,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_moveTo_f28fe5c750fc6dcd = function(arg0, arg1, arg2) {
         getObject(arg0).moveTo(arg1, arg2);
     };
+    imports.wbg.__wbg_quadraticCurveTo_becb27dbf030fff7 = function(arg0, arg1, arg2, arg3, arg4) {
+        getObject(arg0).quadraticCurveTo(arg1, arg2, arg3, arg4);
+    };
     imports.wbg.__wbg_rect_5c1dc88471690403 = function(arg0, arg1, arg2, arg3, arg4) {
         getObject(arg0).rect(arg1, arg2, arg3, arg4);
     };
@@ -587,8 +590,8 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_rethrow = function(arg0) {
         throw takeObject(arg0);
     };
-    imports.wbg.__wbindgen_closure_wrapper179 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 57, __wbg_adapter_22);
+    imports.wbg.__wbindgen_closure_wrapper180 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 60, __wbg_adapter_22);
         return addHeapObject(ret);
     };
 

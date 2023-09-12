@@ -1,5 +1,5 @@
 use crate::math::*;
-use crate::shapes::{LineShape, Segment, Shape, Shapes, XY};
+use crate::shapes::{SegmentSnapping, Shape, ShapeType, SnapType, XY};
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -45,8 +45,8 @@ pub struct PlayingArea {
     contex_menu: HtmlElement,
     user_icons: HashMap<String, Element>,
     //
-    shapes: Vec<Shapes>,
-    current_shape: Option<Shapes>,
+    shapes: Vec<Shape>,
+    current_shape: Option<Shape>,
     tool_selected: ToolSelected,
     //
     mouse_state: MouseState,
@@ -108,12 +108,24 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     for shape in pa_ref.shapes.iter_mut() {
                         shape.remove_selection();
                     }
-                    let start = snap_to_grid(&mouse_pos_rel, pa_ref.grid_spacing);
+                    let mut start = mouse_pos_rel;
+                    snap_to_grid(&mut start, pa_ref.grid_spacing);
                     let snap_val = pa_ref.snap_val;
                     pa_ref.current_shape =
-                        Some(Shapes::Line(LineShape::new(start, start, snap_val)));
+                        Some(Shape::new(ShapeType::Line(vec![start, start]), snap_val));
                 }
-                DrawQuadBezier => (),
+                DrawQuadBezier => {
+                    for shape in pa_ref.shapes.iter_mut() {
+                        shape.remove_selection();
+                    }
+                    let mut start = mouse_pos_rel;
+                    snap_to_grid(&mut start, pa_ref.grid_spacing);
+                    let snap_val = pa_ref.snap_val;
+                    pa_ref.current_shape = Some(Shape::new(
+                        ShapeType::QuadBezier(vec![start, start, start]),
+                        snap_val,
+                    ));
+                }
                 DrawCubicBezier => (),
                 DrawCircle => (),
                 DrawSquare => (),
@@ -160,15 +172,11 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     }
                 }
                 Selection => (),
-                DrawLine => {
-                    if let Some(Shapes::Line(line_shape)) = pa_ref.current_shape.as_mut() {
-                        line_shape.modify(&mouse_pos_rel, &delta_pos_rel);
+                DrawLine | DrawQuadBezier | DrawCubicBezier | DrawCircle | DrawSquare => {
+                    if let Some(shape) = pa_ref.current_shape.as_mut() {
+                        shape.modify(&mouse_pos_rel, &delta_pos_rel);
                     }
                 }
-                DrawQuadBezier => (),
-                DrawCubicBezier => (),
-                DrawCircle => (),
-                DrawSquare => (),
             }
         }
         pa_ref.mouse_previous_pos_abs = mouse_pos_abs;
@@ -193,20 +201,17 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 }
             }
             Selection => (),
-            DrawLine => {
-                let oshape: Option<Shapes> = pa_ref.current_shape.clone();
+            DrawLine | DrawQuadBezier | DrawCubicBezier | DrawCircle | DrawSquare => {
+                let grid_spacing = pa_ref.grid_spacing;
+                let oshape = pa_ref.current_shape.clone();
                 if let Some(mut shape) = oshape {
-                    shape.snap(pa_ref.grid_spacing);
+                    shape.snap(grid_spacing);
                     if shape.valid() {
-                        pa_ref.shapes.push(shape.clone());
+                        pa_ref.shapes.push(shape);
                     }
                     pa_ref.current_shape = None;
                 }
             }
-            DrawQuadBezier => (),
-            DrawCubicBezier => (),
-            DrawCircle => (),
-            DrawSquare => (),
         }
         go_to_arrow_tool(&mut pa_ref);
         drop(pa_ref);
@@ -849,7 +854,7 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     // }
 }
 
-fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shapes) {
+fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shape) {
     // Shape draw
     let stroke_default = pa_ref.stroke_default.clone();
     let solid_pattern = pa_ref.solid_pattern.clone();
@@ -866,23 +871,37 @@ fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shapes) {
 
     // Snap draw
     if shape.get_handle_selected() > -2 {
-        for (couple, snap) in shape.get_snaps() {
-            if let Some(seg_extended) =
-                get_segment_extended(shape.get_handle(couple.0), shape.get_handle(couple.1), snap)
-            {
-                draw_dotted_line(pa_ref, &seg_extended);
+        for snap in shape.get_snaps().iter() {
+            match snap.0 {
+                SnapType::Geometry(idx1, idx2) => {
+                    let pt1 = shape.get_handle(idx1);
+                    let pt2 = shape.get_handle(idx2);
+
+                    if let Some((pta, ptb)) = get_segment(&pt1, &pt2, snap.1) {
+                        draw_dotted_line(pa_ref, &pta, &ptb);
+                    }
+                }
+                SnapType::Middle(idx_middle, idxs) => {
+                    if let SegmentSnapping::Middle = snap.1 {
+                        let pt = shape.get_handle(idx_middle);
+                        let pt1 = shape.get_handle(idxs[0]);
+                        let pt2 = shape.get_handle(idxs[1]);
+                        let pt_mid = (pt1 + pt2) / 2.;
+                        draw_dotted_line(pa_ref, &pt, &pt_mid);
+                    }
+                }
             }
         }
     }
 }
-fn draw_dotted_line(pa_ref: &Ref<'_, PlayingArea>, seg_extended: &Segment) {
+fn draw_dotted_line(pa_ref: &Ref<'_, PlayingArea>, start: &XY, end: &XY) {
     let stroke_light = pa_ref.stroke_light.clone();
     let dash_pattern = pa_ref.dash_pattern.clone();
     pa_ref.ctx.set_stroke_style(&stroke_light.into());
     pa_ref.ctx.set_line_dash(&dash_pattern).unwrap();
     let p = Path2d::new().unwrap();
-    p.move_to(seg_extended.start.x, seg_extended.start.y);
-    p.line_to(seg_extended.end.x, seg_extended.end.y);
+    p.move_to(start.x, start.y);
+    p.line_to(end.x, end.y);
     pa_ref.ctx.begin_path();
     pa_ref.ctx.stroke_with_path(&p);
 }
