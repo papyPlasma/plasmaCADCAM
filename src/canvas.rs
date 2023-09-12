@@ -1,5 +1,6 @@
-use crate::math::snap_to_grid;
-use crate::shapes::{LineShape, Shape, Shapes, XY};
+use crate::math::*;
+use crate::shapes::{LineShape, Segment, Shape, Shapes, XY};
+use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -65,6 +66,8 @@ pub struct PlayingArea {
     pub stroke_selected: String,
     pub stroke_default: String,
     pub stroke_light: String,
+    pub dash_pattern: JsValue,
+    pub solid_pattern: JsValue,
     //
     precision: f64,
     snap_val: f64,
@@ -386,6 +389,10 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     let stroke_selected = style.get_property_value("--canvas-stroke-selection")?;
     let stroke_default = style.get_property_value("--canvas-stroke-default")?;
     let stroke_light = style.get_property_value("--canvas-stroke-light")?;
+    let dash_pattern = Array::new();
+    let solid_pattern = Array::new();
+    dash_pattern.push(&JsValue::from_f64(3.0));
+    dash_pattern.push(&JsValue::from_f64(3.0));
 
     let playing_area = Rc::new(RefCell::new(PlayingArea {
         window,
@@ -415,6 +422,8 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         stroke_selected,
         stroke_default,
         stroke_light,
+        dash_pattern: JsValue::from(dash_pattern),
+        solid_pattern: JsValue::from(solid_pattern),
         //
         precision: 5.,
         snap_val: 4.,
@@ -722,16 +731,21 @@ fn draw_all(pa: Rc<RefCell<PlayingArea>>) {
 }
 fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
-    let (canvas_width, canvas_height, grid_spacing, grid_color) = {
+
+    let grid_color = pa_ref.grid_color.clone();
+    let solid_pattern = pa_ref.solid_pattern.clone();
+    pa_ref.ctx.set_stroke_style(&grid_color.into());
+    pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
+    pa_ref.ctx.set_line_width(1.);
+
+    let (canvas_width, canvas_height, grid_spacing) = {
         (
             pa_ref.canvas.width() as f64,
             pa_ref.canvas.height() as f64,
             pa_ref.grid_spacing,
-            pa_ref.grid_color,
         )
     };
-    pa_ref.ctx.set_line_width(1.);
-    pa_ref.ctx.set_stroke_style(&grid_color.into());
+
     // Vertical grid lines
     let mut x = 0.;
     while x <= canvas_width {
@@ -837,15 +851,47 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
 
 fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shapes) {
     // Shape draw
+    let stroke_default = pa_ref.stroke_default.clone();
+    let solid_pattern = pa_ref.solid_pattern.clone();
+    pa_ref.ctx.set_stroke_style(&stroke_default.into());
+    pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
+
     pa_ref.ctx.begin_path();
     pa_ref.ctx.stroke_with_path(&shape.get_path_shape());
 
     // Handles draw
-    for (handle_pos, selected) in shape.get_position_handles() {
+    for (handle_pos, selected) in shape.get_handles_positions() {
         draw_handle(pa_ref, handle_pos, selected);
     }
+
+    // Snap draw
+    if shape.get_handle_selected() > -2 {
+        for (couple, snap) in shape.get_snaps() {
+            if let Some(seg_extended) =
+                get_segment_extended(shape.get_handle(couple.0), shape.get_handle(couple.1), snap)
+            {
+                draw_dotted_line(pa_ref, &seg_extended);
+            }
+        }
+    }
+}
+fn draw_dotted_line(pa_ref: &Ref<'_, PlayingArea>, seg_extended: &Segment) {
+    let stroke_light = pa_ref.stroke_light.clone();
+    let dash_pattern = pa_ref.dash_pattern.clone();
+    pa_ref.ctx.set_stroke_style(&stroke_light.into());
+    pa_ref.ctx.set_line_dash(&dash_pattern).unwrap();
+    let p = Path2d::new().unwrap();
+    p.move_to(seg_extended.start.x, seg_extended.start.y);
+    p.line_to(seg_extended.end.x, seg_extended.end.y);
+    pa_ref.ctx.begin_path();
+    pa_ref.ctx.stroke_with_path(&p);
 }
 fn draw_handle(pa_ref: &Ref<'_, PlayingArea>, handle_pos: XY, selected: bool) {
+    let stroke_default = pa_ref.stroke_default.clone();
+    let solid_pattern = pa_ref.solid_pattern.clone();
+    pa_ref.ctx.set_stroke_style(&stroke_default.into());
+    pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
+
     let p = Path2d::new().unwrap();
     if selected {
         pa_ref.ctx.set_fill_style(&"black".into());

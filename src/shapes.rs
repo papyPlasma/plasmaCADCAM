@@ -1,24 +1,28 @@
 use crate::math::*;
-use std::ops::{Add, AddAssign, Sub};
-use web_sys::{console, Path2d};
+use std::{
+    collections::HashMap,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
+use web_sys::Path2d;
 
 pub trait Shape {
     //
+    fn get_handle(&self, idx: usize) -> XY;
     fn get_handle_selected(&self) -> i32;
     //
     fn move_to(&mut self, p: &XY);
     fn modify(&mut self, p: &XY, dp: &XY);
     fn get_path_shape(&self) -> Path2d;
-    fn get_position_handles(&self) -> Vec<(XY, bool)>;
+    fn get_handles_positions(&self) -> Vec<(XY, bool)>;
     fn snap(&mut self, grid_spacing: f64);
     fn valid(&self) -> bool;
     fn set_selection(&mut self, pos: &XY, precision: f64);
     fn remove_selection(&mut self);
+    fn get_snaps(&self) -> &HashMap<(usize, usize), SegmentSnapping>;
 }
 
 pub enum Shapes {
     Line(LineShape),
-    // Arc,
     // QuadBezier,
     // CubicBezier,
     // Square,
@@ -34,6 +38,17 @@ impl Clone for Shapes {
 }
 
 impl Shape for Shapes {
+    fn get_handle(&self, idx: usize) -> XY {
+        use Shapes::*;
+        match self {
+            Line(line_shape) => line_shape.get_handle(idx),
+            // Arc => (),
+            // QuadBezier => (),
+            // CubicBezier => (),
+            // Square => (),
+            // Circle => (),
+        }
+    }
     fn get_handle_selected(&self) -> i32 {
         use Shapes::*;
         match self {
@@ -78,10 +93,10 @@ impl Shape for Shapes {
             // Circle => (),
         }
     }
-    fn get_position_handles(&self) -> Vec<(XY, bool)> {
+    fn get_handles_positions(&self) -> Vec<(XY, bool)> {
         use Shapes::*;
         match self {
-            Line(line_shape) => line_shape.get_position_handles(),
+            Line(line_shape) => line_shape.get_handles_positions(),
             // Arc => (),
             // QuadBezier => (),
             // CubicBezier => (),
@@ -133,13 +148,24 @@ impl Shape for Shapes {
             // Circle => (),
         }
     }
+    fn get_snaps(&self) -> &HashMap<(usize, usize), SegmentSnapping> {
+        use Shapes::*;
+        match self {
+            Line(line_shape) => line_shape.get_snaps(),
+            // Arc => (),
+            // QuadBezier => (),
+            // CubicBezier => (),
+            // Square => (),
+            // Circle => (),
+        }
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct LineShape {
     offset: XY,
     handles: [XY; 2],
-    snap_couples: [(usize, usize); 1],
+    snap_segment: HashMap<(usize, usize), SegmentSnapping>,
     handle_selected: i32,
     snap_val: f64,
 }
@@ -148,7 +174,11 @@ impl LineShape {
         LineShape {
             offset: start,
             handles: [XY::default(), end - start],
-            snap_couples: [(0, 1); 1],
+            snap_segment: {
+                let mut tmp = HashMap::new();
+                tmp.insert((0, 1), SegmentSnapping::None);
+                tmp
+            },
             handle_selected: 1,
             snap_val,
         }
@@ -156,6 +186,9 @@ impl LineShape {
 }
 
 impl Shape for LineShape {
+    fn get_handle(&self, idx: usize) -> XY {
+        self.handles[idx] + self.offset
+    }
     fn get_handle_selected(&self) -> i32 {
         self.handle_selected
     }
@@ -166,10 +199,11 @@ impl Shape for LineShape {
         if self.handle_selected == -1 {
             self.move_to(dp)
         } else {
+            // self.handle_selected can be only 0 or 1
             // Update position
             self.handles[self.handle_selected as usize] += *dp;
             // Detect and set snapping
-            for couple in self.snap_couples.iter() {
+            for (couple, snap) in self.snap_segment.iter_mut() {
                 if self.handle_selected as usize == couple.0
                     || self.handle_selected as usize == couple.1
                 {
@@ -177,18 +211,11 @@ impl Shape for LineShape {
                         start: self.handles[couple.0],
                         end: self.handles[couple.1],
                     };
-                    use SegmentSnapping::*;
-                    match if self.handle_selected == 1 {
-                        snap_segment(&mut seg, true, self.snap_val)
+                    if self.handle_selected == 1 {
+                        *snap = snap_segment(&mut seg, true, self.snap_val);
                     } else {
-                        snap_segment(&mut seg, false, self.snap_val)
-                    } {
-                        None => (),
-                        Horizontal => (),
-                        Vertical => (),
-                        Diagonal45 => (),
-                        Diagonal135 => (),
-                    }
+                        *snap = snap_segment(&mut seg, false, self.snap_val);
+                    };
                     self.handles[couple.0] = seg.start;
                     self.handles[couple.1] = seg.end;
                 }
@@ -227,7 +254,7 @@ impl Shape for LineShape {
         p.line_to(pos.x, pos.y);
         p
     }
-    fn get_position_handles(&self) -> Vec<(XY, bool)> {
+    fn get_handles_positions(&self) -> Vec<(XY, bool)> {
         let mut handles_pos: Vec<(XY, bool)> = Vec::new();
         match self.handle_selected {
             -1 => {
@@ -294,6 +321,9 @@ impl Shape for LineShape {
     fn remove_selection(&mut self) {
         self.handle_selected = -2;
     }
+    fn get_snaps(&self) -> &HashMap<(usize, usize), SegmentSnapping> {
+        &self.snap_segment
+    }
 }
 
 // Simple types
@@ -325,6 +355,12 @@ impl AddAssign for XY {
     fn add_assign(&mut self, other: XY) {
         self.x += other.x;
         self.y += other.y;
+    }
+}
+impl SubAssign for XY {
+    fn sub_assign(&mut self, other: XY) {
+        self.x -= other.x;
+        self.y -= other.y;
     }
 }
 impl Add for XY {
