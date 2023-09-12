@@ -27,4 +27,7 @@ features = [
     'Node',
     'Window',
     'console',
+    'DomRect',
+    'Path2d',
+    'WheelEvent',
 ]
