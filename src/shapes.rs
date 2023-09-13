@@ -7,11 +7,17 @@ use web_sys::Path2d;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+pub enum DimensionComplexity {
+    Simple(usize, usize),
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
 pub enum DimensionType {
-    Linear(f64, usize, usize),
-    Horizontal(f64, usize, usize),
-    Vertical(f64, usize, usize),
-    Radius(f64, usize, usize),
+    Linear(f64, i32, DimensionComplexity),
+    Horizontal(f64, i32, DimensionComplexity),
+    Vertical(f64, i32, DimensionComplexity),
+    Radius(f64, i32, DimensionComplexity),
 }
 
 #[derive(Clone)]
@@ -42,7 +48,8 @@ pub enum SnapType {
 #[derive(Clone)]
 pub struct Shape {
     offset: XY,
-    handles: ShapeType,
+    shape: ShapeType,
+    dimensions: Vec<DimensionType>,
     snaps: Vec<(SnapType, SegmentSnapping)>,
     handle_selected: i32,
     snap_val: f64,
@@ -50,11 +57,20 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new(shape_type: ShapeType, snap_val: f64) -> Shape {
-        match shape_type {
+    pub fn new(shape: ShapeType, snap_val: f64) -> Shape {
+        match shape {
             ShapeType::Line(handles) => Shape {
                 offset: handles[0],
-                handles: ShapeType::Line(vec![XY::default(), handles[1] - handles[0]]),
+                shape: ShapeType::Line(vec![XY::default(), handles[1] - handles[0]]),
+                dimensions: {
+                    let mut dimensions = Vec::new();
+                    dimensions.push(DimensionType::Linear(
+                        0.,
+                        -1,
+                        DimensionComplexity::Simple(0, 1),
+                    ));
+                    dimensions
+                },
                 snaps: {
                     let mut tmp = Vec::new();
                     tmp.push((SnapType::Geometry(0, 1), SegmentSnapping::None));
@@ -66,11 +82,16 @@ impl Shape {
             },
             ShapeType::QuadBezier(handles) => Shape {
                 offset: handles[0],
-                handles: ShapeType::QuadBezier(vec![
+                shape: ShapeType::QuadBezier(vec![
                     XY::default(),
                     handles[1] - handles[0],
                     handles[2] - handles[0],
                 ]),
+                dimensions: {
+                    let mut dimensions = Vec::new();
+                    // dimensions.push(DimensionType::Linear(0., 0, 1));
+                    dimensions
+                },
                 snaps: {
                     let mut tmp = Vec::new();
                     tmp.push((SnapType::Geometry(0, 2), SegmentSnapping::None));
@@ -85,12 +106,17 @@ impl Shape {
             },
             ShapeType::CubicBezier(handles) => Shape {
                 offset: handles[0],
-                handles: ShapeType::CubicBezier(vec![
+                shape: ShapeType::CubicBezier(vec![
                     XY::default(),
                     handles[1] - handles[0],
                     handles[2] - handles[0],
                     handles[3] - handles[0],
                 ]),
+                dimensions: {
+                    let mut dimensions = Vec::new();
+                    // dimensions.push(DimensionType::Linear(0., 0, 1));
+                    dimensions
+                },
                 snaps: {
                     let mut tmp = Vec::new();
                     tmp.push((SnapType::Geometry(0, 3), SegmentSnapping::None));
@@ -110,11 +136,16 @@ impl Shape {
             },
             ShapeType::Square(handles) => Shape {
                 offset: handles[0],
-                handles: ShapeType::Square(vec![XY::default(), handles[1] - handles[0]]),
+                shape: ShapeType::Square(vec![XY::default(), handles[1] - handles[0]]),
                 snaps: {
                     let mut tmp = Vec::new();
                     tmp.push((SnapType::Geometry(0, 1), SegmentSnapping::None));
                     tmp
+                },
+                dimensions: {
+                    let mut dimensions = Vec::new();
+                    // dimensions.push(DimensionType::Linear(0., 0, 1));
+                    dimensions
                 },
                 handle_selected: 1,
                 snap_val,
@@ -122,7 +153,12 @@ impl Shape {
             },
             ShapeType::Circle(handles) => Shape {
                 offset: handles[0],
-                handles: ShapeType::Circle(vec![XY::default(), handles[1] - handles[0]]),
+                shape: ShapeType::Circle(vec![XY::default(), handles[1] - handles[0]]),
+                dimensions: {
+                    let mut dimensions = Vec::new();
+                    // dimensions.push(DimensionType::Linear(0., 0, 1));
+                    dimensions
+                },
                 snaps: {
                     let mut tmp = Vec::new();
                     tmp.push((SnapType::Geometry(0, 1), SegmentSnapping::None));
@@ -135,7 +171,7 @@ impl Shape {
         }
     }
     pub fn get_handle(&self, idx: usize) -> XY {
-        match &self.handles {
+        match &self.shape {
             ShapeType::Line(handles) => handles[idx] + self.offset,
             ShapeType::QuadBezier(handles) => handles[idx] + self.offset,
             ShapeType::CubicBezier(handles) => handles[idx] + self.offset,
@@ -157,7 +193,7 @@ impl Shape {
             self.move_to(dp)
         } else {
             // Update position
-            match &mut self.handles {
+            match &mut self.shape {
                 ShapeType::Line(handles) => handles[self.handle_selected as usize] += *dp,
                 ShapeType::QuadBezier(handles) => {
                     if self.init {
@@ -189,7 +225,7 @@ impl Shape {
                         if self.handle_selected as usize == idx1
                             || self.handle_selected as usize == idx2
                         {
-                            match &mut self.handles {
+                            match &mut self.shape {
                                 ShapeType::Line(handles) => {
                                     *snap = snap_h_v_45_135(
                                         handles,
@@ -240,7 +276,7 @@ impl Shape {
                     }
                     SnapType::Middle(idx_middle, idxs) => {
                         if self.handle_selected as usize == *idx_middle {
-                            match &mut self.handles {
+                            match &mut self.shape {
                                 ShapeType::Line(_) => (),
                                 ShapeType::QuadBezier(handles) => {
                                     *snap =
@@ -256,10 +292,16 @@ impl Shape {
                     }
                 }
             }
+
+            // Update all dimensions
+            self.update_dimensions();
         }
     }
+    fn update_dimensions(&mut self) {
+        for dimension in self.dimensions.iter_mut() {}
+    }
     pub fn get_path_shape(&self) -> Path2d {
-        match &self.handles {
+        match &self.shape {
             ShapeType::Line(handles) => {
                 let start = handles[0] + self.offset;
                 let end = handles[1] + self.offset;
@@ -314,7 +356,7 @@ impl Shape {
     }
     pub fn get_handles_positions(&self) -> Vec<(XY, bool)> {
         let mut handles_pos: Vec<(XY, bool)> = Vec::new();
-        match &self.handles {
+        match &self.shape {
             ShapeType::Line(handles) => match self.handle_selected {
                 -1 => {
                     handles_pos.push((handles[0] + self.offset, false));
@@ -425,7 +467,7 @@ impl Shape {
         if self.handle_selected == -1 {
             snap_to_grid(&mut self.offset, grid_spacing);
         } else {
-            match &mut self.handles {
+            match &mut self.shape {
                 ShapeType::Line(handles) => {
                     if self.handle_selected == 0 {
                         snap_to_grid(&mut handles[0], grid_spacing);
@@ -544,7 +586,7 @@ impl Shape {
         }
     }
     pub fn valid(&self) -> bool {
-        match &self.handles {
+        match &self.shape {
             ShapeType::Line(handles) => {
                 handles[0].x != handles[1].x || handles[0].y != handles[1].y
             }
@@ -563,7 +605,7 @@ impl Shape {
         }
     }
     pub fn set_selection(&mut self, pos: &XY, precision: f64) {
-        match &mut self.handles {
+        match &mut self.shape {
             ShapeType::Line(handles) => {
                 let start = handles[0];
                 let end = handles[1];
@@ -734,7 +776,7 @@ impl Shape {
         &self.snaps
     }
     pub fn get_bounding_box(&self) -> [XY; 2] {
-        match &self.handles {
+        match &self.shape {
             ShapeType::Line(handles) => {
                 let start = handles[0] + self.offset;
                 let end = handles[1] + self.offset;
@@ -780,7 +822,6 @@ impl XY {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 }
-
 impl Default for XY {
     fn default() -> Self {
         XY { x: 0.0, y: 0.0 }

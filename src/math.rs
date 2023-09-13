@@ -336,7 +336,7 @@ fn snap45(start: &mut XY, end: &mut XY, snap_to_end: bool) -> bool {
     let mut dy = end.y - start.y;
     let dx = end.x - start.x;
     let m = dy / dx;
-    if m > 0.95 && m < (1. / 0.95) {
+    if m > 0.97 && m < (1. / 0.97) {
         dy = dx;
         if snap_to_end {
             end.x = start.x + dx;
@@ -355,7 +355,7 @@ fn snap135(start: &mut XY, end: &mut XY, snap_to_end: bool) -> bool {
     let mut dy = end.y - start.y;
     let dx = end.x - start.x;
     let m = dy / dx;
-    if m < -0.95 && m > -(1. / 0.95) {
+    if m < -0.97 && m > -(1. / 0.97) {
         dy = -dx;
         if snap_to_end {
             end.x = start.x + dx;

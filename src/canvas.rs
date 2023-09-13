@@ -28,15 +28,16 @@ pub enum ToolSelected {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[allow(dead_code)]
 #[repr(u16)]
 enum MouseState {
     NoButton = 0,
     LeftDown = 1,
+    #[allow(dead_code)]
     RightDown = 2,
+    #[allow(dead_code)]
     MiddleDown = 4,
 }
-#[allow(dead_code)]
+
 pub struct PlayingArea {
     pub window: Window,
     pub document: Document,
@@ -45,6 +46,7 @@ pub struct PlayingArea {
     pub ctx: CanvasRenderingContext2d,
 
     // DOM
+    #[allow(dead_code)]
     contex_menu: HtmlElement,
     user_icons: HashMap<String, Element>,
     //
@@ -63,6 +65,7 @@ pub struct PlayingArea {
     offset: XY,
     // Canvas parameters
     grid_spacing: f64,
+    #[allow(dead_code)]
     axis_color: &'static str,
     grid_color: &'static str,
     shape_color: &'static str,
