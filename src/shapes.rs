@@ -13,6 +13,7 @@ pub enum ShapeType {
     Line(Vec<XY>),
     QuadBezier(Vec<XY>),
     CubicBezier(Vec<XY>),
+    Square(Vec<XY>),
 }
 
 #[derive(Copy, Clone)]
@@ -94,14 +95,26 @@ impl Shape {
                 snap_val,
                 init: true,
             },
+            ShapeType::Square(handles) => Shape {
+                offset: handles[0],
+                handles: ShapeType::Square(vec![XY::default(), handles[1] - handles[0]]),
+                snaps: {
+                    let mut tmp = Vec::new();
+                    tmp.push((SnapType::Geometry(0, 1), SegmentSnapping::None));
+                    tmp
+                },
+                handle_selected: 1,
+                snap_val,
+                init: true,
+            },
         }
     }
-
     pub fn get_handle(&self, idx: usize) -> XY {
         match &self.handles {
             ShapeType::Line(handles) => handles[idx] + self.offset,
             ShapeType::QuadBezier(handles) => handles[idx] + self.offset,
             ShapeType::CubicBezier(handles) => handles[idx] + self.offset,
+            ShapeType::Square(handles) => handles[idx] + self.offset,
         }
     }
     pub fn get_handle_selected(&self) -> i32 {
@@ -134,6 +147,7 @@ impl Shape {
                         handles[self.handle_selected as usize] += *dp
                     }
                 }
+                ShapeType::Square(handles) => handles[self.handle_selected as usize] += *dp,
             }
 
             // Detect and set snapping
@@ -155,7 +169,6 @@ impl Shape {
                                         self.snap_val,
                                     );
                                 }
-                                #[allow(unreachable_code)]
                                 ShapeType::QuadBezier(handles) => {
                                     *snap = snap_h_v_45_135(
                                         handles,
@@ -174,6 +187,15 @@ impl Shape {
                                         self.snap_val,
                                     );
                                 }
+                                ShapeType::Square(handles) => {
+                                    *snap = snap_h_v_45_135(
+                                        handles,
+                                        &idx1,
+                                        &idx2,
+                                        self.handle_selected == 1,
+                                        self.snap_val,
+                                    );
+                                }
                             }
                         }
                     }
@@ -186,6 +208,7 @@ impl Shape {
                                         snap_equidistant(handles, idx_middle, idxs, self.snap_val);
                                 }
                                 ShapeType::CubicBezier(_) => (),
+                                ShapeType::Square(_) => (),
                             }
                         } else {
                             *snap = SegmentSnapping::None;
@@ -222,6 +245,17 @@ impl Shape {
                 let p = Path2d::new().unwrap();
                 p.move_to(start.x, start.y);
                 p.bezier_curve_to(ctrl1.x, ctrl1.y, ctrl2.x, ctrl2.y, end.x, end.y);
+                p
+            }
+            ShapeType::Square(handles) => {
+                let start = handles[0] + self.offset;
+                let end = handles[1] + self.offset;
+                let p = Path2d::new().unwrap();
+                p.move_to(start.x, start.y);
+                p.line_to(start.x, end.y);
+                p.line_to(end.x, end.y);
+                p.line_to(end.x, start.y);
+                p.line_to(start.x, start.y);
                 p
             }
         }
@@ -297,6 +331,21 @@ impl Shape {
                     handles_pos.push((handles[1] + self.offset, false));
                     handles_pos.push((handles[2] + self.offset, false));
                     handles_pos.push((handles[3] + self.offset, true));
+                }
+                _ => (),
+            },
+            ShapeType::Square(handles) => match self.handle_selected {
+                -1 => {
+                    handles_pos.push((handles[0] + self.offset, false));
+                    handles_pos.push((handles[1] + self.offset, false));
+                }
+                0 => {
+                    handles_pos.push((handles[0] + self.offset, true));
+                    handles_pos.push((handles[1] + self.offset, false));
+                }
+                1 => {
+                    handles_pos.push((handles[0] + self.offset, false));
+                    handles_pos.push((handles[1] + self.offset, true));
                 }
                 _ => (),
             },
@@ -390,6 +439,23 @@ impl Shape {
                         }
                     }
                 }
+                ShapeType::Square(handles) => {
+                    if self.handle_selected == 0 {
+                        snap_to_grid(&mut handles[0], grid_spacing);
+                        if handles[0].x == handles[1].x && handles[0].y == handles[1].y {
+                            handles[0].x += grid_spacing;
+                            handles[0].y += grid_spacing;
+                        }
+                    } else {
+                        if self.handle_selected == 1 {
+                            snap_to_grid(&mut handles[1], grid_spacing);
+                            if handles[0].x == handles[1].x && handles[0].y == handles[1].y {
+                                handles[1].x += grid_spacing;
+                                handles[1].y += grid_spacing;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -403,6 +469,9 @@ impl Shape {
             }
             ShapeType::CubicBezier(handles) => {
                 handles[0].x != handles[3].x || handles[0].y != handles[3].y
+            }
+            ShapeType::Square(handles) => {
+                handles[0].x != handles[1].x || handles[0].y != handles[1].y
             }
         }
     }
@@ -494,6 +563,51 @@ impl Shape {
                                     self.handle_selected = -2;
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            ShapeType::Square(handles) => {
+                let start = handles[0];
+                let end = handles[1];
+                if is_point_on_point(pos, &(start + self.offset), precision) {
+                    self.handle_selected = 0;
+                } else {
+                    if is_point_on_point(pos, &(end + self.offset), precision) {
+                        self.handle_selected = 1;
+                    } else {
+                        let tl = XY {
+                            x: start.x,
+                            y: end.y,
+                        };
+                        let br = XY {
+                            x: end.x,
+                            y: start.y,
+                        };
+                        if is_point_on_segment(
+                            pos,
+                            &(start + self.offset),
+                            &(tl + self.offset),
+                            precision,
+                        ) || is_point_on_segment(
+                            pos,
+                            &(tl + self.offset),
+                            &(end + self.offset),
+                            precision,
+                        ) || is_point_on_segment(
+                            pos,
+                            &(end + self.offset),
+                            &(br + self.offset),
+                            precision,
+                        ) || is_point_on_segment(
+                            pos,
+                            &(br + self.offset),
+                            &(start + self.offset),
+                            precision,
+                        ) {
+                            self.handle_selected = -1;
+                        } else {
+                            self.handle_selected = -2;
                         }
                     }
                 }

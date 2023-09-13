@@ -140,7 +140,7 @@ pub fn is_point_on_quadbezier(pt: &XY, pt1: &XY, ctrl: &XY, pt2: &XY, precision:
                 + t_mid.powf(2.) * pt2.y,
         };
 
-        let dist = bt.dist(pt); //((bt.x - pt.x).powf(2.) + (bt.y - pt.y).powf(2.)).sqrt();
+        let dist = bt.dist(pt);
 
         if dist < min_dist {
             min_dist = dist;
