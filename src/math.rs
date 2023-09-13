@@ -212,6 +212,16 @@ pub fn is_point_on_cubicbezier(
     min_dist <= precision
 }
 
+pub fn is_box_inside(box_outer: &[XY; 2], box_inner: &[XY; 2]) -> bool {
+    let bl_outer = box_outer[0];
+    let tr_outer = box_outer[1];
+    let bl_inner = box_inner[0];
+    let tr_inner = box_inner[1];
+    bl_inner.x >= bl_outer.x
+        && bl_inner.y >= bl_outer.y
+        && tr_inner.x <= tr_outer.x
+        && tr_inner.y <= tr_outer.y
+}
 fn _normalize_angle(mut angle: f64) -> f64 {
     while angle < 0. {
         angle += 2. * PI;
@@ -285,6 +295,31 @@ pub fn get_segment(pta: &XY, ptb: &XY, segment_snapping: SegmentSnapping) -> Opt
     }
 }
 
+pub fn reorder_corners(bb: &[XY; 2]) -> [XY; 2] {
+    let pt1 = bb[0];
+    let pt2 = bb[1];
+    if pt1.x < pt2.x {
+        if pt1.y < pt2.y {
+            let bl = XY { x: pt1.x, y: pt1.y };
+            let tr = XY { x: pt2.x, y: pt2.y };
+            [bl, tr]
+        } else {
+            let bl = XY { x: pt1.x, y: pt2.y };
+            let tr = XY { x: pt2.x, y: pt1.y };
+            [bl, tr]
+        }
+    } else {
+        if pt1.y < pt2.y {
+            let bl = XY { x: pt2.x, y: pt1.y };
+            let tr = XY { x: pt1.x, y: pt2.y };
+            [bl, tr]
+        } else {
+            let bl = XY { x: pt2.x, y: pt2.y };
+            let tr = XY { x: pt1.x, y: pt1.y };
+            [bl, tr]
+        }
+    }
+}
 fn is_between(pt: &XY, pt1: &XY, pt2: &XY) -> bool {
     let dot_product = (pt.x - pt1.x) * (pt2.x - pt1.x) + (pt.y - pt1.y) * (pt2.y - pt1.y);
     if dot_product < 0. {

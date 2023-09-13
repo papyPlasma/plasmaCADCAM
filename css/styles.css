@@ -2,7 +2,8 @@
 :root {
     --canvas-stroke-selection: #ff0000;
     --canvas-stroke-default: #000;
-    --canvas-stroke-light: #979797;
+    --canvas-stroke-construction: #00b812;
+    --canvas-stroke-light: #7d7d7d;
 }
 
 body, html {

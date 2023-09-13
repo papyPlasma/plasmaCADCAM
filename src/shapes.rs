@@ -146,6 +146,9 @@ impl Shape {
     pub fn get_handle_selected(&self) -> i32 {
         self.handle_selected
     }
+    pub fn set_handle_selected(&mut self, idx: i32) {
+        self.handle_selected = idx;
+    }
     pub fn move_to(&mut self, p: &XY) {
         self.offset += *p;
     }
@@ -730,9 +733,39 @@ impl Shape {
     pub fn get_snaps(&self) -> &Vec<(SnapType, SegmentSnapping)> {
         &self.snaps
     }
+    pub fn get_bounding_box(&self) -> [XY; 2] {
+        match &self.handles {
+            ShapeType::Line(handles) => {
+                let start = handles[0] + self.offset;
+                let end = handles[1] + self.offset;
+                [start, end]
+            }
+            ShapeType::QuadBezier(handles) => {
+                let start = handles[0] + self.offset;
+                let _ctrl = handles[1] + self.offset;
+                let end = handles[2] + self.offset;
+                [start, end]
+            }
+            ShapeType::CubicBezier(handles) => {
+                let start = handles[0] + self.offset;
+                let end = handles[1] + self.offset;
+                [start, end]
+            }
+            ShapeType::Square(handles) => {
+                let start = handles[0] + self.offset;
+                let end = handles[1] + self.offset;
+                [start, end]
+            }
+            ShapeType::Circle(handles) => {
+                let start = handles[0] + self.offset;
+                let end = handles[1] + self.offset;
+                [start, end]
+            }
+        }
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct XY {
     pub x: f64,
     pub y: f64,

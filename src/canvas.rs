@@ -49,8 +49,11 @@ pub struct PlayingArea {
     user_icons: HashMap<String, Element>,
     //
     shapes: Vec<Shape>,
+    // shape_buffer_copy_paste: Vec<Shape>,
     current_shape: Option<Shape>,
     tool_selected: ToolSelected,
+    selection_area: Option<[XY; 2]>,
+    ctrl_or_meta_pressed: bool,
     //
     mouse_state: MouseState,
     mouse_previous_pos_abs: XY,
@@ -68,6 +71,7 @@ pub struct PlayingArea {
     //
     pub stroke_selected: String,
     pub stroke_default: String,
+    pub stroke_construction: String,
     pub stroke_light: String,
     pub dash_pattern: JsValue,
     pub solid_pattern: JsValue,
@@ -106,7 +110,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         shape.set_selection(&mouse_pos_rel, precision);
                     }
                 }
-                Selection => (),
+                Selection => pa_ref.selection_area = Some([mouse_pos_rel, mouse_pos_rel]),
                 DrawLine => {
                     for shape in pa_ref.shapes.iter_mut() {
                         shape.remove_selection();
@@ -203,7 +207,11 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         pa_ref.offset += delta_pos_abs;
                     }
                 }
-                Selection => (),
+                Selection => {
+                    if let Some(sa) = pa_ref.selection_area.as_mut() {
+                        sa[1] += delta_pos_rel
+                    }
+                }
                 DrawLine | DrawQuadBezier | DrawCubicBezier | DrawCircle | DrawSquare => {
                     if let Some(shape) = pa_ref.current_shape.as_mut() {
                         shape.modify(&mouse_pos_rel, &delta_pos_rel);
@@ -232,7 +240,23 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     }
                 }
             }
-            Selection => (),
+            Selection => {
+                let selection_area = pa_ref.selection_area.clone();
+                if let Some(sa_raw) = selection_area {
+                    let bb_outer = reorder_corners(&[sa_raw[0], sa_raw[1]]);
+                    console::log_1(&format!("{:?}", bb_outer).into());
+                    for shape in &mut pa_ref.shapes {
+                        let bb_inner: [XY; 2] = shape.get_bounding_box();
+                        console::log_1(&format!("{:?}", bb_inner).into());
+                        if is_box_inside(&bb_outer, &bb_inner) {
+                            shape.set_handle_selected(-1);
+                        } else {
+                            shape.set_handle_selected(-2);
+                        }
+                    }
+                }
+                pa_ref.selection_area = None;
+            }
             DrawLine | DrawQuadBezier | DrawCubicBezier | DrawCircle | DrawSquare => {
                 let grid_spacing = pa_ref.grid_spacing;
                 let oshape = pa_ref.current_shape.clone();
@@ -299,20 +323,47 @@ fn on_mouse_wheel(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         render(pa);
     }
 }
-#[allow(dead_code)]
 fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
+        console::log_1(&format!("{:?}", keyboard_event.key()).into());
         let mut pa_ref = pa.borrow_mut();
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
             pa_ref
                 .shapes
                 .retain(|shape| shape.get_handle_selected() < -1)
         }
+        if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
+            pa_ref.ctrl_or_meta_pressed = true;
+        }
+
+        // if keyboard_event.key() == "c" {
+        //     if pa_ref.ctrl_or_meta_pressed {
+        //         let copy = pa_ref
+        //             .shapes
+        //             .iter()
+        //             .filter(|shape| shape.get_handle_selected() < -1)
+        //             .cloned()
+        //             .collect();
+        //         pa_ref.shape_buffer_copy_paste = copy;
+        //     }
+        // }
+
         // if event.key == "Shift" {
         //     if (editorState === 'pointer') {
         //         this.goToselectionMode();
         //     }
         // }
+        drop(pa_ref);
+        render(pa.clone());
+    }
+}
+fn on_keyup(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+    if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
+        // console::log_1(&format!("released {:?}", keyboard_event.key()).into());
+        let mut pa_ref = pa.borrow_mut();
+        if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
+            pa_ref.ctrl_or_meta_pressed = false;
+        }
         drop(pa_ref);
         render(pa.clone());
     }
@@ -439,6 +490,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         .unwrap();
     let stroke_selected = style.get_property_value("--canvas-stroke-selection")?;
     let stroke_default = style.get_property_value("--canvas-stroke-default")?;
+    let stroke_construction = style.get_property_value("--canvas-stroke-construction")?;
     let stroke_light = style.get_property_value("--canvas-stroke-light")?;
     let dash_pattern = Array::new();
     let solid_pattern = Array::new();
@@ -455,8 +507,11 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         contex_menu,
         user_icons: HashMap::new(),
         shapes: Vec::new(),
+        // shape_buffer_copy_paste: Vec::new(),
         current_shape: None,
         tool_selected: ToolSelected::Arrow,
+        selection_area: None,
+        ctrl_or_meta_pressed: false,
         mouse_state: MouseState::NoButton,
         mouse_previous_pos_abs: XY::default(),
         mouse_previous_pos_rel: XY::default(),
@@ -472,6 +527,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         //
         stroke_selected,
         stroke_default,
+        stroke_construction,
         stroke_light,
         dash_pattern: JsValue::from(dash_pattern),
         solid_pattern: JsValue::from(solid_pattern),
@@ -695,6 +751,7 @@ fn init_canvas(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
         &mut element,
         Box::new(on_keydown),
     )?;
+    set_callback(pa.clone(), "keyup".into(), &mut element, Box::new(on_keyup))?;
     Ok(())
 }
 fn set_callback(
@@ -887,31 +944,40 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     pa_ref.ctx.set_line_width(1.);
     pa_ref.ctx.set_stroke_style(&shape_color.into());
 
+    // Draw all shapes
     for shape in pa_ref.shapes.iter() {
         draw_shape(&pa_ref, shape);
     }
 
+    // Draw th current drawing shape
     if let Some(shape) = pa_ref.current_shape.as_ref() {
         draw_shape(&pa_ref, shape);
     }
 
-    // const bl = this.selectionArea.bl;
-    // const tr = this.selectionArea.tr;
-    // if (bl.x !== tr.x && bl.y !== tr.y) {
-    //     let p = new Path2D();
-    //     this.ctx.strokeStyle = strokeLight;
-    //     this.ctx.setLineDash([3, 3]);
-    //     p.moveTo(bl.x, bl.y);
-    //     p.lineTo(bl.x, tr.y);
-    //     p.lineTo(tr.x, tr.y);
-    //     p.lineTo(tr.x, bl.y);
-    //     p.lineTo(bl.x, bl.y);
-    //     this.ctx.stroke(p);
-    //     this.ctx.setLineDash([]);
-    //     this.ctx.strokeStyle = strokeDefault;
-    // }
+    // If using a selection area, draw it
+    draw_selection(&pa_ref);
 }
 
+fn draw_selection(pa_ref: &Ref<'_, PlayingArea>) {
+    if let Some(sa) = pa_ref.selection_area {
+        let bl = sa[0];
+        let tr = sa[1];
+        if bl.x != tr.x && bl.y != tr.y {
+            let stroke_light = pa_ref.stroke_light.clone();
+            let dash_pattern = pa_ref.dash_pattern.clone();
+            pa_ref.ctx.set_stroke_style(&stroke_light.into());
+            pa_ref.ctx.set_line_dash(&dash_pattern).unwrap();
+            let p = Path2d::new().unwrap();
+            p.move_to(bl.x, bl.y);
+            p.line_to(bl.x, tr.y);
+            p.line_to(tr.x, tr.y);
+            p.line_to(tr.x, bl.y);
+            p.line_to(bl.x, bl.y);
+            pa_ref.ctx.begin_path();
+            pa_ref.ctx.stroke_with_path(&p);
+        }
+    }
+}
 fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shape) {
     // Shape draw
     let stroke_default = pa_ref.stroke_default.clone();
@@ -936,7 +1002,7 @@ fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shape) {
                     let pt2 = shape.get_handle(idx2);
 
                     if let Some((pta, ptb)) = get_segment(&pt1, &pt2, snap.1) {
-                        draw_dotted_line(pa_ref, &pta, &ptb);
+                        draw_construction_line(pa_ref, &pta, &ptb);
                     }
                 }
                 SnapType::Middle(idx_middle, idxs) => {
@@ -945,15 +1011,15 @@ fn draw_shape(pa_ref: &Ref<'_, PlayingArea>, shape: &Shape) {
                         let pt1 = shape.get_handle(idxs[0]);
                         let pt2 = shape.get_handle(idxs[1]);
                         let pt_mid = (pt1 + pt2) / 2.;
-                        draw_dotted_line(pa_ref, &pt, &pt_mid);
+                        draw_construction_line(pa_ref, &pt, &pt_mid);
                     }
                 }
             }
         }
     }
 }
-fn draw_dotted_line(pa_ref: &Ref<'_, PlayingArea>, start: &XY, end: &XY) {
-    let stroke_light = pa_ref.stroke_light.clone();
+fn draw_construction_line(pa_ref: &Ref<'_, PlayingArea>, start: &XY, end: &XY) {
+    let stroke_light = pa_ref.stroke_construction.clone();
     let dash_pattern = pa_ref.dash_pattern.clone();
     pa_ref.ctx.set_stroke_style(&stroke_light.into());
     pa_ref.ctx.set_line_dash(&dash_pattern).unwrap();
