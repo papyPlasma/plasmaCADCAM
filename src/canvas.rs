@@ -148,7 +148,16 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     pa_ref.current_shape =
                         Some(Shape::new(ShapeType::Square(vec![start, start]), snap_val));
                 }
-                DrawCircle => (),
+                DrawCircle => {
+                    for shape in pa_ref.shapes.iter_mut() {
+                        shape.remove_selection();
+                    }
+                    let mut start = mouse_pos_rel;
+                    snap_to_grid(&mut start, pa_ref.grid_spacing);
+                    let snap_val = pa_ref.snap_val;
+                    pa_ref.current_shape =
+                        Some(Shape::new(ShapeType::Circle(vec![start, start]), snap_val));
+                }
             }
 
             pa_ref.mouse_previous_pos_abs = mouse_pos_abs;

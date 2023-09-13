@@ -1,5 +1,7 @@
+use std::f64::consts::PI;
+
 use js_sys::Math::sqrt;
-use web_sys::console;
+// use web_sys::console;
 
 use crate::shapes::{SegmentSnapping, XY};
 
@@ -208,6 +210,27 @@ pub fn is_point_on_cubicbezier(
         }
     }
     min_dist <= precision
+}
+
+fn normalize_angle(mut angle: f64) -> f64 {
+    while angle < 0. {
+        angle += 2. * PI;
+    }
+    while angle >= 2. * PI {
+        angle -= 2. * PI;
+    }
+    angle
+}
+
+pub fn is_point_on_ellipse(pt: &XY, c: &XY, r: &XY, mut precision: f64) -> bool {
+    if r.x > 0. && r.y > 0. {
+        precision /= r.norm();
+        precision *= 2.;
+        let value = (pt.x - c.x).powf(2.) / (r.x * r.x) + (pt.y - c.y).powf(2.) / (r.y * r.y);
+        value < 1. + precision && value > 1. - precision
+    } else {
+        false
+    }
 }
 
 pub fn get_segment(pta: &XY, ptb: &XY, segment_snapping: SegmentSnapping) -> Option<(XY, XY)> {

@@ -1,6 +1,9 @@
 use crate::math::*;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
-use web_sys::{console, Path2d};
+use std::{
+    f64::consts::PI,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+};
+use web_sys::Path2d;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SnapType {
@@ -14,6 +17,7 @@ pub enum ShapeType {
     QuadBezier(Vec<XY>),
     CubicBezier(Vec<XY>),
     Square(Vec<XY>),
+    Circle(Vec<XY>),
 }
 
 #[derive(Copy, Clone)]
@@ -107,6 +111,18 @@ impl Shape {
                 snap_val,
                 init: true,
             },
+            ShapeType::Circle(handles) => Shape {
+                offset: handles[0],
+                handles: ShapeType::Circle(vec![XY::default(), handles[1] - handles[0]]),
+                snaps: {
+                    let mut tmp = Vec::new();
+                    tmp.push((SnapType::Geometry(0, 1), SegmentSnapping::None));
+                    tmp
+                },
+                handle_selected: 1,
+                snap_val,
+                init: true,
+            },
         }
     }
     pub fn get_handle(&self, idx: usize) -> XY {
@@ -115,6 +131,7 @@ impl Shape {
             ShapeType::QuadBezier(handles) => handles[idx] + self.offset,
             ShapeType::CubicBezier(handles) => handles[idx] + self.offset,
             ShapeType::Square(handles) => handles[idx] + self.offset,
+            ShapeType::Circle(handles) => handles[idx] + self.offset,
         }
     }
     pub fn get_handle_selected(&self) -> i32 {
@@ -148,6 +165,7 @@ impl Shape {
                     }
                 }
                 ShapeType::Square(handles) => handles[self.handle_selected as usize] += *dp,
+                ShapeType::Circle(handles) => handles[self.handle_selected as usize] += *dp,
             }
 
             // Detect and set snapping
@@ -196,6 +214,15 @@ impl Shape {
                                         self.snap_val,
                                     );
                                 }
+                                ShapeType::Circle(handles) => {
+                                    *snap = snap_h_v_45_135(
+                                        handles,
+                                        &idx1,
+                                        &idx2,
+                                        self.handle_selected == 1,
+                                        self.snap_val,
+                                    );
+                                }
                             }
                         }
                     }
@@ -209,6 +236,7 @@ impl Shape {
                                 }
                                 ShapeType::CubicBezier(_) => (),
                                 ShapeType::Square(_) => (),
+                                ShapeType::Circle(_) => (),
                             }
                         } else {
                             *snap = SegmentSnapping::None;
@@ -256,6 +284,18 @@ impl Shape {
                 p.line_to(end.x, end.y);
                 p.line_to(end.x, start.y);
                 p.line_to(start.x, start.y);
+                p
+            }
+            ShapeType::Circle(handles) => {
+                let center = handles[0] + self.offset;
+                let radius = XY {
+                    x: (handles[1].x - handles[0].x).abs(),
+                    y: (handles[1].y - handles[0].y).abs(),
+                };
+                let p = Path2d::new().unwrap();
+                p.move_to(center.x + radius.x, center.y);
+                p.ellipse(center.x, center.y, radius.x, radius.y, 0., 0., 2. * PI)
+                    .unwrap();
                 p
             }
         }
@@ -335,6 +375,21 @@ impl Shape {
                 _ => (),
             },
             ShapeType::Square(handles) => match self.handle_selected {
+                -1 => {
+                    handles_pos.push((handles[0] + self.offset, false));
+                    handles_pos.push((handles[1] + self.offset, false));
+                }
+                0 => {
+                    handles_pos.push((handles[0] + self.offset, true));
+                    handles_pos.push((handles[1] + self.offset, false));
+                }
+                1 => {
+                    handles_pos.push((handles[0] + self.offset, false));
+                    handles_pos.push((handles[1] + self.offset, true));
+                }
+                _ => (),
+            },
+            ShapeType::Circle(handles) => match self.handle_selected {
                 -1 => {
                     handles_pos.push((handles[0] + self.offset, false));
                     handles_pos.push((handles[1] + self.offset, false));
@@ -456,6 +511,23 @@ impl Shape {
                         }
                     }
                 }
+                ShapeType::Circle(handles) => {
+                    if self.handle_selected == 0 {
+                        snap_to_grid(&mut handles[0], grid_spacing);
+                        if handles[0].x == handles[1].x && handles[0].y == handles[1].y {
+                            handles[0].x += grid_spacing;
+                            handles[0].y += grid_spacing;
+                        }
+                    } else {
+                        if self.handle_selected == 1 {
+                            snap_to_grid(&mut handles[1], grid_spacing);
+                            if handles[0].x == handles[1].x && handles[0].y == handles[1].y {
+                                handles[1].x += grid_spacing;
+                                handles[1].y += grid_spacing;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -471,6 +543,9 @@ impl Shape {
                 handles[0].x != handles[3].x || handles[0].y != handles[3].y
             }
             ShapeType::Square(handles) => {
+                handles[0].x != handles[1].x || handles[0].y != handles[1].y
+            }
+            ShapeType::Circle(handles) => {
                 handles[0].x != handles[1].x || handles[0].y != handles[1].y
             }
         }
@@ -612,6 +687,32 @@ impl Shape {
                     }
                 }
             }
+            ShapeType::Circle(handles) => {
+                let start = handles[0];
+                let end = handles[1];
+                if is_point_on_point(pos, &(start + self.offset), precision) {
+                    if self.handle_selected > -2 {
+                        self.handle_selected = 0;
+                    }
+                } else {
+                    if is_point_on_point(pos, &(end + self.offset), precision) {
+                        if self.handle_selected > -2 {
+                            self.handle_selected = 1;
+                        }
+                    } else {
+                        let center = handles[0] + self.offset;
+                        let radius = XY {
+                            x: (handles[1].x - handles[0].x).abs(),
+                            y: (handles[1].y - handles[0].y).abs(),
+                        };
+                        if is_point_on_ellipse(pos, &center, &radius, precision) {
+                            self.handle_selected = -1;
+                        } else {
+                            self.handle_selected = -2;
+                        }
+                    }
+                }
+            }
         }
     }
     pub fn remove_selection(&mut self) {
@@ -632,6 +733,7 @@ impl XY {
         let dpt = *self - *other;
         (dpt.x * dpt.x + dpt.y * dpt.y).sqrt()
     }
+    #[allow(dead_code)]
     pub fn norm(&self) -> f64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
@@ -642,7 +744,6 @@ impl Default for XY {
         XY { x: 0.0, y: 0.0 }
     }
 }
-
 impl Add for XY {
     type Output = Self;
 
@@ -659,7 +760,6 @@ impl AddAssign for XY {
         self.y += other.y;
     }
 }
-
 impl Sub for XY {
     type Output = XY;
     fn sub(self, other: XY) -> XY {
@@ -675,7 +775,6 @@ impl SubAssign for XY {
         self.y -= other.y;
     }
 }
-
 impl Div<f64> for XY {
     type Output = XY;
 
@@ -698,7 +797,6 @@ impl DivAssign<f64> for XY {
         self.y /= rhs;
     }
 }
-
 impl Mul<f64> for XY {
     type Output = XY;
 
