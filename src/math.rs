@@ -69,20 +69,31 @@ pub fn snap_equidistant(
     let dx = pt2.x - pt1.x;
     let dy = pt2.y - pt1.y;
 
-    if dx == 0. {
+    if dx == 0. && dy == 0. {
         return SegmentSnapping::None;
     }
-    let slope = dy / dx;
-    let perp_slope = -1.0 / slope;
-    // Find the intersection point
-    let x_p = (perp_slope * mid.x - slope * pt.x + pt.y - mid.y) / (perp_slope - slope);
-    let y_p = perp_slope * (x_p - mid.x) + mid.y;
-    let proj = XY { x: x_p, y: y_p };
 
-    // Check the distance condition
-    let distance = ((pt.x - proj.x).powf(2.) + (pt.y - proj.y).powf(2.)).sqrt();
-    console::log_1(&format!("{:?}", distance).into());
-    if distance < snap_val {
+    let proj = if dx == 0. {
+        XY {
+            x: pt.x,
+            y: (pt2.y + pt1.y) / 2.,
+        }
+    } else {
+        if dy == 0. {
+            XY {
+                x: (pt2.x + pt1.x) / 2.,
+                y: pt.y,
+            }
+        } else {
+            let slope = dy / dx;
+            let perp_slope = -1. / slope;
+            let x_p = (perp_slope * mid.x - slope * pt.x + pt.y - mid.y) / (perp_slope - slope);
+            let y_p = perp_slope * (x_p - mid.x) + mid.y;
+            XY { x: x_p, y: y_p }
+        }
+    };
+
+    if pt.dist(&proj) < snap_val {
         handles[*idx] = proj;
         SegmentSnapping::Middle
     } else {
@@ -91,9 +102,10 @@ pub fn snap_equidistant(
 }
 
 pub fn is_point_on_point(pt1: &XY, pt2: &XY, precision: f64) -> bool {
-    let dx = (pt1.x - pt2.x).abs();
-    let dy = (pt1.y - pt2.y).abs();
-    dx < precision && dy < precision
+    // let dx = (pt1.x - pt2.x).abs();
+    // let dy = (pt1.y - pt2.y).abs();
+    // dx < precision && dy < precision
+    pt1.dist(pt2) < precision
 }
 
 pub fn is_point_on_segment(pt: &XY, pt1: &XY, pt2: &XY, precision: f64) -> bool {
@@ -110,7 +122,7 @@ pub fn is_point_on_segment(pt: &XY, pt1: &XY, pt2: &XY, precision: f64) -> bool 
     is_between(pt, pt1, pt2)
 }
 
-pub fn is_point_on_quadbezier(pt: &XY, pt1: &XY, mid: &XY, pt2: &XY, precision: f64) -> bool {
+pub fn is_point_on_quadbezier(pt: &XY, pt1: &XY, ctrl: &XY, pt2: &XY, precision: f64) -> bool {
     let mut t_min = 0.;
     let mut t_max = 1.;
     let mut min_dist = f64::MAX;
@@ -121,14 +133,62 @@ pub fn is_point_on_quadbezier(pt: &XY, pt1: &XY, mid: &XY, pt2: &XY, precision: 
 
         let bt = XY {
             x: (1f64 - t_mid).powf(2.) * pt1.x
-                + 2. * (1f64 - t_mid) * t_mid * mid.x
+                + 2. * (1f64 - t_mid) * t_mid * ctrl.x
                 + t_mid.powf(2.) * pt2.x,
             y: (1f64 - t_mid).powf(2.) * pt1.y
-                + 2. * (1f64 - t_mid) * t_mid * mid.y
+                + 2. * (1f64 - t_mid) * t_mid * ctrl.y
                 + t_mid.powf(2.) * pt2.y,
         };
 
-        let dist = ((bt.x - pt.x).powf(2.) + (bt.y - pt.y).powf(2.)).sqrt();
+        let dist = bt.dist(pt); //((bt.x - pt.x).powf(2.) + (bt.y - pt.y).powf(2.)).sqrt();
+
+        if dist < min_dist {
+            min_dist = dist;
+        }
+
+        if dist < precision {
+            return true; // We found a sufficiently close point
+        }
+
+        // Using gradient to decide the next tMid for the next iteration.
+        let gradient = (bt.x - pt.x) * (pt2.x - pt1.x) + (bt.y - pt.y) * (pt2.y - pt1.y);
+
+        if gradient > 0. {
+            t_max = t_mid;
+        } else {
+            t_min = t_mid;
+        }
+    }
+    min_dist <= precision
+}
+
+pub fn is_point_on_cubicbezier(
+    pt: &XY,
+    pt1: &XY,
+    ctrl1: &XY,
+    ctrl2: &XY,
+    pt2: &XY,
+    precision: f64,
+) -> bool {
+    let mut t_min = 0.;
+    let mut t_max = 1.;
+    let mut min_dist = f64::MAX;
+
+    for _i in 0..100 {
+        let t_mid = (t_min + t_max) / 2.;
+
+        let bt = XY {
+            x: (1f64 - t_mid).powf(3.) * pt1.x
+                + 3. * (1f64 - t_mid).powf(2.) * t_mid * ctrl1.x
+                + 3. * (1f64 - t_mid) * t_mid.powf(2.) * ctrl2.x
+                + (t_mid).powf(3.) * pt2.x,
+            y: (1f64 - t_mid).powf(3.) * pt1.y
+                + 3. * (1f64 - t_mid).powf(2.) * t_mid * ctrl1.y
+                + 3. * (1f64 - t_mid) * t_mid.powf(2.) * ctrl2.y
+                + (t_mid).powf(3.) * pt2.y,
+        };
+
+        let dist = bt.dist(pt);
 
         if dist < min_dist {
             min_dist = dist;

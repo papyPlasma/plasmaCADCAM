@@ -352,6 +352,9 @@ function __wbg_get_imports() {
         const ret = new Path2D();
         return addHeapObject(ret);
     }, arguments) };
+    imports.wbg.__wbg_bezierCurveTo_6579a7b8038a0ab2 = function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
+        getObject(arg0).bezierCurveTo(arg1, arg2, arg3, arg4, arg5, arg6);
+    };
     imports.wbg.__wbg_lineTo_6dae7afdea80cb55 = function(arg0, arg1, arg2) {
         getObject(arg0).lineTo(arg1, arg2);
     };
@@ -590,8 +593,8 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_rethrow = function(arg0) {
         throw takeObject(arg0);
     };
-    imports.wbg.__wbindgen_closure_wrapper180 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 60, __wbg_adapter_22);
+    imports.wbg.__wbindgen_closure_wrapper181 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 59, __wbg_adapter_22);
         return addHeapObject(ret);
     };
 
