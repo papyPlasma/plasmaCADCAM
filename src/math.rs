@@ -212,7 +212,7 @@ pub fn is_point_on_cubicbezier(
     min_dist <= precision
 }
 
-fn normalize_angle(mut angle: f64) -> f64 {
+fn _normalize_angle(mut angle: f64) -> f64 {
     while angle < 0. {
         angle += 2. * PI;
     }

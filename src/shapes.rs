@@ -5,10 +5,13 @@ use std::{
 };
 use web_sys::Path2d;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SnapType {
-    Geometry(usize, usize),
-    Middle(usize, [usize; 2]),
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum DimensionType {
+    Linear(f64, usize, usize),
+    Horizontal(f64, usize, usize),
+    Vertical(f64, usize, usize),
+    Radius(f64, usize, usize),
 }
 
 #[derive(Clone)]
@@ -28,6 +31,12 @@ pub enum SegmentSnapping {
     Diagonal45,
     Diagonal135,
     Middle,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SnapType {
+    Geometry(usize, usize),
+    Middle(usize, [usize; 2]),
 }
 
 #[derive(Clone)]

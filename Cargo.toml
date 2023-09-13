@@ -30,4 +30,5 @@ features = [
     'DomRect',
     'Path2d',
     'WheelEvent',
+    'KeyboardEvent',
 ]

@@ -8,8 +8,11 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     console, CanvasRenderingContext2d, Document, Element, Event, HtmlCanvasElement, HtmlElement,
-    MouseEvent, Path2d, WheelEvent, Window,
+    KeyboardEvent, MouseEvent, Path2d, WheelEvent, Window,
 };
+
+//console::log_1(&format!("{:?}", xxx).into());
+//console::log_1(&"ddd".into());
 
 pub type ElementCallback = Box<dyn Fn(Rc<RefCell<PlayingArea>>, Event) + 'static>;
 
@@ -82,7 +85,7 @@ impl PlayingArea {
         XY { x: rel_x, y: rel_y }
     }
 }
-// console::log_1(&format!("{:?}", tool_selected).into());
+
 // Canvas events: mouse, keyboard and context menu
 fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
@@ -297,7 +300,23 @@ fn on_mouse_wheel(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     }
 }
 #[allow(dead_code)]
-fn on_keydown(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
+fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+    if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
+        let mut pa_ref = pa.borrow_mut();
+        if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
+            pa_ref
+                .shapes
+                .retain(|shape| shape.get_handle_selected() < -1)
+        }
+        // if event.key == "Shift" {
+        //     if (editorState === 'pointer') {
+        //         this.goToselectionMode();
+        //     }
+        // }
+        drop(pa_ref);
+        render(pa.clone());
+    }
+}
 #[allow(dead_code)]
 fn on_context_menu(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
 
@@ -314,8 +333,6 @@ fn resize_area(pa: Rc<RefCell<PlayingArea>>) {
     pa_ref.offset.y = -(canvas_height - (window_inner_height - 110.)) * scale;
 }
 fn on_window_resize(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
-    //console::log_1(&format!("x:{:?} y:{:?}", canvas_width, canvas_height).into());
-    //console::log_1(&"ddd".into());
     resize_area(pa.clone());
     render(pa.clone());
 }
@@ -672,6 +689,12 @@ fn init_canvas(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
         &mut element,
         Box::new(on_mouse_wheel),
     )?;
+    set_callback(
+        pa.clone(),
+        "keydown".into(),
+        &mut element,
+        Box::new(on_keydown),
+    )?;
     Ok(())
 }
 fn set_callback(
@@ -685,6 +708,12 @@ fn set_callback(
         if let Ok(mouse_event) = e.clone().dyn_into::<MouseEvent>() {
             if mouse_event.type_().as_str() == event_str_cloned {
                 callback(pa.clone(), e);
+            }
+        } else {
+            if let Ok(keyboard_event) = e.clone().dyn_into::<KeyboardEvent>() {
+                if keyboard_event.type_().as_str() == event_str_cloned {
+                    callback(pa.clone(), e);
+                }
             }
         }
     });
