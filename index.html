@@ -30,8 +30,21 @@
             <div id="icon-cog" class="icon bottom-icon" data-tooltip="Preferences"></div>
         </div>
     </div>
-    <div class="top-menu">
-        <div id="menuTitle">&nbsp;CAD/CAM Plasma V0.1 (SWITCHED TO RUST/WEBASSEMBLY on 9/9/2023 work in progress)</div>
+    <div id="settingsPanel">
+        <form id="canvasSettings">
+            <label>Canvas Width: 
+                <input type="number" id="canvasWidthInput">
+            </label>
+            <br>
+            <label>Canvas Height: 
+                <input type="number" id="canvasHeightInput">
+            </label>
+            <br>
+            <button type="button" id="apply-settings">Apply</button>
+        </form>
+    </div>
+    <div id="top-menu" class="top-menu">
+        <div id="menuTitle">&nbsp;CAD/CAM Plasma V0.2 (work in progress)</div>
         <!-- Top menu items go here -->
     </div>
     <div id="canvas-container">
@@ -40,28 +53,15 @@
             <a href="#" id="actionOne">Action One</a>
             <a href="#" id="actionTwo">Action Two</a>
         </div>
-        <div class="status-bar">
-            <div class="status-section" id="status-gridsize">Grid size: NA</div>
-            <div class="status-section" id="status-info">Additional Info</div>
-            <div class="status-section" id="status-buttons">
-                <button>Button 1</button>
-                <button>Button 2</button>
-            </div>
-            <!-- Add more sections as needed -->
+    </div>
+    <div id="status-bar" class="status-bar">
+        <div class="status-section" id="status-gridsize">Grid size: NA</div>
+        <div class="status-section" id="status-info">Additional Info</div>
+        <div class="status-section" id="status-buttons">
+            <button>Button 1</button>
+            <button>Button 2</button>
         </div>
-        <div id="settingsPanel">
-            <form id="canvasSettings">
-                <label>Canvas Width: 
-                    <input type="number" id="canvasWidthInput">
-                </label>
-                <br>
-                <label>Canvas Height: 
-                    <input type="number" id="canvasHeightInput">
-                </label>
-                <br>
-                <button type="button" id="apply-settings">Apply</button>
-            </form>
-        </div>
+        <!-- Add more sections as needed -->
     </div>
     <div id="tooltip" class="tooltip"></div>
 </body>
