@@ -1,16 +1,25 @@
 
 :root {
-    --canvas-stroke-selection: #ff0000;
-    --canvas-stroke-default: #000;
-    --canvas-stroke-construction: #00b812;
-    --canvas-stroke-light: #7d7d7d;
+    --canvas-background-color: #909090;
+    --canvas-workpiece-color: #000;
+    --canvas-dimension-color: #552;
+    --canvas-geohelper-color: #ffffff;
+    --canvas-origin-color: #e0e;
+    --canvas-grid-color: #a6a5a5;
+    --canvas-selection-color: #850;
+    --canvas-selected-color: #0F6;
 }
 
+
+
 body, html {
-    height: 100%;
+    /* height: 100%;
     margin: 0;
     font-family: 'Orbitron';
-    overflow: hidden; /* Prevents scrolling. */
+    overflow: hidden; */
+    margin: 0;
+    padding: 0;
+    font-family: 'Orbitron';
 }
 
 .left-panel {
@@ -68,19 +77,20 @@ body, html {
     margin-right: auto; /* This pushes other menu items to the right */
 }
 
-#canvas-Container {
+/* #canvas-Container {
     position: relative;
     height: 100%;
-}
+} */
 
 canvas {
     cursor: default; 
     outline: none;
-    background-color: #fff;
-    flex: 1;
-    margin-top: 60px; /* same as the height of the top menu */
-    margin-left: 60px; /* same as the width of the left panel */
-    overflow: hidden; /*    Hide the overflowing parts of the canvas */
+    display: block;
+    border: none;
+    margin: 0;
+    padding: 0;
+    background-color: #ff0;
+    position: absolute;
 }
 
 .status-bar {

@@ -1,9 +1,7 @@
 mod canvas;
 mod math;
 mod shapes;
-use canvas::{create_playing_area, PlayingArea};
-use std::cell::RefCell;
-use std::rc::Rc;
+use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
 
