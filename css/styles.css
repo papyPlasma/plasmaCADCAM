@@ -1,11 +1,11 @@
 
 :root {
-    --canvas-background-color: #909090;
+    --canvas-background-color: #cfcccc;
     --canvas-workpiece-color: #000;
     --canvas-dimension-color: #552;
     --canvas-geohelper-color: #ffffff;
     --canvas-origin-color: #e0e;
-    --canvas-grid-color: #a6a5a5;
+    --canvas-grid-color: #c1c0c0;
     --canvas-selection-color: #850;
     --canvas-selected-color: #0F6;
 }
@@ -13,10 +13,6 @@
 
 
 body, html {
-    /* height: 100%;
-    margin: 0;
-    font-family: 'Orbitron';
-    overflow: hidden; */
     margin: 0;
     padding: 0;
     font-family: 'Orbitron';
@@ -61,26 +57,64 @@ body, html {
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    /* justify-content: space-between; */
     z-index: 3;  /* Highest z-index ensures it's on top of everything */
     position: fixed; /* Keep it fixed at the top */
     top: 0;
     left: 0;
+    font-size: 24px;
     /* padding: 5px 5px; */
 }
 
 #menuTitle {
     font-family: 'Orbitron'; /* Change this to any font you prefer */
-    font-size: 24px;
     color: #f5f4f4;
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-    margin-right: auto; /* This pushes other menu items to the right */
 }
 
-/* #canvas-Container {
+.dropbtn {
+    padding: 5px 20px ;
+    cursor: pointer;
+    font-family: 'Orbitron';
+    font-size: 18px;
+    color: #f5f4f4; 
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    background: none; 
+    border: none; 
+}
+
+
+.dropdown {
     position: relative;
-    height: 100%;
-} */
+    display: inline-block;
+    vertical-align: top;
+}
+
+.dropdown-content {
+    font-size: 14px;
+    display: none;
+    position: absolute;
+    background-color: #f9f9f9;
+    min-width: 200px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 1;
+}
+
+.dropdown-content a {
+    color: black;
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+}
+
+.dropdown-content a:hover {
+    background-color: #f1f1f1;
+}
+
+.dropdown:hover .dropdown-content {
+    display: block;
+}
+
 
 canvas {
     cursor: default; 
@@ -89,7 +123,7 @@ canvas {
     border: none;
     margin: 0;
     padding: 0;
-    background-color: #ff0;
+    /* background-color: #ff0; */
     position: absolute;
 }
 

@@ -14,6 +14,8 @@
     const sum = add(1, 2);
     console.log(`1 + 2 = ${sum}`);
 </script>  
+    <input type="file" id="file-input" style="display: none;" />
+
     <div class="left-panel" id="left-panel">
         <!-- Tools go here -->
         <div class="icon-container">
@@ -44,8 +46,23 @@
         </form>
     </div>
     <div id="top-menu" class="top-menu">
-        <div id="menuTitle">&nbsp;CAD/CAM Plasma V0.2 (work in progress)</div>
-        <!-- Top menu items go here -->
+        <div id="menuTitle">
+            &nbsp;CAD/CAM Plasma V0.2 (work in progress)
+        </div>
+        
+        <!-- Create a dropdown menu with File as the heading and Load and Save as options -->
+        <div class="dropdown">
+            <button class="dropbtn">File</button>
+            <div class="dropdown-content">
+                <a href="#" id="load-option">Load SVG path</a>
+                <a href="#" id="save-option">Save drawing (TBD)</a>
+            </div>
+        </div>
+        
+        <!-- The other parts of your top menu, if any, go here -->
+        <div>
+            <!-- Placeholder for other menu items or elements -->
+        </div>
     </div>
     <div id="canvas-container">
         <canvas id="myCanvas" tabindex="0"></canvas>

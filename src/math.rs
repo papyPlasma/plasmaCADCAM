@@ -105,6 +105,11 @@ pub fn snap_equidistant(
     }
 }
 
+pub fn extend_points(pts: &mut [WXY; 2]) {
+    reorder_corners(pts);
+    let pt1 = pts[0];
+    let pt2 = pts[1];
+}
 pub fn is_point_on_point(pt1: &WXY, pt2: &WXY, precision: f64) -> bool {
     // let dx = (pt1.x - pt2.x).abs();
     // let dy = (pt1.y - pt2.y).abs();
@@ -299,7 +304,7 @@ pub fn is_point_on_ellipse(pt: &WXY, c: &WXY, r: &WXY, mut precision: f64) -> bo
 //     }
 // }
 
-pub fn reorder_corners(bb: &[WXY; 2]) -> [WXY; 2] {
+pub fn reorder_corners(bb: &mut [WXY; 2]) {
     let pt1 = bb[0];
     let pt2 = bb[1];
     if pt1.wx < pt2.wx {
@@ -312,7 +317,8 @@ pub fn reorder_corners(bb: &[WXY; 2]) -> [WXY; 2] {
                 wx: pt2.wx,
                 wy: pt2.wy,
             };
-            [bl, tr]
+            bb[0] = bl;
+            bb[1] = tr;
         } else {
             let bl = WXY {
                 wx: pt1.wx,
@@ -322,7 +328,8 @@ pub fn reorder_corners(bb: &[WXY; 2]) -> [WXY; 2] {
                 wx: pt2.wx,
                 wy: pt1.wy,
             };
-            [bl, tr]
+            bb[0] = bl;
+            bb[1] = tr;
         }
     } else {
         if pt1.wy < pt2.wy {
@@ -334,7 +341,8 @@ pub fn reorder_corners(bb: &[WXY; 2]) -> [WXY; 2] {
                 wx: pt1.wx,
                 wy: pt2.wy,
             };
-            [bl, tr]
+            bb[0] = bl;
+            bb[1] = tr;
         } else {
             let bl = WXY {
                 wx: pt2.wx,
@@ -344,7 +352,8 @@ pub fn reorder_corners(bb: &[WXY; 2]) -> [WXY; 2] {
                 wx: pt1.wx,
                 wy: pt1.wy,
             };
-            [bl, tr]
+            bb[0] = bl;
+            bb[1] = tr;
         }
     }
 }

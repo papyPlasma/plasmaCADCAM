@@ -23,7 +23,7 @@ pub enum ConstructionType {
     Line(WXY),
     Quadratic(WXY, WXY),
     Bezier(WXY, WXY, WXY),
-    Ellipse(WXY, WXY, f64, f64, f64),
+    Ellipse(WXY, WXY, f64, f64, f64, bool),
     Rectangle(WXY, WXY, bool),
     // Text(WXY, String),
 }
@@ -169,7 +169,6 @@ impl Shape {
             },
         }
     }
-
     pub fn get_handle_selected(&self) -> i32 {
         self.handle_selected
     }
@@ -288,7 +287,6 @@ impl Shape {
             }
         }
     }
-
     pub fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -352,7 +350,7 @@ impl Shape {
                             wy: 0.,
                         },
                 ));
-                cst.push(Ellipse(center, radius, 0., 0., 2. * PI));
+                cst.push(Ellipse(center, radius, 0., 0., 2. * PI, false));
                 cst
             }
         }
@@ -397,6 +395,7 @@ impl Shape {
                                 let handle2 = handles[*idx2];
                                 let start = handle1 + self.offset;
                                 let end = handle2 + self.offset;
+                                extend_points(&mut [start, end]);
                                 cst.push(Move(start));
                                 cst.push(Line(end));
                             }
@@ -409,7 +408,6 @@ impl Shape {
         }
         cst
     }
-
     pub fn snap(&mut self, grid_spacing: f64) {
         self.init = false;
         if self.handle_selected == -1 {

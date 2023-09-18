@@ -1,6 +1,7 @@
 mod canvas;
 mod math;
 mod shapes;
+
 use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
@@ -14,5 +15,6 @@ pub fn add(a: u32, b: u32) -> u32 {
 fn start() -> Result<(), JsValue> {
     let window = window().expect("no global `window` exists");
     create_playing_area(window)?;
+
     Ok(())
 }
