@@ -252,58 +252,6 @@ pub fn is_point_on_ellipse(pt: &WXY, c: &WXY, r: &WXY, mut precision: f64) -> bo
     }
 }
 
-// pub fn get_segment(pta: &WXY, ptb: &WXY, segment_snapping: SegmentSnapping) -> Option<(WXY, WXY)> {
-//     use SegmentSnapping::*;
-//     match segment_snapping {
-//         SegmentSnapping::None => Option::None,
-//         Horizontal => {
-//             let (mut start, mut end) = if pta.wx < ptb.wx {
-//                 (*pta, *ptb)
-//             } else {
-//                 (*ptb, *pta)
-//             };
-//             start.wx -= 100.;
-//             end.wx += 100.;
-//             Some((start.clone(), end.clone()))
-//         }
-//         Vertical => {
-//             let (mut start, mut end) = if pta.wy < ptb.wy {
-//                 (*pta, *ptb)
-//             } else {
-//                 (*ptb, *pta)
-//             };
-//             start.wy -= 100.;
-//             end.wy += 100.;
-//             Some((start.clone(), end.clone()))
-//         }
-//         Diagonal45 => {
-//             let (mut start, mut end) = if pta.wx < ptb.wx {
-//                 (*pta, *ptb)
-//             } else {
-//                 (*ptb, *pta)
-//             };
-//             start.wx -= 100.;
-//             start.wy -= 100.;
-//             end.wx += 100.;
-//             end.wy += 100.;
-//             Some((start.clone(), end.clone()))
-//         }
-//         Diagonal135 => {
-//             let (mut start, mut end) = if pta.wx < ptb.wx {
-//                 (*pta, *ptb)
-//             } else {
-//                 (*ptb, *pta)
-//             };
-//             start.wx -= 100.;
-//             start.wy += 100.;
-//             end.wx += 100.;
-//             end.wy -= 100.;
-//             Some((start.clone(), end.clone()))
-//         }
-//         Middle => Option::None,
-//     }
-// }
-
 pub fn reorder_corners(bb: &mut [WXY; 2]) {
     let pt1 = bb[0];
     let pt2 = bb[1];

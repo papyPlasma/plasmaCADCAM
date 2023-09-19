@@ -25,7 +25,7 @@ pub enum ConstructionType {
     Bezier(WXY, WXY, WXY),
     Ellipse(WXY, WXY, f64, f64, f64, bool),
     Rectangle(WXY, WXY, bool),
-    // Text(WXY, String),
+    Text(WXY, String),
 }
 
 #[derive(Clone)]

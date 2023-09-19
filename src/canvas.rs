@@ -20,7 +20,7 @@ pub type ElementCallback = Box<dyn Fn(Rc<RefCell<PlayingArea>>, Event) + 'static
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum LayerType {
-    WorkPiece,
+    Worksheet,
     Dimension,
     GeometryHelpers,
     Origin,
@@ -53,9 +53,14 @@ pub struct PlayingArea {
     contex_menu: HtmlElement,
     user_icons: HashMap<&'static str, Option<Element>>,
     tooltip: HtmlElement,
-    // file_input: HtmlElement,
-    // icons_ids: Vec<&'static str>,
-    //
+    settings_panel: HtmlElement,
+    modal_backdrop: HtmlElement,
+    apply_settings_button: HtmlElement,
+    settings_width_input: HtmlInputElement,
+    settings_height_input: HtmlInputElement,
+    // Mouse position on worksheet
+    mouse_worksheet_position: HtmlElement,
+
     shapes: Vec<Shape>,
     // shape_buffer_copy_paste: Vec<Shape>,
     current_shape: Option<Shape>,
@@ -66,15 +71,16 @@ pub struct PlayingArea {
     mouse_state: MouseState,
     mouse_previous_pos_canvas: CXY,
     mouse_previous_pos_word: WXY,
+    mouse_down_world_coord: WXY,
 
     working_area: WXY,
-    scale: f64,
+    global_scale: f64,
     canvas_offset: CXY,
     working_area_grid_step: f64,
-    editing_snap_step: f64,
+    working_area_snap_step: f64,
 
     // Drawing colors
-    workpiece_color: String,
+    worksheet_color: String,
     dimension_color: String,
     geohelper_color: String,
     origin_color: String,
@@ -90,7 +96,7 @@ pub struct PlayingArea {
     // head_position: WXY,
     visual_handle_size: f64,
     //
-    precision: f64,
+    grab_handle_precision: f64,
 }
 
 // Initialization
@@ -105,6 +111,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         .get_context("2d")?
         .unwrap()
         .dyn_into::<CanvasRenderingContext2d>()?;
+    // ctx.scale(1., -1.)?;
     let contex_menu = document
         .get_element_by_id("contextMenu")
         .expect("should have contextMenu on the page")
@@ -113,6 +120,31 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         .get_element_by_id("tooltip")
         .expect("should have tooltip on the page")
         .dyn_into::<HtmlElement>()?;
+    let settings_panel = document
+        .get_element_by_id("settingsPanel")
+        .expect("should have settingsPanel on the page")
+        .dyn_into::<HtmlElement>()?;
+    let modal_backdrop = document
+        .get_element_by_id("modalBackdrop")
+        .expect("should have modalBackdrop on the page")
+        .dyn_into::<HtmlElement>()?;
+
+    let apply_settings_button = document
+        .get_element_by_id("applyWorksheetSettings")
+        .expect("should have applyWorksheetSettings on settingsPanel")
+        .dyn_into::<HtmlElement>()?;
+    let settings_width_input: HtmlInputElement = document
+        .get_element_by_id("worksheetWidthInput")
+        .expect("should have settings_width_input on settingsPanel")
+        .dyn_into()?;
+    let settings_height_input: HtmlInputElement = document
+        .get_element_by_id("worksheetHeightInput")
+        .expect("should have settings_height_input on settingsPanel")
+        .dyn_into()?;
+    let mouse_worksheet_position: HtmlElement = document
+        .get_element_by_id("status-info-worksheet-pos")
+        .expect("should have status-info-worksheet-pos on the page")
+        .dyn_into()?;
 
     let mut user_icons: HashMap<&'static str, Option<Element>> = HashMap::new();
     user_icons.insert("icon-arrow", None);
@@ -122,6 +154,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     user_icons.insert("icon-cubicbezier", None);
     user_icons.insert("icon-square", None);
     user_icons.insert("icon-circle", None);
+    user_icons.insert("icon-cog", None);
 
     let document_element = document
         .document_element()
@@ -131,7 +164,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         .unwrap()
         .unwrap();
 
-    let workpiece_color = style.get_property_value("--canvas-workpiece-color")?;
+    let worksheet_color = style.get_property_value("--canvas-worksheet-color")?;
     let dimension_color = style.get_property_value("--canvas-dimension-color")?;
     let geohelper_color = style.get_property_value("--canvas-geohelper-color")?;
     let origin_color = style.get_property_value("--canvas-origin-color")?;
@@ -152,14 +185,17 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         wx: 1000.,
         wy: 500.,
     };
+    settings_width_input.set_value(&working_area.wx.to_string());
+    settings_height_input.set_value(&working_area.wy.to_string());
+
     let working_area_grid_step = 10.;
-    let working_area_snap_step = 2.;
+    let working_area_snap_step = 1.;
 
     let canvas_offset = CXY {
         cx: (canvas_width - working_area.wx) / 2.,
         cy: (canvas_height - working_area.wy) / 2.,
     };
-    let scale = 1.;
+    let global_scale = 1.;
 
     let playing_area = Rc::new(RefCell::new(PlayingArea {
         window,
@@ -171,8 +207,13 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         contex_menu,
         user_icons,
         tooltip,
-        // file_input,
-        // icons_ids,
+        settings_panel,
+        modal_backdrop,
+        apply_settings_button,
+        settings_width_input,
+        settings_height_input,
+        mouse_worksheet_position,
+
         shapes: Vec::new(),
         // shape_buffer_copy_paste: Vec::new(),
         current_shape: None,
@@ -182,18 +223,19 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         mouse_state: MouseState::NoButton,
         mouse_previous_pos_canvas: CXY::default(),
         mouse_previous_pos_word: WXY::default(),
+        mouse_down_world_coord: WXY::default(),
 
         // Real word dimensions
         working_area,
 
         // Zoom
-        scale,
+        global_scale,
         canvas_offset,
         working_area_grid_step,
-        editing_snap_step: working_area_snap_step,
+        working_area_snap_step,
 
         // Drawing colors
-        workpiece_color,
+        worksheet_color,
         dimension_color,
         geohelper_color,
         origin_color,
@@ -208,13 +250,14 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         pattern_dashed: JsValue::from(dash_pattern),
         pattern_solid: JsValue::from(solid_pattern),
         //
-        precision: 5.,
+        grab_handle_precision: 5.,
     }));
 
     init_window(playing_area.clone())?;
     init_menu(playing_area.clone())?;
     init_canvas(playing_area.clone())?;
     init_icons(playing_area.clone())?;
+    init_settings_panel(playing_area.clone())?;
 
     resize_area(playing_area.clone());
     render(playing_area.clone());
@@ -246,6 +289,22 @@ fn init_window(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
         .window
         .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())?;
     closure.forget();
+    Ok(())
+}
+fn init_settings_panel(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
+    let pa_ref = pa.borrow_mut();
+    set_callback(
+        pa.clone(),
+        "click".into(),
+        &pa_ref.apply_settings_button,
+        Box::new(on_apply_settings_click),
+    )?;
+    set_callback(
+        pa.clone(),
+        "click".into(),
+        &pa_ref.modal_backdrop,
+        Box::new(on_modal_backdrop_click),
+    )?;
     Ok(())
 }
 fn init_icons(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
@@ -429,7 +488,7 @@ fn set_callback(
 
 fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
     let mut pa_ref = pa.borrow_mut();
-    let snap_val = pa_ref.editing_snap_step / 2.;
+    let snap_val = pa_ref.working_area_snap_step / 2.;
     let visual_handle_size = pa_ref.visual_handle_size;
 
     let mut shapes: Vec<Shape> = Vec::new();
@@ -702,6 +761,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
     drop(pa_ref);
     render(pa.clone());
 }
+
 ///////////////
 // Canvas events: mouse, keyboard and context menu
 fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
@@ -717,24 +777,27 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 cy: mouse_event.client_y() as f64 - rect.top(),
             };
 
-            let scale = pa_ref.scale;
+            let scale = pa_ref.global_scale;
             let offset = pa_ref.canvas_offset;
 
             let mouse_pos_world = mouse_pos_canvas.to_world(scale, offset);
+            pa_ref.mouse_previous_pos_word = mouse_pos_world;
+            pa_ref.mouse_down_world_coord = mouse_pos_world;
 
-            let snap_val = pa_ref.editing_snap_step / 2.;
+            let snap_val = pa_ref.working_area_snap_step / 2.;
             let visual_handle_size = pa_ref.visual_handle_size;
             let mut start = mouse_pos_world;
-            snap_to_grid(&mut start, pa_ref.working_area_grid_step);
+            snap_to_grid(&mut start, pa_ref.working_area_snap_step);
 
             if "icon-arrow" != pa_ref.icon_selected {
                 for shape in pa_ref.shapes.iter_mut() {
                     shape.remove_selection();
                 }
             }
+
             match pa_ref.icon_selected {
                 "icon-arrow" => {
-                    let precision = pa_ref.precision;
+                    let precision = pa_ref.grab_handle_precision;
                     for shape in pa_ref.shapes.iter_mut() {
                         shape.set_selection(&mouse_pos_world, precision);
                     }
@@ -780,8 +843,16 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 _ => (),
             }
 
-            // pa_ref.mouse_previous_pos_canvas = mouse_pos_canvas;
-            pa_ref.mouse_previous_pos_word = mouse_pos_world;
+            // Update display mouse world position
+            pa_ref
+                .mouse_worksheet_position
+                .set_text_content(Some(&format!(
+                    "( {:?} , {:?} ) - ( {:?} , {:?} )",
+                    mouse_pos_world.wx.round() as i32,
+                    mouse_pos_world.wy.round() as i32,
+                    (mouse_pos_world.wx - pa_ref.mouse_down_world_coord.wx).round() as i32,
+                    (mouse_pos_world.wy - pa_ref.mouse_down_world_coord.wy).round() as i32
+                )));
 
             drop(pa_ref);
             render(pa.clone());
@@ -800,7 +871,7 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             cy: mouse_event.client_y() as f64 - rect.top(),
         };
 
-        let scale = pa_ref.scale;
+        let scale = pa_ref.global_scale;
         let world_offset = pa_ref.canvas_offset;
 
         let mouse_delta_canvas = mouse_pos_canvas - pa_ref.mouse_previous_pos_canvas;
@@ -840,6 +911,28 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         }
         pa_ref.mouse_previous_pos_canvas = mouse_pos_canvas;
         pa_ref.mouse_previous_pos_word = mouse_pos_world;
+
+        // Update display mouse world position
+        if let MouseState::LeftDown = mouse_state {
+            pa_ref
+                .mouse_worksheet_position
+                .set_text_content(Some(&format!(
+                    "( {:?} , {:?} ) - ( {:?} , {:?} )",
+                    mouse_pos_world.wx.round() as i32,
+                    mouse_pos_world.wy.round() as i32,
+                    (mouse_pos_world.wx - pa_ref.mouse_down_world_coord.wx).round() as i32,
+                    (mouse_pos_world.wy - pa_ref.mouse_down_world_coord.wy).round() as i32
+                )));
+        } else {
+            pa_ref
+                .mouse_worksheet_position
+                .set_text_content(Some(&format!(
+                    "( {:?} , {:?} )",
+                    mouse_pos_world.wx.round() as i32,
+                    mouse_pos_world.wy.round() as i32
+                )));
+        }
+
         drop(pa_ref);
         render(pa.clone());
     }
@@ -851,10 +944,10 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 
         match pa_ref.icon_selected {
             "icon-arrow" => {
-                let grid_spacing = pa_ref.working_area_grid_step;
+                let snap = pa_ref.working_area_snap_step;
                 for shape in pa_ref.shapes.iter_mut() {
                     if shape.get_handle_selected() > -2 {
-                        shape.snap(grid_spacing);
+                        shape.snap(snap);
                     }
                 }
             }
@@ -876,10 +969,10 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
             | "icon-square" => {
-                let grid_spacing = pa_ref.working_area_grid_step;
+                let snap = pa_ref.working_area_snap_step;
                 let oshape = pa_ref.current_shape.clone();
                 if let Some(mut shape) = oshape {
-                    shape.snap(grid_spacing);
+                    shape.snap(snap);
                     if shape.valid() {
                         pa_ref.shapes.push(shape);
                     }
@@ -899,7 +992,7 @@ fn on_mouse_wheel(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let mut pa_ref = pa.borrow_mut();
         let zoom_factor = 0.05;
 
-        let old_scale = pa_ref.scale;
+        let old_scale = pa_ref.global_scale;
 
         // Get mouse position relative to the canvas
         let rect = pa_ref.canvas.get_bounding_client_rect();
@@ -926,7 +1019,7 @@ fn on_mouse_wheel(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             cx: new_canvas_offset_x,
             cy: new_canvas_offset_y,
         };
-        pa_ref.scale = new_scale;
+        pa_ref.global_scale = new_scale;
         drop(pa_ref);
         render(pa);
     }
@@ -997,6 +1090,54 @@ fn on_keyup(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 fn on_context_menu(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
 
 ///////////////
+/// Settings panel events
+fn on_apply_settings_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+    let mut pa_ref = pa.borrow_mut();
+
+    let width_str = pa_ref.settings_width_input.value();
+    let height_str = pa_ref.settings_height_input.value();
+    let width: f64 = width_str.parse().unwrap_or(0.0);
+    let height: f64 = height_str.parse().unwrap_or(0.0);
+    pa_ref
+        .settings_panel
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+    pa_ref
+        .modal_backdrop
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+
+    pa_ref.working_area = WXY {
+        wx: width,
+        wy: height,
+    };
+
+    drop(pa_ref);
+    resize_area(pa.clone());
+    render(pa.clone());
+}
+fn on_modal_backdrop_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+    let pa_ref = pa.borrow_mut();
+    pa_ref
+        .settings_panel
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+    pa_ref
+        .modal_backdrop
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+    pa_ref
+        .settings_width_input
+        .set_value(&pa_ref.working_area.wx.to_string());
+    pa_ref
+        .settings_height_input
+        .set_value(&pa_ref.working_area.wy.to_string());
+}
+///////////////
 // Window events
 fn resize_area(pa: Rc<RefCell<PlayingArea>>) {
     let mut pa_ref = pa.borrow_mut();
@@ -1050,21 +1191,31 @@ fn resize_area(pa: Rc<RefCell<PlayingArea>>) {
     let dx = canvas_width as f64 / working_area.wx / 1.2;
     let dy = canvas_height as f64 / working_area.wy / 1.2;
     pa_ref.canvas_offset = canvas_offset;
-    pa_ref.scale = dx.min(dy);
+    pa_ref.global_scale = dx.min(dy);
 }
 fn on_window_resize(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     resize_area(pa.clone());
     render(pa.clone());
 }
-fn on_window_click(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+fn on_window_click(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+    // let pa_ref = pa.borrow_mut();
     // if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
     //     // Not a right-click
     //     if mouse_event.buttons() == 1 {
-    //         pa.borrow_mut()
-    //             .contex_menu
-    //             .style()
-    //             .set_property("display", "none")
-    //             .expect("failed to set display property");
+    //         let target = event.target().unwrap();
+    //         let target = target.dyn_into::<web_sys::Node>().unwrap();
+    //         if !pa_ref.settings_panel.contains(Some(&target)) {
+    //             pa_ref
+    //                 .settings_panel
+    //                 .style()
+    //                 .set_property("display", "none")
+    //                 .unwrap();
+    //             pa_ref
+    //                 .modal_backdrop
+    //                 .style()
+    //                 .set_property("display", "none")
+    //                 .unwrap();
+    //         }
     //     }
     // }
 }
@@ -1072,14 +1223,28 @@ fn on_window_click(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {
 ///////////////
 // Icons events
 fn on_icon_click(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+    console::log_1(&"ddd".into());
     let mut pa_ref = pa.borrow_mut();
     if let Some(target) = event.target() {
         if let Some(element) = wasm_bindgen::JsCast::dyn_ref::<Element>(&target) {
             if let Some(id) = element.get_attribute("id") {
                 if let Some(key) = pa_ref.user_icons.keys().find(|&&k| k == id) {
-                    pa_ref.icon_selected = key;
-                    deselect_icons(&pa_ref);
-                    select_icon(&pa_ref, &id);
+                    if key == &"icon-cog" {
+                        pa_ref
+                            .settings_panel
+                            .style()
+                            .set_property("display", "block")
+                            .unwrap();
+                        pa_ref
+                            .modal_backdrop
+                            .style()
+                            .set_property("display", "block")
+                            .unwrap();
+                    } else {
+                        pa_ref.icon_selected = key;
+                        deselect_icons(&pa_ref);
+                        select_icon(&pa_ref, &id);
+                    }
                 }
             }
         }
@@ -1137,12 +1302,14 @@ fn select_icon(pa_ref: &RefMut<'_, PlayingArea>, name: &str) {
     }
 }
 fn deselect_icons(pa_ref: &RefMut<'_, PlayingArea>) {
-    for oelement in pa_ref.user_icons.values() {
-        if let Some(element) = oelement {
-            // let element_cloned = element.clone();
-            element
-                .set_attribute("class", "icon")
-                .expect("Failed to set class attribute");
+    for (key, oelement) in pa_ref.user_icons.iter() {
+        if key != &"icon-cog" {
+            if let Some(element) = oelement {
+                // let element_cloned = element.clone();
+                element
+                    .set_attribute("class", "icon")
+                    .expect("Failed to set class attribute");
+            }
         }
     }
 }
@@ -1177,25 +1344,56 @@ fn draw_all(pa: Rc<RefCell<PlayingArea>>) {
 fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
 
-    // Debug: check good canvas size
-    let (canvas_width, canvas_height) =
-        { (pa_ref.canvas.width() as f64, pa_ref.canvas.height() as f64) };
-    let solid_pattern = pa_ref.pattern_solid.clone();
-    pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
-    pa_ref.ctx.set_line_width(1.);
-    pa_ref.ctx.set_stroke_style(&"FFF".into());
-    let p = Path2d::new().unwrap();
-    p.move_to(1., 1.);
-    p.line_to(1., canvas_height);
-    p.line_to(canvas_width - 1., canvas_height - 1.);
-    p.line_to(canvas_width - 1., 1.);
-    p.line_to(1., 1.);
-    pa_ref.ctx.begin_path();
-    pa_ref.ctx.stroke_with_path(&p);
+    // // Debug: check good canvas size
+    // let (canvas_width, canvas_height) =
+    //     { (pa_ref.canvas.width() as f64, pa_ref.canvas.height() as f64) };
+    // let solid_pattern = pa_ref.pattern_solid.clone();
+    // pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
+    // pa_ref.ctx.set_line_width(10.);
+    // pa_ref.ctx.set_stroke_style(&"FFF".into());
+    // let p = Path2d::new().unwrap();
+    // p.move_to(1., 1.);
+    // p.line_to(1., canvas_height);
+    // p.line_to(canvas_width - 1., canvas_height - 1.);
+    // p.line_to(canvas_width - 1., 1.);
+    // p.line_to(1., 1.);
+    // pa_ref.ctx.begin_path();
+    // pa_ref.ctx.stroke_with_path(&p);
 
     // Draw working area
     let mut cst = Vec::new();
     let wa = pa_ref.working_area;
+
+    // Title
+    cst.push(ConstructionType::Text(
+        WXY {
+            wx: wa.wx / 3.,
+            wy: -20.,
+        },
+        "Working sheet".into(),
+    ));
+
+    // Arrows
+    cst.push(ConstructionType::Move(WXY { wx: 0., wy: -10. }));
+    cst.push(ConstructionType::Line(WXY { wx: 100., wy: -10. }));
+    cst.push(ConstructionType::Line(WXY { wx: 90., wy: -15. }));
+    cst.push(ConstructionType::Line(WXY { wx: 90., wy: -5. }));
+    cst.push(ConstructionType::Line(WXY { wx: 100., wy: -10. }));
+    cst.push(ConstructionType::Move(WXY { wx: -10., wy: 0. }));
+    cst.push(ConstructionType::Line(WXY { wx: -10., wy: 100. }));
+    cst.push(ConstructionType::Line(WXY { wx: -15., wy: 90. }));
+    cst.push(ConstructionType::Line(WXY { wx: -5., wy: 90. }));
+    cst.push(ConstructionType::Line(WXY { wx: -10., wy: 100. }));
+    cst.push(ConstructionType::Text(
+        WXY { wx: 40., wy: -20. },
+        "X".into(),
+    ));
+    cst.push(ConstructionType::Text(
+        WXY { wx: -30., wy: 50. },
+        "Y".into(),
+    ));
+
+    // Border
     cst.push(ConstructionType::Move(WXY { wx: 0., wy: 0. }));
     cst.push(ConstructionType::Line(WXY { wx: 0., wy: wa.wy }));
     cst.push(ConstructionType::Line(WXY {
@@ -1205,7 +1403,7 @@ fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
     cst.push(ConstructionType::Line(WXY { wx: wa.wx, wy: 0. }));
     cst.push(ConstructionType::Line(WXY { wx: 0., wy: 0. }));
 
-    raw_draw(&pa_ref, &cst, LayerType::WorkPiece);
+    raw_draw(&pa_ref, &cst, LayerType::Worksheet);
 }
 
 fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
@@ -1240,12 +1438,12 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     // Draw all shapes
     for shape in pa_ref.shapes.iter() {
         shape.get_construction();
-        raw_draw(&pa_ref, &shape.get_construction(), LayerType::WorkPiece);
+        raw_draw(&pa_ref, &shape.get_construction(), LayerType::Worksheet);
         if shape.is_selected() {
             raw_draw(
                 &pa_ref,
                 &shape.get_handles_construction(),
-                LayerType::WorkPiece,
+                LayerType::Worksheet,
             );
             raw_draw(
                 &pa_ref,
@@ -1258,11 +1456,11 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     // Draw the current drawing shape
     if let Some(shape) = pa_ref.current_shape.as_ref() {
         shape.get_construction();
-        raw_draw(&pa_ref, &shape.get_construction(), LayerType::WorkPiece);
+        raw_draw(&pa_ref, &shape.get_construction(), LayerType::Worksheet);
         raw_draw(
             &pa_ref,
             &shape.get_handles_construction(),
-            LayerType::WorkPiece,
+            LayerType::Worksheet,
         );
         raw_draw(
             &pa_ref,
@@ -1311,21 +1509,21 @@ fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
 fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: LayerType) {
     use LayerType::*;
     let (color, line_dash, line_width) = match layer {
-        WorkPiece => (&pa_ref.workpiece_color, &pa_ref.pattern_solid, 1.),
+        Worksheet => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
         Dimension => (&pa_ref.dimension_color, &pa_ref.pattern_solid, 1.),
         GeometryHelpers => (&pa_ref.geohelper_color, &pa_ref.pattern_dashed, 1.),
         Origin => (&pa_ref.origin_color, &pa_ref.pattern_solid, 1.),
         Grid => (&pa_ref.grid_color, &pa_ref.pattern_solid, 1.),
         Selection => (&pa_ref.selection_color, &pa_ref.pattern_dashed, 1.),
         Selected => (&pa_ref.selected_color, &pa_ref.pattern_solid, 1.),
-        Handle => (&pa_ref.workpiece_color, &pa_ref.pattern_solid, 1.),
+        Handle => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
     };
     pa_ref.ctx.set_line_dash(line_dash).unwrap();
     pa_ref.ctx.set_line_width(line_width);
     pa_ref.ctx.set_stroke_style(&color.into());
 
     let p = Path2d::new().unwrap();
-    let scale = pa_ref.scale;
+    let scale = pa_ref.global_scale;
     let offset = pa_ref.canvas_offset;
     for prim in cst.iter() {
         use ConstructionType::*;
@@ -1383,6 +1581,12 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: L
                         .fill_rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
                     p.rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
                 }
+            }
+            Text(w_pos, txt) => {
+                let c_pos = w_pos.to_canvas(scale, offset);
+                pa_ref.ctx.set_font("20px sans-serif");
+                pa_ref.ctx.set_fill_style(&"black".into());
+                pa_ref.ctx.fill_text(txt, c_pos.cx, c_pos.cy).unwrap();
             }
         }
     }

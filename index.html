@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CAD/CAM Plasma cutting machines</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=majormono&display=swap">
     <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
@@ -33,18 +34,19 @@
         </div>
     </div>
     <div id="settingsPanel">
-        <form id="canvasSettings">
-            <label>Canvas Width: 
-                <input type="number" id="canvasWidthInput">
+        <form id="worksheetSettings">
+            <label>Work sheet Width: 
+                <input type="number" id="worksheetWidthInput">
             </label>
             <br>
-            <label>Canvas Height: 
-                <input type="number" id="canvasHeightInput">
+            <label>Work sheet Height: 
+                <input type="number" id="worksheetHeightInput">
             </label>
             <br>
-            <button type="button" id="apply-settings">Apply</button>
+            <button type="button" id="applyWorksheetSettings">Apply</button>
         </form>
     </div>
+    <div id="modalBackdrop"></div>
     <div id="top-menu" class="top-menu">
         <div id="menuTitle">
             &nbsp;CAD/CAM Plasma V0.2 (work in progress)
@@ -73,7 +75,7 @@
     </div>
     <div id="status-bar" class="status-bar">
         <div class="status-section" id="status-gridsize">Grid size: NA</div>
-        <div class="status-section" id="status-info">Additional Info</div>
+        <div class="status-section" id="status-info-worksheet-pos"></div>
         <div class="status-section" id="status-buttons">
             <button>Button 1</button>
             <button>Button 2</button>
