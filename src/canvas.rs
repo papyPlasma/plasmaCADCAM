@@ -79,8 +79,8 @@ pub struct PlayingArea {
     working_area: WXY,
     global_scale: f64,
     canvas_offset: CXY,
-    working_area_grid_step: f64,
-    working_area_snap_step: f64,
+    working_area_visual_grid: f64,
+    working_area_snap_grid: f64,
 
     // Drawing colors
     worksheet_color: String,
@@ -191,8 +191,8 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     settings_width_input.set_value(&working_area.wx.to_string());
     settings_height_input.set_value(&working_area.wy.to_string());
 
-    let working_area_grid_step = 10.;
-    let working_area_snap_step = 1.;
+    let working_area_visual_grid = 10.;
+    let working_area_snap_grid = 5.;
 
     let canvas_offset = CXY {
         cx: (canvas_width - working_area.wx) / 2.,
@@ -234,8 +234,8 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         // Zoom
         global_scale,
         canvas_offset,
-        working_area_grid_step,
-        working_area_snap_step,
+        working_area_visual_grid,
+        working_area_snap_grid,
 
         // Drawing colors
         worksheet_color,
@@ -496,7 +496,6 @@ fn set_callback(
 
 fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<Shape> {
     let pa_ref = pa.borrow_mut();
-    let snap_val = pa_ref.working_area_snap_step / 2.;
     let visual_handle_size = pa_ref.visual_handle_size;
 
     let mut shapes: Vec<Shape> = Vec::new();
@@ -779,10 +778,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             pa_ref.mouse_previous_pos_word = mouse_pos_world;
             pa_ref.mouse_down_world_coord = mouse_pos_world;
 
-            let snap_val = pa_ref.working_area_snap_step / 2.;
             let visual_handle_size = pa_ref.visual_handle_size;
             let mut start = mouse_pos_world;
-            snap_to_snap(&mut start, pa_ref.working_area_snap_step);
+            snap_to_snap_grid(&mut start, pa_ref.working_area_snap_grid);
 
             if "icon-arrow" != pa_ref.icon_selected {
                 for shape in pa_ref.shapes.iter_mut() {
@@ -869,7 +867,7 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let mouse_pos_world = mouse_pos_canvas.to_world(scale, world_offset);
         let delta_pos_world = mouse_pos_world - pa_ref.mouse_previous_pos_word;
 
-        let snap_distance = pa_ref.working_area_snap_step;
+        let snap_distance = pa_ref.working_area_snap_grid;
 
         if let MouseState::LeftDown = mouse_state {
             match pa_ref.icon_selected {
@@ -1387,7 +1385,7 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
 
     let wa = pa_ref.working_area;
-    let w_grid_spacing = pa_ref.working_area_grid_step;
+    let w_grid_spacing = pa_ref.working_area_visual_grid;
     // Vertical grid lines
     let mut cst = Vec::new();
     let mut wx = 0.;

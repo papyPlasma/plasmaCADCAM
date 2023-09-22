@@ -103,23 +103,29 @@ impl Snap for SLine {
         use HandleSelection::*;
         match self.selection {
             Start => {
-                self.start = *p;
-                snap_to_snap(&mut self.start, snap_distance);
+                magnet(&self.end, &mut self.start, &p, snap_distance);
+                snap_to_snap_grid(&mut self.start, snap_distance);
+                if self.start == self.end {
+                    self.start += snap_distance;
+                }
             }
             End => {
-                self.end = *p;
-                snap_to_snap(&mut self.end, snap_distance);
+                magnet(&self.start, &mut self.end, &p, snap_distance);
+                snap_to_snap_grid(&mut self.end, snap_distance);
+                if self.start == self.end {
+                    self.end += snap_distance;
+                }
             }
             All => {
                 self.tmp += *dp;
                 if self.tmp.wx > snap_distance || self.tmp.wx < -snap_distance {
-                    snap_to_grid_x(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_x(&mut self.tmp, snap_distance);
                     self.start.wx += self.tmp.wx;
                     self.end.wx += self.tmp.wx;
                     self.tmp.wx = 0.;
                 }
                 if self.tmp.wy > snap_distance || self.tmp.wy < -snap_distance {
-                    snap_to_grid_y(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_y(&mut self.tmp, snap_distance);
                     self.start.wy += self.tmp.wy;
                     self.end.wy += self.tmp.wy;
                     self.tmp.wy = 0.;
@@ -232,15 +238,28 @@ impl Snap for SQuadBezier {
         use HandleSelection::*;
         match self.selection {
             Start => {
-                self.start = *p;
-                snap_to_snap(&mut self.start, snap_distance);
+                magnet(&self.end, &mut self.start, &p, snap_distance);
+                snap_to_snap_grid(&mut self.start, snap_distance);
+                if self.start == self.end {
+                    self.start += snap_distance;
+                }
             }
             Ctrl => {
-                self.ctrl += *dp;
+                let mut tmp_ctrla = self.ctrl;
+                let mut tmp_ctrlb = self.ctrl;
+                if magnet(&self.end, &mut tmp_ctrla, &p, snap_distance) {
+                    self.ctrl = tmp_ctrla;
+                } else {
+                    magnet(&self.start, &mut tmp_ctrlb, &p, snap_distance);
+                    self.ctrl = tmp_ctrlb;
+                }
             }
             End => {
-                self.end = *p;
-                snap_to_snap(&mut self.end, snap_distance);
+                magnet(&self.start, &mut self.end, &p, snap_distance);
+                snap_to_snap_grid(&mut self.end, snap_distance);
+                if self.start == self.end {
+                    self.end += snap_distance;
+                }
                 if self.init {
                     self.ctrl = (self.start + self.end) / 2.;
                 }
@@ -248,14 +267,14 @@ impl Snap for SQuadBezier {
             All => {
                 self.tmp += *dp;
                 if self.tmp.wx > snap_distance || self.tmp.wx < -snap_distance {
-                    snap_to_grid_x(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_x(&mut self.tmp, snap_distance);
                     self.start.wx += self.tmp.wx;
                     self.ctrl.wx += self.tmp.wx;
                     self.end.wx += self.tmp.wx;
                     self.tmp.wx = 0.;
                 }
                 if self.tmp.wy > snap_distance || self.tmp.wy < -snap_distance {
-                    snap_to_grid_y(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_y(&mut self.tmp, snap_distance);
                     self.start.wy += self.tmp.wy;
                     self.ctrl.wy += self.tmp.wy;
                     self.end.wy += self.tmp.wy;
@@ -402,27 +421,57 @@ impl Snap for SCubicBezier {
         use HandleSelection::*;
         match self.selection {
             Start => {
-                self.start = *p;
-                snap_to_snap(&mut self.start, snap_distance);
+                magnet(&self.end, &mut self.start, &p, snap_distance);
+                snap_to_snap_grid(&mut self.start, snap_distance);
+                if self.start == self.end {
+                    self.start += snap_distance;
+                }
             }
             Ctrl1 => {
-                self.ctrl1 += *dp;
+                let mut tmp_ctrla = self.ctrl1;
+                let mut tmp_ctrlb = self.ctrl1;
+                let mut tmp_ctrlc = self.ctrl1;
+                if magnet(&self.end, &mut tmp_ctrla, &p, snap_distance) {
+                    self.ctrl1 = tmp_ctrla;
+                } else {
+                    if magnet(&self.start, &mut tmp_ctrlb, &p, snap_distance) {
+                        self.ctrl1 = tmp_ctrlb;
+                    } else {
+                        magnet(&self.ctrl2, &mut tmp_ctrlc, &p, snap_distance);
+                        self.ctrl1 = tmp_ctrlc;
+                    }
+                }
             }
             Ctrl2 => {
-                self.ctrl2 += *dp;
+                let mut tmp_ctrla = self.ctrl2;
+                let mut tmp_ctrlb = self.ctrl2;
+                let mut tmp_ctrlc = self.ctrl1;
+                if magnet(&self.end, &mut tmp_ctrla, &p, snap_distance) {
+                    self.ctrl2 = tmp_ctrla;
+                } else {
+                    if magnet(&self.start, &mut tmp_ctrlb, &p, snap_distance) {
+                        self.ctrl2 = tmp_ctrlb;
+                    } else {
+                        magnet(&self.ctrl1, &mut tmp_ctrlc, &p, snap_distance);
+                        self.ctrl2 = tmp_ctrlc;
+                    }
+                }
             }
             End => {
-                self.end = *p;
-                snap_to_snap(&mut self.end, snap_distance);
+                magnet(&self.start, &mut self.end, &p, snap_distance);
+                snap_to_snap_grid(&mut self.end, snap_distance);
+                if self.start == self.end {
+                    self.end += snap_distance;
+                }
                 if self.init {
-                    self.ctrl1 = (self.start + self.end) / 3.;
-                    self.ctrl2 = (self.start + self.end) / 3. * 2.;
+                    self.ctrl1 = self.start + (self.end - self.start) / 3.;
+                    self.ctrl2 = self.start + (self.end - self.start) / 3. * 2.;
                 }
             }
             All => {
                 self.tmp += *dp;
                 if self.tmp.wx > snap_distance || self.tmp.wx < -snap_distance {
-                    snap_to_grid_x(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_x(&mut self.tmp, snap_distance);
                     self.start.wx += self.tmp.wx;
                     self.ctrl1.wx += self.tmp.wx;
                     self.ctrl2.wx += self.tmp.wx;
@@ -430,7 +479,7 @@ impl Snap for SCubicBezier {
                     self.tmp.wx = 0.;
                 }
                 if self.tmp.wy > snap_distance || self.tmp.wy < -snap_distance {
-                    snap_to_grid_y(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_y(&mut self.tmp, snap_distance);
                     self.start.wy += self.tmp.wy;
                     self.ctrl1.wy += self.tmp.wy;
                     self.ctrl2.wy += self.tmp.wy;
@@ -505,6 +554,7 @@ impl Snap for SCubicBezier {
                 push_45_135(&self.ctrl1, &self.end, true, &mut cst);
                 push_vertical(&self.ctrl1, &self.ctrl2, true, &mut cst);
                 push_horizontal(&self.ctrl1, &self.ctrl2, true, &mut cst);
+                push_45_135(&self.ctrl1, &self.ctrl2, true, &mut cst);
             }
             Ctrl2 => {
                 push_vertical(&self.ctrl2, &self.start, true, &mut cst);
@@ -515,6 +565,7 @@ impl Snap for SCubicBezier {
                 push_45_135(&self.ctrl2, &self.end, true, &mut cst);
                 push_vertical(&self.ctrl2, &self.ctrl1, true, &mut cst);
                 push_horizontal(&self.ctrl2, &self.ctrl1, true, &mut cst);
+                push_45_135(&self.ctrl2, &self.ctrl1, true, &mut cst);
             }
             All => {
                 push_vertical(&self.start, &self.end, true, &mut cst);
@@ -612,28 +663,78 @@ impl Snap for SRectangle {
         use HandleSelection::*;
         match self.selection {
             Start => {
-                self.start = *p;
-                snap_to_snap(&mut self.start, snap_distance);
+                magnet(&self.end, &mut self.start, &p, snap_distance);
+                snap_to_snap_grid(&mut self.start, snap_distance);
+                if self.start.wx == self.end.wx {
+                    self.start.wx += snap_distance;
+                }
+                if self.start.wy == self.end.wy {
+                    self.start.wy += snap_distance;
+                }
                 self.mid_top.wx = (self.start.wx + self.end.wx) / 2.;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
                 self.mid_right.wy = (self.start.wy + self.end.wy) / 2.;
             }
             MidTop => {
-                self.mid_top.wy = p.wy;
-                snap_to_grid_y(&mut self.mid_top, snap_distance);
+                let mut mid_top_tmp1 = self.mid_top;
+                let mut mid_top_tmp2 = self.mid_top;
+                let v_start = WXY {
+                    wx: self.start.wx,
+                    wy: self.start.wy + 2. * (self.mid_top.wx - self.start.wx),
+                };
+                if magnet(&v_start, &mut mid_top_tmp1, &p, snap_distance) {
+                    self.mid_top.wy = mid_top_tmp1.wy;
+                } else {
+                    let v_start = WXY {
+                        wx: self.start.wx,
+                        wy: self.start.wy - 2. * (self.mid_top.wx - self.start.wx),
+                    };
+                    magnet(&v_start, &mut mid_top_tmp2, &p, snap_distance);
+                    self.mid_top.wy = mid_top_tmp2.wy;
+                }
+
+                snap_to_snap_grid_y(&mut self.mid_top, snap_distance);
+                if self.mid_top.wy == self.start.wy {
+                    self.mid_top.wy += snap_distance;
+                }
                 self.end.wy = self.mid_top.wy;
                 self.mid_right.wy = (self.start.wy + self.end.wy) / 2.;
             }
             MidRight => {
-                self.mid_right.wx = p.wx;
-                snap_to_grid_x(&mut self.mid_right, snap_distance);
+                let mut mid_right_tmp1 = self.mid_right;
+                let mut mid_right_tmp2 = self.mid_right;
+                let v_start = WXY {
+                    wx: self.start.wx + 2. * (self.mid_right.wy - self.start.wy),
+                    wy: self.start.wy,
+                };
+                if magnet(&v_start, &mut mid_right_tmp1, &p, snap_distance) {
+                    self.mid_right.wx = mid_right_tmp1.wx;
+                } else {
+                    let v_start = WXY {
+                        wx: self.start.wx - 2. * (self.mid_right.wy - self.start.wy),
+                        wy: self.start.wy,
+                    };
+                    magnet(&v_start, &mut mid_right_tmp2, &p, snap_distance);
+                    self.mid_right.wx = mid_right_tmp2.wx;
+                }
+
+                snap_to_snap_grid_x(&mut self.mid_right, snap_distance);
+                if self.mid_right.wx == self.start.wx {
+                    self.mid_right.wx += snap_distance;
+                }
                 self.end.wx = self.mid_right.wx;
                 self.mid_top.wx = (self.start.wx + self.end.wx) / 2.;
             }
             End => {
-                self.end = *p;
-                snap_to_snap(&mut self.end, snap_distance);
+                magnet(&self.start, &mut self.end, &p, snap_distance);
+                snap_to_snap_grid(&mut self.end, snap_distance);
+                if self.start.wx == self.end.wx {
+                    self.end.wx += snap_distance;
+                }
+                if self.start.wy == self.end.wy {
+                    self.end.wy += snap_distance;
+                }
                 self.mid_top.wx = (self.start.wx + self.end.wx) / 2.;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
@@ -642,7 +743,7 @@ impl Snap for SRectangle {
             All => {
                 self.tmp += *dp;
                 if self.tmp.wx > snap_distance || self.tmp.wx < -snap_distance {
-                    snap_to_grid_x(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_x(&mut self.tmp, snap_distance);
                     self.start.wx += self.tmp.wx;
                     self.mid_top.wx += self.tmp.wx;
                     self.mid_right.wx += self.tmp.wx;
@@ -650,7 +751,7 @@ impl Snap for SRectangle {
                     self.tmp.wx = 0.;
                 }
                 if self.tmp.wy > snap_distance || self.tmp.wy < -snap_distance {
-                    snap_to_grid_y(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_y(&mut self.tmp, snap_distance);
                     self.start.wy += self.tmp.wy;
                     self.mid_top.wy += self.tmp.wy;
                     self.mid_right.wy += self.tmp.wy;
@@ -856,18 +957,60 @@ impl Snap for SEllipse {
         use HandleSelection::*;
         match self.selection {
             MidTop => {
-                self.mid_top.wy = p.wy;
-                snap_to_grid_y(&mut self.mid_top, snap_distance);
+                let mut mid_top_tmp1 = self.mid_top;
+                let mut mid_top_tmp2 = self.mid_top;
+                let v_start = WXY {
+                    wx: self.mid_right.wx,
+                    wy: self.mid_right.wy + (self.mid_top.wx - self.mid_right.wx),
+                };
+                if magnet(&v_start, &mut mid_top_tmp1, &p, snap_distance) {
+                    self.mid_top.wy = mid_top_tmp1.wy;
+                } else {
+                    let v_start = WXY {
+                        wx: self.mid_right.wx,
+                        wy: self.mid_right.wy - (self.mid_top.wx - self.mid_right.wx),
+                    };
+                    magnet(&v_start, &mut mid_top_tmp2, &p, snap_distance);
+                    self.mid_top.wy = mid_top_tmp2.wy;
+                }
+                snap_to_snap_grid_y(&mut self.mid_top, snap_distance);
+                if self.mid_top.wy == self.center.wy {
+                    self.mid_top.wy += snap_distance;
+                }
                 self.end.wy = self.mid_top.wy;
             }
             MidRight => {
-                self.mid_right.wx = p.wx;
-                snap_to_grid_x(&mut self.mid_right, snap_distance);
+                let mut mid_right_tmp1 = self.mid_right;
+                let mut mid_right_tmp2 = self.mid_right;
+                let v_start = WXY {
+                    wx: self.mid_top.wx + (self.mid_right.wy - self.mid_top.wy),
+                    wy: self.mid_top.wy,
+                };
+                if magnet(&v_start, &mut mid_right_tmp1, &p, snap_distance) {
+                    self.mid_right.wx = mid_right_tmp1.wx;
+                } else {
+                    let v_start = WXY {
+                        wx: self.mid_top.wx - (self.mid_right.wy - self.mid_top.wy),
+                        wy: self.mid_top.wy,
+                    };
+                    magnet(&v_start, &mut mid_right_tmp2, &p, snap_distance);
+                    self.mid_right.wx = mid_right_tmp2.wx;
+                }
+                snap_to_snap_grid_x(&mut self.mid_right, snap_distance);
+                if self.mid_right.wx == self.center.wx {
+                    self.mid_right.wx += snap_distance;
+                }
                 self.end.wx = self.mid_right.wx;
             }
             End => {
-                self.end = *p;
-                snap_to_snap(&mut self.end, snap_distance);
+                magnet(&self.center, &mut self.end, &p, snap_distance);
+                snap_to_snap_grid(&mut self.end, snap_distance);
+                if self.center.wx == self.end.wx {
+                    self.end.wx += snap_distance;
+                }
+                if self.center.wy == self.end.wy {
+                    self.end.wy += snap_distance;
+                }
                 self.mid_top.wx = self.center.wx;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
@@ -876,7 +1019,7 @@ impl Snap for SEllipse {
             Center | All => {
                 self.tmp += *dp;
                 if self.tmp.wx > snap_distance || self.tmp.wx < -snap_distance {
-                    snap_to_grid_x(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_x(&mut self.tmp, snap_distance);
                     self.center.wx += self.tmp.wx;
                     self.mid_top.wx += self.tmp.wx;
                     self.mid_right.wx += self.tmp.wx;
@@ -884,7 +1027,7 @@ impl Snap for SEllipse {
                     self.tmp.wx = 0.;
                 }
                 if self.tmp.wy > snap_distance || self.tmp.wy < -snap_distance {
-                    snap_to_grid_y(&mut self.tmp, snap_distance);
+                    snap_to_snap_grid_y(&mut self.tmp, snap_distance);
                     self.center.wy += self.tmp.wy;
                     self.mid_top.wy += self.tmp.wy;
                     self.mid_right.wy += self.tmp.wy;

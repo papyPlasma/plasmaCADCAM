@@ -3,9 +3,86 @@ use std::{
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
 };
 
-use crate::shapes::{ConstructionType, HandleSelection};
+use web_sys::console;
+
+use crate::shapes::ConstructionType;
 
 // use web_sys::console;
+
+pub fn magnet(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
+    let dx = (pt.wx - pt1.wx).abs();
+    let dy = (pt.wy - pt1.wy).abs();
+
+    if dy < 4. * snap_distance {
+        pt2.wy = pt1.wy;
+        pt2.wx = pt.wx;
+        true
+    } else {
+        if dx < 4. * snap_distance {
+            pt2.wx = pt1.wx;
+            pt2.wy = pt.wy;
+            true
+        } else {
+            let x1 = pt1.wx;
+            let y1 = pt1.wy;
+            let x2 = pt.wx;
+            let y2 = pt.wy;
+            // Projection of p on (pt1, m=1)
+            let p_proj = WXY {
+                wx: (x1 + x2 + y2 - y1) / 2.,
+                wy: (-x1 + x2 + y2 + y1) / 2.,
+            };
+            if p_proj.dist(pt) < 4. * snap_distance {
+                *pt2 = p_proj;
+                true
+            } else {
+                // Projection of p on (pt1, m=-1)
+                let p_proj = WXY {
+                    wx: (x1 + x2 - y2 + y1) / 2.,
+                    wy: (x1 - x2 + y2 + y1) / 2.,
+                };
+
+                if p_proj.dist(pt) < 4. * snap_distance {
+                    *pt2 = p_proj;
+                    true
+                } else {
+                    *pt2 = *pt;
+                    false
+                }
+            }
+        }
+    }
+}
+
+pub fn magnet_mid_square(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
+    let x1 = pt1.wx;
+    let y1 = pt1.wy;
+    let x2 = pt.wx;
+    let y2 = pt.wy;
+    // Projection of p on (pt1, m=1)
+    let p_proj = WXY {
+        wx: (x1 + x2 + y2 - y1) / 2.,
+        wy: (-x1 + x2 + y2 + y1) / 2.,
+    };
+    if p_proj.dist(pt) < 4. * snap_distance {
+        *pt2 = p_proj;
+        true
+    } else {
+        // Projection of p on (pt1, m=-1)
+        let p_proj = WXY {
+            wx: (x1 + x2 - y2 + y1) / 2.,
+            wy: (x1 - x2 + y2 + y1) / 2.,
+        };
+
+        if p_proj.dist(pt) < 4. * snap_distance {
+            *pt2 = p_proj;
+            true
+        } else {
+            *pt2 = *pt;
+            false
+        }
+    }
+}
 
 fn is_vert(pt1: &WXY, pt2: &WXY) -> bool {
     (pt1.wx - pt2.wx).abs() < 0.001
@@ -18,7 +95,7 @@ fn is_45_135(pt1: &WXY, pt2: &WXY) -> bool {
     let dy = pt2.wy - pt1.wy;
     let dx = pt2.wx - pt1.wx;
     if dx != 0. {
-        dy / dx == 1. || dy / dx == -1.
+        (dy / dx).abs() > 1. / 1.01 && (dy / dx).abs() < 1.01
     } else {
         false
     }
@@ -115,14 +192,14 @@ pub fn push_horizontal(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<Construct
     }
 }
 
-pub fn snap_to_snap(pos: &mut WXY, snap_distance: f64) {
+pub fn snap_to_snap_grid(pos: &mut WXY, snap_distance: f64) {
     pos.wx = (pos.wx / snap_distance).round() * snap_distance;
     pos.wy = (pos.wy / snap_distance).round() * snap_distance;
 }
-pub fn snap_to_grid_y(pos: &mut WXY, grid_spacing: f64) {
+pub fn snap_to_snap_grid_y(pos: &mut WXY, grid_spacing: f64) {
     pos.wy = (pos.wy / grid_spacing).round() * grid_spacing;
 }
-pub fn snap_to_grid_x(pos: &mut WXY, grid_spacing: f64) {
+pub fn snap_to_snap_grid_x(pos: &mut WXY, grid_spacing: f64) {
     pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
 }
 
@@ -437,7 +514,6 @@ impl Default for WXY {
 }
 impl Add for WXY {
     type Output = Self;
-
     fn add(self, other: Self) -> Self {
         Self {
             wx: self.wx + other.wx,
@@ -445,10 +521,25 @@ impl Add for WXY {
         }
     }
 }
+impl Add<f64> for WXY {
+    type Output = WXY;
+    fn add(self, scalar: f64) -> Self::Output {
+        WXY {
+            wx: self.wx + scalar,
+            wy: self.wy + scalar,
+        }
+    }
+}
 impl AddAssign for WXY {
     fn add_assign(&mut self, other: WXY) {
         self.wx += other.wx;
         self.wy += other.wy;
+    }
+}
+impl AddAssign<f64> for WXY {
+    fn add_assign(&mut self, scalar: f64) {
+        self.wx += scalar;
+        self.wy += scalar;
     }
 }
 impl Sub for WXY {
@@ -504,6 +595,12 @@ impl MulAssign<f64> for WXY {
         self.wy *= rhs;
     }
 }
+impl PartialEq for WXY {
+    fn eq(&self, other: &Self) -> bool {
+        self.wx == other.wx && self.wy == other.wy
+    }
+}
+impl Eq for WXY {}
 
 #[derive(Copy, Clone, Debug)]
 pub struct CXY {
@@ -527,7 +624,6 @@ impl Default for CXY {
 }
 impl Add for CXY {
     type Output = Self;
-
     fn add(self, other: Self) -> Self {
         Self {
             cx: self.cx + other.cx,
@@ -535,10 +631,25 @@ impl Add for CXY {
         }
     }
 }
+impl Add<f64> for CXY {
+    type Output = CXY;
+    fn add(self, scalar: f64) -> Self::Output {
+        CXY {
+            cx: self.cx + scalar,
+            cy: self.cy + scalar,
+        }
+    }
+}
 impl AddAssign for CXY {
     fn add_assign(&mut self, other: CXY) {
         self.cx += other.cx;
         self.cy += other.cy;
+    }
+}
+impl AddAssign<f64> for CXY {
+    fn add_assign(&mut self, scalar: f64) {
+        self.cx += scalar;
+        self.cy += scalar;
     }
 }
 impl Sub for CXY {
@@ -594,3 +705,9 @@ impl MulAssign<f64> for CXY {
         self.cy *= rhs;
     }
 }
+impl PartialEq for CXY {
+    fn eq(&self, other: &Self) -> bool {
+        self.cx == other.cx && self.cy == other.cy
+    }
+}
+impl Eq for CXY {}
