@@ -192,7 +192,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     settings_height_input.set_value(&working_area.wy.to_string());
 
     let working_area_visual_grid = 10.;
-    let working_area_snap_grid = 5.;
+    let working_area_snap_grid = 1.;
 
     let canvas_offset = CXY {
         cx: (canvas_width - working_area.wx) / 2.,

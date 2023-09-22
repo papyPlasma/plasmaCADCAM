@@ -217,7 +217,11 @@ impl Snap for SQuadBezier {
             self.selection = HandleSelection::Start;
         } else {
             if is_point_on_point(p, &self.ctrl, precision) {
-                self.selection = HandleSelection::Ctrl;
+                use HandleSelection::*;
+                match self.selection {
+                    None => (),
+                    _ => self.selection = HandleSelection::Ctrl,
+                }
             } else {
                 if is_point_on_point(p, &self.end, precision) {
                     self.selection = HandleSelection::End;
@@ -253,6 +257,7 @@ impl Snap for SQuadBezier {
                     magnet(&self.start, &mut tmp_ctrlb, &p, snap_distance);
                     self.ctrl = tmp_ctrlb;
                 }
+                snap_to_snap_grid(&mut self.ctrl, snap_distance);
             }
             End => {
                 magnet(&self.start, &mut self.end, &p, snap_distance);
@@ -389,10 +394,18 @@ impl Snap for SCubicBezier {
             self.selection = HandleSelection::Start;
         } else {
             if is_point_on_point(p, &self.ctrl1, precision) {
-                self.selection = HandleSelection::Ctrl1;
+                use HandleSelection::*;
+                match self.selection {
+                    None => (),
+                    _ => self.selection = HandleSelection::Ctrl1,
+                }
             } else {
                 if is_point_on_point(p, &self.ctrl2, precision) {
-                    self.selection = HandleSelection::Ctrl2;
+                    use HandleSelection::*;
+                    match self.selection {
+                        None => (),
+                        _ => self.selection = HandleSelection::Ctrl2,
+                    }
                 } else {
                     if is_point_on_point(p, &self.end, precision) {
                         self.selection = HandleSelection::End;
@@ -441,6 +454,7 @@ impl Snap for SCubicBezier {
                         self.ctrl1 = tmp_ctrlc;
                     }
                 }
+                snap_to_snap_grid(&mut self.ctrl1, snap_distance);
             }
             Ctrl2 => {
                 let mut tmp_ctrla = self.ctrl2;
@@ -456,6 +470,7 @@ impl Snap for SCubicBezier {
                         self.ctrl2 = tmp_ctrlc;
                     }
                 }
+                snap_to_snap_grid(&mut self.ctrl2, snap_distance);
             }
             End => {
                 magnet(&self.start, &mut self.end, &p, snap_distance);
@@ -937,7 +952,11 @@ impl Snap for SEllipse {
                     self.selection = HandleSelection::MidRight;
                 } else {
                     if is_point_on_point(p, &self.end, precision) {
-                        self.selection = HandleSelection::End;
+                        use HandleSelection::*;
+                        match self.selection {
+                            None => (),
+                            _ => self.selection = HandleSelection::End,
+                        }
                     } else {
                         let radius = self.end - self.center;
                         if is_point_on_ellipse(p, &self.center, &radius, precision) {
