@@ -285,7 +285,7 @@ canvas {
 }
 
 #status-info-worksheet-pos {
-    font-family: 'majormono';
+    font-family: 'Ubuntu';
     width: 100px; /* Adjust the value as necessary */
     overflow: hidden;
     white-space: nowrap;

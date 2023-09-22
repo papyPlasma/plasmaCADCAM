@@ -5,66 +5,34 @@ use std::{
 
 // use web_sys::console;
 
-use crate::shapes::SegmentSnapping;
-
-pub fn snap_to_grid(pos: &mut WXY, grid_spacing: f64) {
-    pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
+pub fn snap_to_grid(pos: &mut WXY, snap_distance: f64) {
+    pos.wx = (pos.wx / snap_distance).round() * snap_distance;
+    pos.wy = (pos.wy / snap_distance).round() * snap_distance;
+}
+pub fn snap_to_grid_y(pos: &mut WXY, grid_spacing: f64) {
     pos.wy = (pos.wy / grid_spacing).round() * grid_spacing;
 }
+pub fn snap_to_grid_x(pos: &mut WXY, grid_spacing: f64) {
+    pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
+}
 
-pub fn snap_h_v_45_135(
-    handles: &mut Vec<WXY>,
-    idx1: &usize,
-    idx2: &usize,
-    snap_to_end: bool,
-    snap_val: f64,
-) -> SegmentSnapping {
-    let mut start = handles[*idx1];
-    let mut end = handles[*idx2];
+pub fn snap_h_v_45_135(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
     // Horizontal
-    if (start.wy - end.wy).abs() < snap_val {
-        if snap_to_end {
-            end.wy = start.wy;
-        } else {
-            start.wy = end.wy;
-        }
-        *handles.get_mut(*idx1).unwrap() = start;
-        *handles.get_mut(*idx2).unwrap() = end;
-        return SegmentSnapping::Horizontal;
+    if (pt1.wy - pt2.wy).abs() < snap_precision {
+        pt2.wy = pt1.wy;
     } else {
-        if (start.wx - end.wx).abs() < snap_val {
-            if snap_to_end {
-                end.wx = start.wx;
-            } else {
-                start.wx = end.wx;
-            }
-            *handles.get_mut(*idx1).unwrap() = start;
-            *handles.get_mut(*idx2).unwrap() = end;
-            return SegmentSnapping::Vertical;
+        // Vertical
+        if (pt1.wx - pt2.wx).abs() < snap_precision {
+            pt2.wx = pt1.wx;
         } else {
-            if snap45(&mut start, &mut end, snap_to_end) {
-                *handles.get_mut(*idx1).unwrap() = start;
-                *handles.get_mut(*idx2).unwrap() = end;
-                return SegmentSnapping::Diagonal45;
-            } else {
-                if snap135(&mut start, &mut end, snap_to_end) {
-                    *handles.get_mut(*idx1).unwrap() = start;
-                    *handles.get_mut(*idx2).unwrap() = end;
-                    return SegmentSnapping::Diagonal135;
-                } else {
-                    return SegmentSnapping::None;
-                }
-            }
+            // Oblic
+            snap45(pt1, pt2, snap_precision);
+            snap135(pt1, pt2, snap_precision)
         }
     }
 }
 
-pub fn snap_equidistant(
-    handles: &mut Vec<WXY>,
-    idx: &usize,
-    idxs: &[usize; 2],
-    snap_val: f64,
-) -> SegmentSnapping {
+pub fn snap_equidistant(handles: &mut Vec<WXY>, idx: &usize, idxs: &[usize; 2], snap_val: f64) {
     let pt = handles[*idx];
     let pt1 = handles[idxs[0]];
     let pt2 = handles[idxs[1]];
@@ -74,7 +42,7 @@ pub fn snap_equidistant(
     let dy = pt2.wy - pt1.wy;
 
     if dx == 0. && dy == 0. {
-        return SegmentSnapping::None;
+        return;
     }
 
     let proj = if dx == 0. {
@@ -99,16 +67,13 @@ pub fn snap_equidistant(
 
     if pt.dist(&proj) < snap_val {
         handles[*idx] = proj;
-        SegmentSnapping::Middle
-    } else {
-        SegmentSnapping::None
     }
 }
 
 pub fn extend_points(pts: &mut [WXY; 2]) {
     reorder_corners(pts);
-    let pt1 = pts[0];
-    let pt2 = pts[1];
+    // let pt1 = pts[0];
+    // let pt2 = pts[1];
 }
 pub fn is_point_on_point(pt1: &WXY, pt2: &WXY, precision: f64) -> bool {
     // let dx = (pt1.x - pt2.x).abs();
@@ -240,16 +205,16 @@ fn _normalize_angle(mut angle: f64) -> f64 {
     angle
 }
 
-pub fn is_point_on_ellipse(pt: &WXY, c: &WXY, r: &WXY, mut precision: f64) -> bool {
-    if r.wx > 0. && r.wy > 0. {
-        precision /= r.norm();
-        precision *= 2.;
-        let value =
-            (pt.wx - c.wx).powf(2.) / (r.wx * r.wx) + (pt.wy - c.wy).powf(2.) / (r.wy * r.wy);
-        value < 1. + precision && value > 1. - precision
-    } else {
-        false
-    }
+pub fn is_point_on_ellipse(pt: &WXY, center: &WXY, radius: &WXY, mut precision: f64) -> bool {
+    // if radius.wx > 0. && radius.wy > 0. {
+    precision /= radius.norm();
+    precision *= 2.;
+    let value = (pt.wx - center.wx).powf(2.) / (radius.wx * radius.wx)
+        + (pt.wy - center.wy).powf(2.) / (radius.wy * radius.wy);
+    value < 1. + precision && value > 1. - precision
+    // } else {
+    //     false
+    // }
 }
 
 pub fn reorder_corners(bb: &mut [WXY; 2]) {
@@ -317,41 +282,25 @@ fn is_between(pt: &WXY, pt1: &WXY, pt2: &WXY) -> bool {
     return true;
 }
 
-fn snap45(start: &mut WXY, end: &mut WXY, snap_to_end: bool) -> bool {
-    let mut dy = end.wy - start.wy;
-    let dx = end.wx - start.wx;
+fn snap45(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
+    let mut dy = pt2.wy - pt1.wy;
+    let dx = pt2.wx - pt1.wx;
     let m = dy / dx;
     if m > 0.97 && m < (1. / 0.97) {
         dy = dx;
-        if snap_to_end {
-            end.wx = start.wx + dx;
-            end.wy = start.wy + dy;
-        } else {
-            start.wx = end.wx - dx;
-            start.wy = end.wy - dy;
-        }
-        true
-    } else {
-        false
+        pt2.wx = pt1.wx + dx;
+        pt2.wy = pt1.wy + dy;
     }
 }
 
-fn snap135(start: &mut WXY, end: &mut WXY, snap_to_end: bool) -> bool {
-    let mut dy = end.wy - start.wy;
-    let dx = end.wx - start.wx;
+fn snap135(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
+    let mut dy = pt2.wy - pt1.wy;
+    let dx = pt2.wx - pt1.wx;
     let m = dy / dx;
     if m < -0.97 && m > -(1. / 0.97) {
         dy = -dx;
-        if snap_to_end {
-            end.wx = start.wx + dx;
-            end.wy = start.wy + dy;
-        } else {
-            start.wx = end.wx - dx;
-            start.wy = end.wy - dy;
-        }
-        true
-    } else {
-        false
+        pt2.wx = pt1.wx + dx;
+        pt2.wy = pt1.wy + dy;
     }
 }
 

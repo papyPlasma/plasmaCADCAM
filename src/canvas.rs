@@ -1,5 +1,8 @@
 use crate::math::*;
-use crate::shapes::{ConstructionType, Shape, ShapeType};
+use crate::shapes::{
+    ConstructionType, HandleSelection, SCubicBezier, SEllipse, SLine, SQuadBezier, SRectangle,
+    Shape, ShapeType,
+};
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -189,7 +192,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     settings_height_input.set_value(&working_area.wy.to_string());
 
     let working_area_grid_step = 10.;
-    let working_area_snap_step = 1.;
+    let working_area_snap_step = 5.;
 
     let canvas_offset = CXY {
         cx: (canvas_width - working_area.wx) / 2.,
@@ -435,7 +438,12 @@ fn init_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
                     let result = file_reader.result().unwrap();
                     if let Some(content) = result.as_string() {
                         // console::log_1(&format!("content: {:?}", content).into());
-                        convert_svg_to_shapes(pa_clone.clone(), content.clone());
+                        let shapes = convert_svg_to_shapes(pa_clone.clone(), content.clone());
+                        for shape in shapes.into_iter() {
+                            pa_clone.borrow_mut().shapes.push(shape);
+                        }
+                        drop(pa_clone.borrow_mut());
+                        render(pa_clone.clone());
                     }
                 }) as Box<dyn FnMut(_)>);
 
@@ -486,8 +494,8 @@ fn set_callback(
     Ok(())
 }
 
-fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
-    let mut pa_ref = pa.borrow_mut();
+fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<Shape> {
+    let pa_ref = pa.borrow_mut();
     let snap_val = pa_ref.working_area_snap_step / 2.;
     let visual_handle_size = pa_ref.visual_handle_size;
 
@@ -538,7 +546,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                         Position::Relative => current_position + end_point,
                                     };
                                     shapes.push(Shape::new(
-                                        ShapeType::Line(vec![current_position, new_position]),
+                                        ShapeType::Line(SLine::new(current_position, new_position)),
                                         snap_val,
                                         visual_handle_size,
                                     ));
@@ -559,7 +567,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                     Position::Relative => current_position + end_point,
                                 };
                                 shapes.push(Shape::new(
-                                    ShapeType::Line(vec![current_position, new_position]),
+                                    ShapeType::Line(SLine::new(current_position, new_position)),
                                     snap_val,
                                     visual_handle_size,
                                 ));
@@ -579,7 +587,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                     Position::Relative => current_position + end_point,
                                 };
                                 shapes.push(Shape::new(
-                                    ShapeType::Line(vec![current_position, new_position]),
+                                    ShapeType::Line(SLine::new(current_position, new_position)),
                                     snap_val,
                                     visual_handle_size,
                                 ));
@@ -608,11 +616,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                         }
                                     };
                                     shapes.push(Shape::new(
-                                        ShapeType::QuadBezier(vec![
+                                        ShapeType::QuadBezier(SQuadBezier::new(
                                             current_position,
                                             control_point,
                                             new_position,
-                                        ]),
+                                        )),
                                         snap_val,
                                         visual_handle_size,
                                     ));
@@ -641,11 +649,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                         Position::Relative => current_position + end_point,
                                     };
                                     shapes.push(Shape::new(
-                                        ShapeType::QuadBezier(vec![
+                                        ShapeType::QuadBezier(SQuadBezier::new(
                                             current_position,
                                             control_point,
                                             new_position,
-                                        ]),
+                                        )),
                                         snap_val,
                                         visual_handle_size,
                                     ));
@@ -680,12 +688,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                         }
                                     };
                                     shapes.push(Shape::new(
-                                        ShapeType::CubicBezier(vec![
+                                        ShapeType::CubicBezier(SCubicBezier::new(
                                             current_position,
                                             control_point1,
                                             control_point2,
                                             new_position,
-                                        ]),
+                                        )),
                                         snap_val,
                                         visual_handle_size,
                                     ));
@@ -721,12 +729,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                                         }
                                     };
                                     shapes.push(Shape::new(
-                                        ShapeType::CubicBezier(vec![
+                                        ShapeType::CubicBezier(SCubicBezier::new(
                                             current_position,
                                             control_point1,
                                             control_point2,
                                             new_position,
-                                        ]),
+                                        )),
                                         snap_val,
                                         visual_handle_size,
                                     ));
@@ -739,7 +747,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
                         Command::EllipticalArc(_postype, _params) => {}
                         Command::Close => {
                             shapes.push(Shape::new(
-                                ShapeType::Line(vec![current_position, start_position]),
+                                ShapeType::Line(SLine::new(current_position, start_position)),
                                 snap_val,
                                 visual_handle_size,
                             ));
@@ -754,12 +762,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
         }
     }
 
-    for shape in shapes.into_iter() {
-        pa_ref.shapes.push(shape);
-    }
-
-    drop(pa_ref);
-    render(pa.clone());
+    shapes
 }
 
 ///////////////
@@ -799,7 +802,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 "icon-arrow" => {
                     let precision = pa_ref.grab_handle_precision;
                     for shape in pa_ref.shapes.iter_mut() {
-                        shape.set_selection(&mouse_pos_world, precision);
+                        shape.set_selection_from_position(&mouse_pos_world, precision);
                     }
                 }
                 "icon-selection" => {
@@ -807,35 +810,35 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 }
                 "icon-line" => {
                     pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Line(vec![start, start]),
+                        ShapeType::Line(SLine::new(start, start)),
                         snap_val,
                         visual_handle_size,
                     ));
                 }
                 "icon-quadbezier" => {
                     pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::QuadBezier(vec![start, start, start]),
+                        ShapeType::QuadBezier(SQuadBezier::new(start, start, start)),
                         snap_val,
                         visual_handle_size,
                     ));
                 }
                 "icon-cubicbezier" => {
                     pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::CubicBezier(vec![start, start, start, start]),
+                        ShapeType::CubicBezier(SCubicBezier::new(start, start, start, start)),
                         snap_val,
                         visual_handle_size,
                     ));
                 }
                 "icon-square" => {
                     pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Square(vec![start, start]),
+                        ShapeType::Rectangle(SRectangle::new(start, WXY::default())),
                         snap_val,
                         visual_handle_size,
                     ));
                 }
                 "icon-circle" => {
                     pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Circle(vec![start, start]),
+                        ShapeType::Ellipse(SEllipse::new(start, WXY::default())),
                         snap_val,
                         visual_handle_size,
                     ));
@@ -879,17 +882,18 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let mouse_pos_world = mouse_pos_canvas.to_world(scale, world_offset);
         let delta_pos_world = mouse_pos_world - pa_ref.mouse_previous_pos_word;
 
+        let snap_distance = pa_ref.working_area_snap_step;
+
         if let MouseState::LeftDown = mouse_state {
             match pa_ref.icon_selected {
                 "icon-arrow" => {
                     let mut some_shape_selected = false;
                     for shape in pa_ref.shapes.iter_mut() {
-                        if shape.get_handle_selected() > -2 {
-                            shape.modify(&mouse_pos_world, &delta_pos_world);
+                        if shape.has_selection() {
+                            shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
                             some_shape_selected = true;
                         }
                     }
-
                     // move the canvas if no object was selected
                     if !some_shape_selected {
                         pa_ref.canvas_offset += mouse_delta_canvas;
@@ -903,7 +907,7 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
                 | "icon-square" => {
                     if let Some(shape) = pa_ref.current_shape.as_mut() {
-                        shape.modify(&mouse_pos_world, &delta_pos_world);
+                        shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
                     }
                 }
                 _ => (),
@@ -943,14 +947,6 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         pa_ref.mouse_state = MouseState::NoButton;
 
         match pa_ref.icon_selected {
-            "icon-arrow" => {
-                let snap = pa_ref.working_area_snap_step;
-                for shape in pa_ref.shapes.iter_mut() {
-                    if shape.get_handle_selected() > -2 {
-                        shape.snap(snap);
-                    }
-                }
-            }
             "icon-selection" => {
                 let selection_area = pa_ref.selection_area.clone();
                 if let Some(sa_raw) = selection_area {
@@ -959,9 +955,9 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     for shape in &mut pa_ref.shapes {
                         let bb_inner: [WXY; 2] = shape.get_bounding_box();
                         if is_box_inside(&bb_outer, &bb_inner) {
-                            shape.set_handle_selected(-1);
+                            shape.set_selection(HandleSelection::All);
                         } else {
-                            shape.set_handle_selected(-2);
+                            shape.set_selection(HandleSelection::None);
                         }
                     }
                 }
@@ -969,13 +965,10 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
             | "icon-square" => {
-                let snap = pa_ref.working_area_snap_step;
                 let oshape = pa_ref.current_shape.clone();
                 if let Some(mut shape) = oshape {
-                    shape.snap(snap);
-                    if shape.valid() {
-                        pa_ref.shapes.push(shape);
-                    }
+                    shape.init_done();
+                    pa_ref.shapes.push(shape);
                     pa_ref.current_shape = None;
                 }
             }
@@ -1033,9 +1026,7 @@ fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         console::log_1(&format!("{:?}", keyboard_event.key()).into());
         let mut pa_ref = pa.borrow_mut();
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            pa_ref
-                .shapes
-                .retain(|shape| shape.get_handle_selected() < -1)
+            pa_ref.shapes.retain(|shape| shape.has_selection())
         }
         if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
             pa_ref.ctrl_or_meta_pressed = true;
@@ -1197,7 +1188,7 @@ fn on_window_resize(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     resize_area(pa.clone());
     render(pa.clone());
 }
-fn on_window_click(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+fn on_window_click(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     // let pa_ref = pa.borrow_mut();
     // if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
     //     // Not a right-click
@@ -1437,20 +1428,17 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
 
     // Draw all shapes
     for shape in pa_ref.shapes.iter() {
-        shape.get_construction();
         raw_draw(&pa_ref, &shape.get_construction(), LayerType::Worksheet);
-        if shape.is_selected() {
-            raw_draw(
-                &pa_ref,
-                &shape.get_handles_construction(),
-                LayerType::Worksheet,
-            );
-            raw_draw(
-                &pa_ref,
-                &&shape.get_snap_construction(),
-                LayerType::GeometryHelpers,
-            );
-        }
+        raw_draw(
+            &pa_ref,
+            &shape.get_handles_construction(),
+            LayerType::Worksheet,
+        );
+        // raw_draw(
+        //     &pa_ref,
+        //     &&shape.get_snap_construction(),
+        //     LayerType::GeometryHelpers,
+        // );
     }
 
     // Draw the current drawing shape
@@ -1462,11 +1450,11 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
             &shape.get_handles_construction(),
             LayerType::Worksheet,
         );
-        raw_draw(
-            &pa_ref,
-            &&shape.get_snap_construction(),
-            LayerType::GeometryHelpers,
-        );
+        // raw_draw(
+        //     &pa_ref,
+        //     &&shape.get_snap_construction(),
+        //     LayerType::GeometryHelpers,
+        // );
     }
 
     // If using a selection area, draw it
