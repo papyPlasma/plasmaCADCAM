@@ -31,7 +31,6 @@ pub enum ConstructionType {
 }
 
 pub trait Snap {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64);
     fn get_selection(&self) -> HandleSelection;
     fn set_selection(&mut self, handle_selection: HandleSelection);
     fn set_selection_from_position(&mut self, p: &WXY, precision: f64);
@@ -39,6 +38,7 @@ pub trait Snap {
     fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64);
     fn get_construction(&self) -> Vec<ConstructionType>;
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType>;
+    fn get_helpers_construction(&self) -> Vec<ConstructionType>;
     fn get_bounding_box(&self) -> [WXY; 2];
     fn init_done(&mut self);
 }
@@ -75,14 +75,6 @@ impl SLine {
     }
 }
 impl Snap for SLine {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64) {
-        use HandleSelection::*;
-        match self.selection {
-            Start => snap_h_v_45_135(&self.end, &mut self.start, snap_precision),
-            End => snap_h_v_45_135(&self.start, &mut self.end, snap_precision),
-            _ => (),
-        }
-    }
     fn get_selection(&self) -> HandleSelection {
         self.selection
     }
@@ -112,11 +104,11 @@ impl Snap for SLine {
         match self.selection {
             Start => {
                 self.start = *p;
-                snap_to_grid(&mut self.start, snap_distance);
+                snap_to_snap(&mut self.start, snap_distance);
             }
             End => {
                 self.end = *p;
-                snap_to_grid(&mut self.end, snap_distance);
+                snap_to_snap(&mut self.end, snap_distance);
             }
             All => {
                 self.tmp += *dp;
@@ -164,6 +156,19 @@ impl Snap for SLine {
         }
         cst
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use HandleSelection::*;
+        match self.selection {
+            Start | End | All => {
+                push_vertical(&self.start, &self.end, false, &mut cst);
+                push_horizontal(&self.start, &self.end, false, &mut cst);
+                push_45_135(&self.start, &self.end, false, &mut cst);
+            }
+            _ => (),
+        }
+        cst
+    }
     fn get_bounding_box(&self) -> [WXY; 2] {
         [self.start, self.end]
     }
@@ -195,24 +200,6 @@ impl SQuadBezier {
     }
 }
 impl Snap for SQuadBezier {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64) {
-        use HandleSelection::*;
-        match self.selection {
-            Start => {
-                snap_h_v_45_135(&self.end, &mut self.start, snap_precision);
-                snap_h_v_45_135(&self.ctrl, &mut self.start, snap_precision);
-            }
-            Ctrl => {
-                snap_h_v_45_135(&self.end, &mut self.ctrl, snap_precision);
-                snap_h_v_45_135(&self.start, &mut self.ctrl, snap_precision);
-            }
-            End => {
-                snap_h_v_45_135(&self.start, &mut self.end, snap_precision);
-                snap_h_v_45_135(&self.ctrl, &mut self.end, snap_precision);
-            }
-            _ => (),
-        }
-    }
     fn get_selection(&self) -> HandleSelection {
         self.selection
     }
@@ -246,14 +233,14 @@ impl Snap for SQuadBezier {
         match self.selection {
             Start => {
                 self.start = *p;
-                snap_to_grid(&mut self.start, snap_distance);
+                snap_to_snap(&mut self.start, snap_distance);
             }
             Ctrl => {
                 self.ctrl += *dp;
             }
             End => {
                 self.end = *p;
-                snap_to_grid(&mut self.end, snap_distance);
+                snap_to_snap(&mut self.end, snap_distance);
                 if self.init {
                     self.ctrl = (self.start + self.end) / 2.;
                 }
@@ -314,6 +301,32 @@ impl Snap for SQuadBezier {
         }
         cst
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use HandleSelection::*;
+        match self.selection {
+            Start | End => {
+                push_vertical(&self.start, &self.end, true, &mut cst);
+                push_horizontal(&self.start, &self.end, true, &mut cst);
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            Ctrl => {
+                push_vertical(&self.ctrl, &self.start, true, &mut cst);
+                push_horizontal(&self.ctrl, &self.start, true, &mut cst);
+                push_45_135(&self.ctrl, &self.start, true, &mut cst);
+                push_vertical(&self.ctrl, &self.end, true, &mut cst);
+                push_horizontal(&self.ctrl, &self.end, true, &mut cst);
+                push_45_135(&self.ctrl, &self.end, true, &mut cst);
+            }
+            All => {
+                push_vertical(&self.start, &self.end, true, &mut cst);
+                push_horizontal(&self.start, &self.end, true, &mut cst);
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            _ => (),
+        }
+        cst
+    }
     fn get_bounding_box(&self) -> [WXY; 2] {
         [self.start, self.end]
     }
@@ -346,32 +359,6 @@ impl SCubicBezier {
     }
 }
 impl Snap for SCubicBezier {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64) {
-        use HandleSelection::*;
-        match self.selection {
-            Start => {
-                snap_h_v_45_135(&self.ctrl1, &mut self.start, snap_precision);
-                snap_h_v_45_135(&self.ctrl2, &mut self.start, snap_precision);
-                snap_h_v_45_135(&self.end, &mut self.start, snap_precision);
-            }
-            Ctrl1 => {
-                snap_h_v_45_135(&self.start, &mut self.ctrl1, snap_precision);
-                snap_h_v_45_135(&self.ctrl2, &mut self.ctrl1, snap_precision);
-                snap_h_v_45_135(&self.end, &mut self.ctrl1, snap_precision);
-            }
-            Ctrl2 => {
-                snap_h_v_45_135(&self.start, &mut self.ctrl2, snap_precision);
-                snap_h_v_45_135(&self.ctrl1, &mut self.ctrl2, snap_precision);
-                snap_h_v_45_135(&self.end, &mut self.ctrl2, snap_precision);
-            }
-            End => {
-                snap_h_v_45_135(&self.start, &mut self.end, snap_precision);
-                snap_h_v_45_135(&self.ctrl1, &mut self.end, snap_precision);
-                snap_h_v_45_135(&self.ctrl2, &mut self.end, snap_precision);
-            }
-            _ => (),
-        }
-    }
     fn get_selection(&self) -> HandleSelection {
         self.selection
     }
@@ -416,7 +403,7 @@ impl Snap for SCubicBezier {
         match self.selection {
             Start => {
                 self.start = *p;
-                snap_to_grid(&mut self.start, snap_distance);
+                snap_to_snap(&mut self.start, snap_distance);
             }
             Ctrl1 => {
                 self.ctrl1 += *dp;
@@ -426,7 +413,7 @@ impl Snap for SCubicBezier {
             }
             End => {
                 self.end = *p;
-                snap_to_grid(&mut self.end, snap_distance);
+                snap_to_snap(&mut self.end, snap_distance);
                 if self.init {
                     self.ctrl1 = (self.start + self.end) / 3.;
                     self.ctrl2 = (self.start + self.end) / 3. * 2.;
@@ -500,6 +487,44 @@ impl Snap for SCubicBezier {
         }
         cst
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use HandleSelection::*;
+        match self.selection {
+            Start | End => {
+                push_vertical(&self.start, &self.end, true, &mut cst);
+                push_horizontal(&self.start, &self.end, true, &mut cst);
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            Ctrl1 => {
+                push_vertical(&self.ctrl1, &self.start, true, &mut cst);
+                push_horizontal(&self.ctrl1, &self.start, true, &mut cst);
+                push_45_135(&self.ctrl1, &self.start, true, &mut cst);
+                push_vertical(&self.ctrl1, &self.end, true, &mut cst);
+                push_horizontal(&self.ctrl1, &self.end, true, &mut cst);
+                push_45_135(&self.ctrl1, &self.end, true, &mut cst);
+                push_vertical(&self.ctrl1, &self.ctrl2, true, &mut cst);
+                push_horizontal(&self.ctrl1, &self.ctrl2, true, &mut cst);
+            }
+            Ctrl2 => {
+                push_vertical(&self.ctrl2, &self.start, true, &mut cst);
+                push_horizontal(&self.ctrl2, &self.start, true, &mut cst);
+                push_45_135(&self.ctrl2, &self.start, true, &mut cst);
+                push_vertical(&self.ctrl2, &self.end, true, &mut cst);
+                push_horizontal(&self.ctrl2, &self.end, true, &mut cst);
+                push_45_135(&self.ctrl2, &self.end, true, &mut cst);
+                push_vertical(&self.ctrl2, &self.ctrl1, true, &mut cst);
+                push_horizontal(&self.ctrl2, &self.ctrl1, true, &mut cst);
+            }
+            All => {
+                push_vertical(&self.start, &self.end, true, &mut cst);
+                push_horizontal(&self.start, &self.end, true, &mut cst);
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            _ => (),
+        }
+        cst
+    }
     fn get_bounding_box(&self) -> [WXY; 2] {
         [self.start, self.end]
     }
@@ -539,26 +564,6 @@ impl SRectangle {
     }
 }
 impl Snap for SRectangle {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64) {
-        use HandleSelection::*;
-        match self.selection {
-            Start => {
-                snap_h_v_45_135(&self.end, &mut self.start, snap_precision);
-            }
-            MidTop => {
-                // snap_h_v_45_135(&self.start, &mut self.end, snap_precision);
-                // self.mid_top.wy = self.end.wy;
-            }
-            MidRight => {
-                // snap_h_v_45_135(&self.start, &mut self.end, snap_precision);
-                // self.mid_right.wx = self.end.wx;
-            }
-            End => {
-                snap_h_v_45_135(&self.start, &mut self.end, snap_precision);
-            }
-            _ => (),
-        }
-    }
     fn get_selection(&self) -> HandleSelection {
         self.selection
     }
@@ -608,7 +613,7 @@ impl Snap for SRectangle {
         match self.selection {
             Start => {
                 self.start = *p;
-                snap_to_grid(&mut self.start, snap_distance);
+                snap_to_snap(&mut self.start, snap_distance);
                 self.mid_top.wx = (self.start.wx + self.end.wx) / 2.;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
@@ -628,7 +633,7 @@ impl Snap for SRectangle {
             }
             End => {
                 self.end = *p;
-                snap_to_grid(&mut self.end, snap_distance);
+                snap_to_snap(&mut self.end, snap_distance);
                 self.mid_top.wx = (self.start.wx + self.end.wx) / 2.;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
@@ -757,6 +762,26 @@ impl Snap for SRectangle {
         }
         cst
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use HandleSelection::*;
+        match self.selection {
+            Start | End => {
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            MidTop => {
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            MidRight => {
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            All => {
+                push_45_135(&self.start, &self.end, true, &mut cst);
+            }
+            _ => (),
+        }
+        cst
+    }
     fn get_bounding_box(&self) -> [WXY; 2] {
         [self.start, self.end]
     }
@@ -794,24 +819,6 @@ impl SEllipse {
     }
 }
 impl Snap for SEllipse {
-    fn snap_geometry(&mut self, _p: &WXY, _dp: &WXY, snap_precision: f64) {
-        use HandleSelection::*;
-        match self.selection {
-            Center => {
-                snap_h_v_45_135(&self.end, &mut self.center, snap_precision);
-            }
-            MidTop => {
-                snap_h_v_45_135(&self.mid_right, &mut self.mid_top, snap_precision);
-            }
-            MidRight => {
-                snap_h_v_45_135(&self.mid_top, &mut self.mid_right, snap_precision);
-            }
-            End => {
-                snap_h_v_45_135(&self.center, &mut self.end, snap_precision);
-            }
-            _ => (),
-        }
-    }
     fn get_selection(&self) -> HandleSelection {
         self.selection
     }
@@ -860,7 +867,7 @@ impl Snap for SEllipse {
             }
             End => {
                 self.end = *p;
-                snap_to_grid(&mut self.end, snap_distance);
+                snap_to_snap(&mut self.end, snap_distance);
                 self.mid_top.wx = self.center.wx;
                 self.mid_top.wy = self.end.wy;
                 self.mid_right.wx = self.end.wx;
@@ -1000,6 +1007,26 @@ impl Snap for SEllipse {
         }
         cst
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use HandleSelection::*;
+        match self.selection {
+            Center | End => {
+                push_45_135(&self.center, &self.end, true, &mut cst);
+            }
+            MidTop => {
+                push_45_135(&self.center, &self.end, true, &mut cst);
+            }
+            MidRight => {
+                push_45_135(&self.center, &self.end, true, &mut cst);
+            }
+            All => {
+                push_45_135(&self.center, &self.end, true, &mut cst);
+            }
+            _ => (),
+        }
+        cst
+    }
     fn get_bounding_box(&self) -> [WXY; 2] {
         [self.center - (self.end - self.center), self.end]
     }
@@ -1015,17 +1042,6 @@ pub enum ShapeType {
     Ellipse(SEllipse),
 }
 impl Snap for ShapeType {
-    fn snap_geometry(&mut self, p: &WXY, dp: &WXY, snap_precision: f64) {
-        use ShapeType::*;
-        match self {
-            Line(line) => line.snap_geometry(p, dp, snap_precision),
-            QuadBezier(quadbezier) => quadbezier.snap_geometry(p, dp, snap_precision),
-            CubicBezier(cubicbezier) => cubicbezier.snap_geometry(p, dp, snap_precision),
-            Rectangle(rectangle) => rectangle.snap_geometry(p, dp, snap_precision),
-            Ellipse(ellipse) => ellipse.snap_geometry(p, dp, snap_precision),
-        };
-    }
-
     fn get_selection(&self) -> HandleSelection {
         use ShapeType::*;
         match self {
@@ -1086,6 +1102,16 @@ impl Snap for ShapeType {
             Ellipse(ellipse) => ellipse.get_handles_construction(size_handle),
         }
     }
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        use ShapeType::*;
+        match self {
+            Line(line) => line.get_helpers_construction(),
+            QuadBezier(quadbezier) => quadbezier.get_helpers_construction(),
+            CubicBezier(cubicbezier) => cubicbezier.get_helpers_construction(),
+            Rectangle(rectangle) => rectangle.get_helpers_construction(),
+            Ellipse(ellipse) => ellipse.get_helpers_construction(),
+        }
+    }
     fn remove_any_selection(&mut self) {
         use ShapeType::*;
         match self {
@@ -1121,15 +1147,13 @@ impl Snap for ShapeType {
 #[derive(Copy, Clone)]
 pub struct Shape {
     shape: ShapeType,
-    snap_precision: f64,
     handles_size: WXY,
 }
 
 impl Shape {
-    pub fn new(shape: ShapeType, snap_precision: f64, handles_size: f64) -> Shape {
+    pub fn new(shape: ShapeType, handles_size: f64) -> Shape {
         Shape {
             shape,
-            snap_precision,
             handles_size: WXY {
                 wx: handles_size,
                 wy: handles_size,
@@ -1145,41 +1169,10 @@ impl Shape {
     }
     pub fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64) {
         self.shape.move_selection(p, dp, snap_distance);
-        self.shape.snap_geometry(p, dp, self.snap_precision);
     }
-    pub fn get_handles_construction(&self) -> Vec<ConstructionType> {
-        self.shape.get_handles_construction(self.handles_size)
-    }
-
-    // pub fn get_snap_construction(&self) -> Vec<ConstructionType> {
-    //     let mut cst = Vec::new();
-    //     for snap_type in self.snaps.iter() {
-    //         match snap_type {
-    //             SnapType::Geometry(idx1, idx2) => match &self.shape {
-    //                 ShapeType::Line(handles)
-    //                 | ShapeType::QuadBezier(handles)
-    //                 | ShapeType::CubicBezier(handles)
-    //                 | ShapeType::Rectangle(handles)
-    //                 | ShapeType::Ellipse(handles) => {
-    //                     let handle1 = handles[*idx1];
-    //                     let handle2 = handles[*idx2];
-    //                     let start = handle1 + self.offset;
-    //                     let end = handle2 + self.offset;
-    //                     extend_points(&mut [start, end]);
-    //                     cst.push(ConstructionType::Move(start));
-    //                     cst.push(ConstructionType::Line(end));
-    //                 }
-    //             },
-    //             SnapType::Middle(_idx_mid, _idxs) => (),
-    //         }
-    //     }
-    //     cst
-    // }
-
     pub fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.shape.set_selection(handle_selection);
     }
-
     pub fn set_selection_from_position(&mut self, pos: &WXY, precision: f64) {
         self.shape.set_selection_from_position(pos, precision);
     }
@@ -1188,6 +1181,12 @@ impl Shape {
     }
     pub fn get_construction(&self) -> Vec<ConstructionType> {
         self.shape.get_construction()
+    }
+    pub fn get_handles_construction(&self) -> Vec<ConstructionType> {
+        self.shape.get_handles_construction(self.handles_size)
+    }
+    pub fn get_helpers_construction(&self) -> Vec<ConstructionType> {
+        self.shape.get_helpers_construction()
     }
     pub fn get_bounding_box(&self) -> [WXY; 2] {
         self.shape.get_bounding_box()

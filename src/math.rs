@@ -3,9 +3,119 @@ use std::{
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
 };
 
+use crate::shapes::{ConstructionType, HandleSelection};
+
 // use web_sys::console;
 
-pub fn snap_to_grid(pos: &mut WXY, snap_distance: f64) {
+fn is_vert(pt1: &WXY, pt2: &WXY) -> bool {
+    (pt1.wx - pt2.wx).abs() < 0.001
+}
+fn is_hori(pt1: &WXY, pt2: &WXY) -> bool {
+    (pt1.wy - pt2.wy).abs() < 0.001
+}
+
+fn is_45_135(pt1: &WXY, pt2: &WXY) -> bool {
+    let dy = pt2.wy - pt1.wy;
+    let dx = pt2.wx - pt1.wx;
+    if dx != 0. {
+        dy / dx == 1. || dy / dx == -1.
+    } else {
+        false
+    }
+}
+
+pub fn push_45_135(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionType>) {
+    if is_45_135(pt1, pt2) {
+        if full {
+            use ConstructionType::*;
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: 2. * pt1.wx - pt2.wx,
+                wy: 2. * pt1.wy - pt2.wy,
+            }));
+            cst.push(Move(*pt1));
+            cst.push(Line(*pt2));
+            cst.push(Line(WXY {
+                wx: 2. * pt2.wx - pt1.wx,
+                wy: 2. * pt2.wy - pt1.wy,
+            }));
+        } else {
+            use ConstructionType::*;
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: 2. * pt1.wx - pt2.wx,
+                wy: 2. * pt1.wy - pt2.wy,
+            }));
+            cst.push(Move(*pt2));
+            cst.push(Line(WXY {
+                wx: 2. * pt2.wx - pt1.wx,
+                wy: 2. * pt2.wy - pt1.wy,
+            }));
+        }
+    }
+}
+
+pub fn push_vertical(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionType::*;
+    if is_vert(pt1, pt2) {
+        if full {
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: pt1.wx,
+                wy: 2. * pt1.wy - pt2.wy,
+            }));
+            cst.push(Move(*pt1));
+            cst.push(Line(*pt2));
+            cst.push(Line(WXY {
+                wx: pt1.wx,
+                wy: 2. * pt2.wy - pt1.wy,
+            }));
+        } else {
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: pt1.wx,
+                wy: 2. * pt1.wy - pt2.wy,
+            }));
+            cst.push(Move(*pt2));
+            cst.push(Line(WXY {
+                wx: pt1.wx,
+                wy: 2. * pt2.wy - pt1.wy,
+            }));
+        }
+    }
+}
+
+pub fn push_horizontal(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionType::*;
+    if is_hori(pt1, pt2) {
+        if full {
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: 2. * pt1.wx - pt2.wx,
+                wy: pt1.wy,
+            }));
+            cst.push(Move(*pt1));
+            cst.push(Line(*pt2));
+            cst.push(Line(WXY {
+                wx: 2. * pt2.wx - pt1.wx,
+                wy: pt1.wy,
+            }));
+        } else {
+            cst.push(Move(*pt1));
+            cst.push(Line(WXY {
+                wx: 2. * pt1.wx - pt2.wx,
+                wy: pt1.wy,
+            }));
+            cst.push(Move(*pt2));
+            cst.push(Line(WXY {
+                wx: 2. * pt2.wx - pt1.wx,
+                wy: pt1.wy,
+            }));
+        }
+    }
+}
+
+pub fn snap_to_snap(pos: &mut WXY, snap_distance: f64) {
     pos.wx = (pos.wx / snap_distance).round() * snap_distance;
     pos.wy = (pos.wy / snap_distance).round() * snap_distance;
 }
@@ -70,15 +180,7 @@ pub fn snap_equidistant(handles: &mut Vec<WXY>, idx: &usize, idxs: &[usize; 2], 
     }
 }
 
-pub fn extend_points(pts: &mut [WXY; 2]) {
-    reorder_corners(pts);
-    // let pt1 = pts[0];
-    // let pt2 = pts[1];
-}
 pub fn is_point_on_point(pt1: &WXY, pt2: &WXY, precision: f64) -> bool {
-    // let dx = (pt1.x - pt2.x).abs();
-    // let dy = (pt1.y - pt2.y).abs();
-    // dx < precision && dy < precision
     pt1.dist(pt2) < precision
 }
 
