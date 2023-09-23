@@ -1,7 +1,10 @@
-use web_sys::console;
+// use web_sys::console;
 
 use crate::math::*;
-use std::f64::consts::PI;
+use std::{
+    f64::consts::PI,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
@@ -33,7 +36,7 @@ pub enum ConstructionType {
 pub trait Snap {
     fn get_selection(&self) -> HandleSelection;
     fn set_selection(&mut self, handle_selection: HandleSelection);
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64);
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection;
     fn remove_any_selection(&mut self);
     fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64);
     fn get_construction(&self) -> Vec<ConstructionType>;
@@ -81,17 +84,17 @@ impl Snap for SLine {
     fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.selection = handle_selection;
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         if is_point_on_point(p, &self.start, precision) {
-            self.selection = HandleSelection::Start;
+            HandleSelection::Start
         } else {
             if is_point_on_point(p, &self.end, precision) {
-                self.selection = HandleSelection::End;
+                HandleSelection::End
             } else {
                 if is_point_on_segment(p, &self.start, &self.end, precision) {
-                    self.selection = HandleSelection::All;
+                    HandleSelection::All
                 } else {
-                    self.selection = HandleSelection::None;
+                    HandleSelection::None
                 }
             }
         }
@@ -212,24 +215,24 @@ impl Snap for SQuadBezier {
     fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.selection = handle_selection;
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         if is_point_on_point(p, &self.start, precision) {
-            self.selection = HandleSelection::Start;
+            HandleSelection::Start
         } else {
             if is_point_on_point(p, &self.ctrl, precision) {
                 use HandleSelection::*;
                 match self.selection {
-                    None => (),
-                    _ => self.selection = HandleSelection::Ctrl,
+                    None => HandleSelection::None,
+                    _ => HandleSelection::Ctrl,
                 }
             } else {
                 if is_point_on_point(p, &self.end, precision) {
-                    self.selection = HandleSelection::End;
+                    HandleSelection::End
                 } else {
                     if is_point_on_quadbezier(p, &self.start, &self.ctrl, &self.end, precision) {
-                        self.selection = HandleSelection::All;
+                        HandleSelection::All
                     } else {
-                        self.selection = HandleSelection::None;
+                        HandleSelection::None
                     }
                 }
             }
@@ -389,26 +392,26 @@ impl Snap for SCubicBezier {
     fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.selection = handle_selection;
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         if is_point_on_point(p, &self.start, precision) {
-            self.selection = HandleSelection::Start;
+            HandleSelection::Start
         } else {
             if is_point_on_point(p, &self.ctrl1, precision) {
                 use HandleSelection::*;
                 match self.selection {
-                    None => (),
-                    _ => self.selection = HandleSelection::Ctrl1,
+                    None => HandleSelection::None,
+                    _ => HandleSelection::Ctrl1,
                 }
             } else {
                 if is_point_on_point(p, &self.ctrl2, precision) {
                     use HandleSelection::*;
                     match self.selection {
-                        None => (),
-                        _ => self.selection = HandleSelection::Ctrl2,
+                        None => HandleSelection::None,
+                        _ => HandleSelection::Ctrl2,
                     }
                 } else {
                     if is_point_on_point(p, &self.end, precision) {
-                        self.selection = HandleSelection::End;
+                        HandleSelection::End
                     } else {
                         if is_point_on_cubicbezier(
                             p,
@@ -418,9 +421,9 @@ impl Snap for SCubicBezier {
                             &self.end,
                             precision,
                         ) {
-                            self.selection = HandleSelection::All;
+                            HandleSelection::All
                         } else {
-                            self.selection = HandleSelection::None;
+                            HandleSelection::None
                         }
                     }
                 }
@@ -636,18 +639,18 @@ impl Snap for SRectangle {
     fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.selection = handle_selection;
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         if is_point_on_point(p, &self.start, precision) {
-            self.selection = HandleSelection::Start;
+            HandleSelection::Start
         } else {
             if is_point_on_point(p, &self.mid_top, precision) {
-                self.selection = HandleSelection::MidTop;
+                HandleSelection::MidTop
             } else {
                 if is_point_on_point(p, &self.mid_right, precision) {
-                    self.selection = HandleSelection::MidRight;
+                    HandleSelection::MidRight
                 } else {
                     if is_point_on_point(p, &self.end, precision) {
-                        self.selection = HandleSelection::End;
+                        HandleSelection::End
                     } else {
                         let tl = WXY {
                             wx: self.start.wx,
@@ -662,9 +665,9 @@ impl Snap for SRectangle {
                             || is_point_on_segment(p, &self.end, &br, precision)
                             || is_point_on_segment(p, &br, &self.start, precision)
                         {
-                            self.selection = HandleSelection::All;
+                            HandleSelection::All
                         } else {
-                            self.selection = HandleSelection::None;
+                            HandleSelection::None
                         }
                     }
                 }
@@ -941,28 +944,28 @@ impl Snap for SEllipse {
     fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.selection = handle_selection;
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         if is_point_on_point(p, &self.center, precision) {
-            self.selection = HandleSelection::Center;
+            HandleSelection::Center
         } else {
             if is_point_on_point(p, &self.mid_top, precision) {
-                self.selection = HandleSelection::MidTop;
+                HandleSelection::MidTop
             } else {
                 if is_point_on_point(p, &self.mid_right, precision) {
-                    self.selection = HandleSelection::MidRight;
+                    HandleSelection::MidRight
                 } else {
                     if is_point_on_point(p, &self.end, precision) {
                         use HandleSelection::*;
                         match self.selection {
-                            None => (),
-                            _ => self.selection = HandleSelection::End,
+                            None => HandleSelection::None,
+                            _ => HandleSelection::End,
                         }
                     } else {
                         let radius = self.end - self.center;
                         if is_point_on_ellipse(p, &self.center, &radius, precision) {
-                            self.selection = HandleSelection::All;
+                            HandleSelection::All
                         } else {
-                            self.selection = HandleSelection::None;
+                            HandleSelection::None
                         }
                     }
                 }
@@ -1224,14 +1227,14 @@ impl Snap for ShapeType {
             Ellipse(ellipse) => ellipse.set_selection(handle_selection),
         }
     }
-    fn set_selection_from_position(&mut self, p: &WXY, precision: f64) {
+    fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection {
         use ShapeType::*;
         match self {
-            Line(line) => line.set_selection_from_position(p, precision),
-            QuadBezier(quadbezier) => quadbezier.set_selection_from_position(p, precision),
-            CubicBezier(cubicbezier) => cubicbezier.set_selection_from_position(p, precision),
-            Rectangle(rectangle) => rectangle.set_selection_from_position(p, precision),
-            Ellipse(ellipse) => ellipse.set_selection_from_position(p, precision),
+            Line(line) => line.get_selection_from_position(p, precision),
+            QuadBezier(quadbezier) => quadbezier.get_selection_from_position(p, precision),
+            CubicBezier(cubicbezier) => cubicbezier.get_selection_from_position(p, precision),
+            Rectangle(rectangle) => rectangle.get_selection_from_position(p, precision),
+            Ellipse(ellipse) => ellipse.get_selection_from_position(p, precision),
         }
     }
     fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64) {
@@ -1308,19 +1311,27 @@ impl Snap for ShapeType {
 
 #[derive(Copy, Clone)]
 pub struct Shape {
+    id: usize,
     shape: ShapeType,
     handles_size: WXY,
 }
 
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 impl Shape {
     pub fn new(shape: ShapeType, handles_size: f64) -> Shape {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         Shape {
+            id,
             shape,
             handles_size: WXY {
                 wx: handles_size,
                 wy: handles_size,
             },
         }
+    }
+    pub fn get_id(&self) -> usize {
+        self.id
     }
     pub fn has_selection(&self) -> bool {
         use HandleSelection::*;
@@ -1335,8 +1346,8 @@ impl Shape {
     pub fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.shape.set_selection(handle_selection);
     }
-    pub fn set_selection_from_position(&mut self, pos: &WXY, precision: f64) {
-        self.shape.set_selection_from_position(pos, precision);
+    pub fn get_selection_from_position(&mut self, pos: &WXY, precision: f64) -> HandleSelection {
+        self.shape.get_selection_from_position(pos, precision)
     }
     pub fn remove_selection(&mut self) {
         self.shape.remove_any_selection();

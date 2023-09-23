@@ -63,8 +63,12 @@ pub struct PlayingArea {
     settings_height_input: HtmlInputElement,
     // Mouse position on worksheet
     mouse_worksheet_position: HtmlElement,
+    _viewgrid_element: HtmlElement,
+    _snapgrid_element: HtmlElement,
 
     shapes: Vec<Shape>,
+    // First usize is Shape id, second is Group id
+    groups: HashMap<usize, usize>,
     // shape_buffer_copy_paste: Vec<Shape>,
     current_shape: Option<Shape>,
     icon_selected: &'static str,
@@ -148,6 +152,14 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         .get_element_by_id("status-info-worksheet-pos")
         .expect("should have status-info-worksheet-pos on the page")
         .dyn_into()?;
+    let viewgrid_element: HtmlElement = document
+        .get_element_by_id("status-viewgrid")
+        .expect("should have status-viewgrid on the page")
+        .dyn_into()?;
+    let snapgrid_element: HtmlElement = document
+        .get_element_by_id("status-snapgrid")
+        .expect("should have status-snapgrid on the page")
+        .dyn_into()?;
 
     let mut user_icons: HashMap<&'static str, Option<Element>> = HashMap::new();
     user_icons.insert("icon-arrow", None);
@@ -216,8 +228,11 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         settings_width_input,
         settings_height_input,
         mouse_worksheet_position,
+        _viewgrid_element: viewgrid_element,
+        _snapgrid_element: snapgrid_element,
 
         shapes: Vec::new(),
+        groups: HashMap::new(),
         // shape_buffer_copy_paste: Vec::new(),
         current_shape: None,
         icon_selected: "icon-arrow",
@@ -259,8 +274,10 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     init_window(playing_area.clone())?;
     init_menu(playing_area.clone())?;
     init_canvas(playing_area.clone())?;
+    init_context_menu(playing_area.clone())?;
     init_icons(playing_area.clone())?;
     init_settings_panel(playing_area.clone())?;
+    init_status(playing_area.clone())?;
 
     resize_area(playing_area.clone());
     render(playing_area.clone());
@@ -292,6 +309,7 @@ fn init_window(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
         .window
         .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())?;
     closure.forget();
+
     Ok(())
 }
 fn init_settings_panel(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
@@ -339,8 +357,26 @@ fn init_icons(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
 
     Ok(())
 }
+fn init_context_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
+    let pa_ref = pa.borrow_mut();
+    let document = pa_ref.document.clone();
+    let action_group = document.get_element_by_id("action-group").unwrap();
+    set_callback(
+        pa.clone(),
+        "click".into(),
+        &action_group,
+        Box::new(on_context_menu_group_click),
+    )?;
+    Ok(())
+}
 fn init_canvas(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
     let mut element = &pa.borrow().canvas;
+    set_callback(
+        pa.clone(),
+        "contextmenu".into(),
+        element,
+        Box::new(on_context_menu),
+    )?;
     set_callback(
         pa.clone(),
         "mousedown".into(),
@@ -463,6 +499,12 @@ fn init_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
 
     Ok(())
 }
+fn init_status(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
+    let pa_ref = pa.borrow_mut();
+    let _document = pa_ref.document.clone();
+
+    Ok(())
+}
 fn set_callback(
     pa: Rc<RefCell<PlayingArea>>,
     event_str: String,
@@ -544,10 +586,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    shapes.push(Shape::new(
+                                    let mut line = Shape::new(
                                         ShapeType::Line(SLine::new(current_position, new_position)),
                                         visual_handle_size,
-                                    ));
+                                    );
+                                    line.init_done();
+                                    shapes.push(line);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = None;
@@ -564,10 +608,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                shapes.push(Shape::new(
+                                let mut line = Shape::new(
                                     ShapeType::Line(SLine::new(current_position, new_position)),
                                     visual_handle_size,
-                                ));
+                                );
+                                line.init_done();
+                                shapes.push(line);
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -583,10 +629,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                shapes.push(Shape::new(
+                                let mut line = Shape::new(
                                     ShapeType::Line(SLine::new(current_position, new_position)),
                                     visual_handle_size,
-                                ));
+                                );
+                                line.init_done();
+                                shapes.push(line);
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -611,14 +659,16 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    shapes.push(Shape::new(
+                                    let mut quadbezier = Shape::new(
                                         ShapeType::QuadBezier(SQuadBezier::new(
                                             current_position,
                                             control_point,
                                             new_position,
                                         )),
                                         visual_handle_size,
-                                    ));
+                                    );
+                                    quadbezier.init_done();
+                                    shapes.push(quadbezier);
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -643,14 +693,16 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    shapes.push(Shape::new(
+                                    let mut quadbezier = Shape::new(
                                         ShapeType::QuadBezier(SQuadBezier::new(
                                             current_position,
                                             control_point,
                                             new_position,
                                         )),
                                         visual_handle_size,
-                                    ));
+                                    );
+                                    quadbezier.init_done();
+                                    shapes.push(quadbezier);
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -681,7 +733,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    shapes.push(Shape::new(
+                                    let mut cubicbezier = Shape::new(
                                         ShapeType::CubicBezier(SCubicBezier::new(
                                             current_position,
                                             control_point1,
@@ -689,7 +741,9 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
-                                    ));
+                                    );
+                                    cubicbezier.init_done();
+                                    shapes.push(cubicbezier);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -721,7 +775,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    shapes.push(Shape::new(
+                                    let mut cubicbezier = Shape::new(
                                         ShapeType::CubicBezier(SCubicBezier::new(
                                             current_position,
                                             control_point1,
@@ -729,7 +783,9 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
-                                    ));
+                                    );
+                                    cubicbezier.init_done();
+                                    shapes.push(cubicbezier);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -758,10 +814,23 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
 
 ///////////////
 // Canvas events: mouse, keyboard and context menu
+
 fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
         if mouse_event.buttons() == MouseState::LeftDown as u16 {
             let mut pa_ref = pa.borrow_mut();
+            if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+                if let Some(html_element) =
+                    wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
+                {
+                    // Hide the context menu when clicking elsewhere
+                    html_element
+                        .style()
+                        .set_property("display", "none")
+                        .unwrap();
+                }
+            }
+
             pa_ref.mouse_state = MouseState::LeftDown;
 
             // Get mouse position relative to the canvas
@@ -783,16 +852,29 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             snap_to_snap_grid(&mut start, pa_ref.working_area_snap_grid);
 
             if "icon-arrow" != pa_ref.icon_selected {
-                for shape in pa_ref.shapes.iter_mut() {
-                    shape.remove_selection();
-                }
+                pa_ref
+                    .shapes
+                    .iter_mut()
+                    .for_each(|shape| shape.remove_selection());
             }
 
             match pa_ref.icon_selected {
                 "icon-arrow" => {
                     let precision = pa_ref.grab_handle_precision;
+                    let mut handle_selected = false;
                     for shape in pa_ref.shapes.iter_mut() {
-                        shape.set_selection_from_position(&mouse_pos_world, precision);
+                        let selection =
+                            shape.get_selection_from_position(&mouse_pos_world, precision);
+                        match selection {
+                            HandleSelection::None => shape.set_selection(HandleSelection::None),
+                            HandleSelection::All => shape.set_selection(HandleSelection::All),
+                            _ => {
+                                if !handle_selected {
+                                    shape.set_selection(selection);
+                                    handle_selected = true;
+                                }
+                            }
+                        }
                     }
                 }
                 "icon-selection" => {
@@ -1063,8 +1145,47 @@ fn on_keyup(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     }
 }
 #[allow(dead_code)]
-fn on_context_menu(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
+fn on_context_menu(pa: Rc<RefCell<PlayingArea>>, event: Event) {
+    let pa_ref = pa.borrow_mut();
+    // Prevent the default context menu from appearing
+    event.prevent_default();
+    if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
+        if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+            if let Ok(html_element) = context_menu.dyn_into::<web_sys::HtmlElement>() {
+                // Position the context menu at the right-click position
+                html_element
+                    .style()
+                    .set_property("top", &format!("{}px", mouse_event.client_y()))
+                    .unwrap();
+                html_element
+                    .style()
+                    .set_property("left", &format!("{}px", mouse_event.client_x()))
+                    .unwrap();
 
+                // Show the context menu
+                html_element
+                    .style()
+                    .set_property("display", "block")
+                    .unwrap();
+            }
+        }
+    }
+}
+fn on_context_menu_group_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+    let pa_ref = pa.borrow_mut();
+    console::log_1(&"click group".into());
+    if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+        if let Some(html_element) =
+            wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
+        {
+            // Hide the context menu when clicking elsewhere
+            html_element
+                .style()
+                .set_property("display", "none")
+                .unwrap();
+        }
+    }
+}
 ///////////////
 /// Settings panel events
 fn on_apply_settings_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
@@ -1523,11 +1644,6 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: L
                 );
             }
             Ellipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
-                // let solid_pattern = Array::new();
-                // pa_ref
-                //     .ctx
-                //     .set_line_dash(&JsValue::from(solid_pattern))
-                //     .unwrap();
                 let c_center = w_center.to_canvas(scale, offset);
                 if *fill {
                     pa_ref.ctx.fill();

@@ -1,13 +1,5 @@
-use std::{
-    f64::consts::PI,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
-};
-
-use web_sys::console;
-
 use crate::shapes::ConstructionType;
-
-// use web_sys::console;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 pub fn magnet(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
     let dx = (pt.wx - pt1.wx).abs();
@@ -54,43 +46,12 @@ pub fn magnet(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
     }
 }
 
-pub fn magnet_mid_square(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
-    let x1 = pt1.wx;
-    let y1 = pt1.wy;
-    let x2 = pt.wx;
-    let y2 = pt.wy;
-    // Projection of p on (pt1, m=1)
-    let p_proj = WXY {
-        wx: (x1 + x2 + y2 - y1) / 2.,
-        wy: (-x1 + x2 + y2 + y1) / 2.,
-    };
-    if p_proj.dist(pt) < 4. * snap_distance {
-        *pt2 = p_proj;
-        true
-    } else {
-        // Projection of p on (pt1, m=-1)
-        let p_proj = WXY {
-            wx: (x1 + x2 - y2 + y1) / 2.,
-            wy: (x1 - x2 + y2 + y1) / 2.,
-        };
-
-        if p_proj.dist(pt) < 4. * snap_distance {
-            *pt2 = p_proj;
-            true
-        } else {
-            *pt2 = *pt;
-            false
-        }
-    }
-}
-
 fn is_vert(pt1: &WXY, pt2: &WXY) -> bool {
     (pt1.wx - pt2.wx).abs() < 0.001
 }
 fn is_hori(pt1: &WXY, pt2: &WXY) -> bool {
     (pt1.wy - pt2.wy).abs() < 0.001
 }
-
 fn is_45_135(pt1: &WXY, pt2: &WXY) -> bool {
     let dy = pt2.wy - pt1.wy;
     let dx = pt2.wx - pt1.wx;
@@ -131,7 +92,6 @@ pub fn push_45_135(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionT
         }
     }
 }
-
 pub fn push_vertical(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
     if is_vert(pt1, pt2) {
@@ -161,7 +121,6 @@ pub fn push_vertical(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<Constructio
         }
     }
 }
-
 pub fn push_horizontal(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
     if is_hori(pt1, pt2) {
@@ -203,59 +162,39 @@ pub fn snap_to_snap_grid_x(pos: &mut WXY, grid_spacing: f64) {
     pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
 }
 
-pub fn snap_h_v_45_135(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
-    // Horizontal
-    if (pt1.wy - pt2.wy).abs() < snap_precision {
-        pt2.wy = pt1.wy;
-    } else {
-        // Vertical
-        if (pt1.wx - pt2.wx).abs() < snap_precision {
-            pt2.wx = pt1.wx;
-        } else {
-            // Oblic
-            snap45(pt1, pt2, snap_precision);
-            snap135(pt1, pt2, snap_precision)
-        }
-    }
-}
-
-pub fn snap_equidistant(handles: &mut Vec<WXY>, idx: &usize, idxs: &[usize; 2], snap_val: f64) {
-    let pt = handles[*idx];
-    let pt1 = handles[idxs[0]];
-    let pt2 = handles[idxs[1]];
-
-    let mid = (pt1 + pt2) / 2.0;
-    let dx = pt2.wx - pt1.wx;
-    let dy = pt2.wy - pt1.wy;
-
-    if dx == 0. && dy == 0. {
-        return;
-    }
-
-    let proj = if dx == 0. {
-        WXY {
-            wx: pt.wx,
-            wy: (pt2.wy + pt1.wy) / 2.,
-        }
-    } else {
-        if dy == 0. {
-            WXY {
-                wx: (pt2.wx + pt1.wx) / 2.,
-                wy: pt.wy,
-            }
-        } else {
-            let slope = dy / dx;
-            let perp_slope = -1. / slope;
-            let x_p = (perp_slope * mid.wx - slope * pt.wx + pt.wy - mid.wy) / (perp_slope - slope);
-            let y_p = perp_slope * (x_p - mid.wx) + mid.wy;
-            WXY { wx: x_p, wy: y_p }
-        }
-    };
-
-    if pt.dist(&proj) < snap_val {
-        handles[*idx] = proj;
-    }
-}
+// pub fn snap_equidistant(handles: &mut Vec<WXY>, idx: &usize, idxs: &[usize; 2], snap_val: f64) {
+//     let pt = handles[*idx];
+//     let pt1 = handles[idxs[0]];
+//     let pt2 = handles[idxs[1]];
+//     let mid = (pt1 + pt2) / 2.0;
+//     let dx = pt2.wx - pt1.wx;
+//     let dy = pt2.wy - pt1.wy;
+//     if dx == 0. && dy == 0. {
+//         return;
+//     }
+//     let proj = if dx == 0. {
+//         WXY {
+//             wx: pt.wx,
+//             wy: (pt2.wy + pt1.wy) / 2.,
+//         }
+//     } else {
+//         if dy == 0. {
+//             WXY {
+//                 wx: (pt2.wx + pt1.wx) / 2.,
+//                 wy: pt.wy,
+//             }
+//         } else {
+//             let slope = dy / dx;
+//             let perp_slope = -1. / slope;
+//             let x_p = (perp_slope * mid.wx - slope * pt.wx + pt.wy - mid.wy) / (perp_slope - slope);
+//             let y_p = perp_slope * (x_p - mid.wx) + mid.wy;
+//             WXY { wx: x_p, wy: y_p }
+//         }
+//     };
+//     if pt.dist(&proj) < snap_val {
+//         handles[*idx] = proj;
+//     }
+// }
 
 pub fn is_point_on_point(pt1: &WXY, pt2: &WXY, precision: f64) -> bool {
     pt1.dist(pt2) < precision
@@ -374,15 +313,6 @@ pub fn is_box_inside(box_outer: &[WXY; 2], box_inner: &[WXY; 2]) -> bool {
         && tr_inner.wx <= tr_outer.wx
         && tr_inner.wy <= tr_outer.wy
 }
-fn _normalize_angle(mut angle: f64) -> f64 {
-    while angle < 0. {
-        angle += 2. * PI;
-    }
-    while angle >= 2. * PI {
-        angle -= 2. * PI;
-    }
-    angle
-}
 
 pub fn is_point_on_ellipse(pt: &WXY, center: &WXY, radius: &WXY, mut precision: f64) -> bool {
     // if radius.wx > 0. && radius.wy > 0. {
@@ -459,28 +389,6 @@ fn is_between(pt: &WXY, pt1: &WXY, pt2: &WXY) -> bool {
         return false;
     }
     return true;
-}
-
-fn snap45(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
-    let mut dy = pt2.wy - pt1.wy;
-    let dx = pt2.wx - pt1.wx;
-    let m = dy / dx;
-    if m > 0.97 && m < (1. / 0.97) {
-        dy = dx;
-        pt2.wx = pt1.wx + dx;
-        pt2.wy = pt1.wy + dy;
-    }
-}
-
-fn snap135(pt1: &WXY, pt2: &mut WXY, snap_precision: f64) {
-    let mut dy = pt2.wy - pt1.wy;
-    let dx = pt2.wx - pt1.wx;
-    let m = dy / dx;
-    if m < -0.97 && m > -(1. / 0.97) {
-        dy = -dx;
-        pt2.wx = pt1.wx + dx;
-        pt2.wy = pt1.wy + dy;
-    }
 }
 
 #[derive(Copy, Clone, Debug)]
