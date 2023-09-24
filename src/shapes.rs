@@ -22,8 +22,22 @@ pub enum DimensionType {
 }
 
 #[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+pub enum LayerType {
+    Worksheet,
+    Dimension,
+    GeometryHelpers,
+    Origin,
+    Grid,
+    Selection,
+    Selected,
+    Handle(bool),
+}
+
+#[allow(dead_code)]
 #[derive(Clone)]
 pub enum ConstructionType {
+    Layer(LayerType),
     Move(WXY),
     Line(WXY),
     Quadratic(WXY, WXY),
@@ -140,6 +154,7 @@ impl Snap for SLine {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
+        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(self.start));
         cst.push(Line(self.end));
         cst
@@ -170,6 +185,7 @@ impl Snap for SLine {
         use HandleSelection::*;
         match self.selection {
             Start | End | All => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.start, &self.end, false, &mut cst);
                 push_horizontal(&self.start, &self.end, false, &mut cst);
                 push_45_135(&self.start, &self.end, false, &mut cst);
@@ -295,6 +311,7 @@ impl Snap for SQuadBezier {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
+        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(self.start));
         cst.push(Quadratic(self.ctrl, self.end));
         cst
@@ -333,11 +350,13 @@ impl Snap for SQuadBezier {
         use HandleSelection::*;
         match self.selection {
             Start | End => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.start, &self.end, true, &mut cst);
                 push_horizontal(&self.start, &self.end, true, &mut cst);
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             Ctrl => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.ctrl, &self.start, true, &mut cst);
                 push_horizontal(&self.ctrl, &self.start, true, &mut cst);
                 push_45_135(&self.ctrl, &self.start, true, &mut cst);
@@ -346,6 +365,7 @@ impl Snap for SQuadBezier {
                 push_45_135(&self.ctrl, &self.end, true, &mut cst);
             }
             All => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.start, &self.end, true, &mut cst);
                 push_horizontal(&self.start, &self.end, true, &mut cst);
                 push_45_135(&self.start, &self.end, true, &mut cst);
@@ -511,6 +531,7 @@ impl Snap for SCubicBezier {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
+        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(self.start));
         cst.push(Bezier(self.ctrl1, self.ctrl2, self.end));
         cst
@@ -559,11 +580,13 @@ impl Snap for SCubicBezier {
         use HandleSelection::*;
         match self.selection {
             Start | End => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.start, &self.end, true, &mut cst);
                 push_horizontal(&self.start, &self.end, true, &mut cst);
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             Ctrl1 => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.ctrl1, &self.start, true, &mut cst);
                 push_horizontal(&self.ctrl1, &self.start, true, &mut cst);
                 push_45_135(&self.ctrl1, &self.start, true, &mut cst);
@@ -575,6 +598,7 @@ impl Snap for SCubicBezier {
                 push_45_135(&self.ctrl1, &self.ctrl2, true, &mut cst);
             }
             Ctrl2 => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.ctrl2, &self.start, true, &mut cst);
                 push_horizontal(&self.ctrl2, &self.start, true, &mut cst);
                 push_45_135(&self.ctrl2, &self.start, true, &mut cst);
@@ -586,6 +610,7 @@ impl Snap for SCubicBezier {
                 push_45_135(&self.ctrl2, &self.ctrl1, true, &mut cst);
             }
             All => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_vertical(&self.start, &self.end, true, &mut cst);
                 push_horizontal(&self.start, &self.end, true, &mut cst);
                 push_45_135(&self.start, &self.end, true, &mut cst);
@@ -783,6 +808,7 @@ impl Snap for SRectangle {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
+        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(self.start));
         cst.push(Line(WXY {
             wx: self.start.wx,
@@ -886,15 +912,19 @@ impl Snap for SRectangle {
         use HandleSelection::*;
         match self.selection {
             Start | End => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             MidTop => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             MidRight => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             All => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.start, &self.end, true, &mut cst);
             }
             _ => (),
@@ -1067,6 +1097,7 @@ impl Snap for SEllipse {
             wx: (self.end.wx - self.center.wx).abs(),
             wy: (self.end.wy - self.center.wy).abs(),
         };
+        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(
             self.center
                 + WXY {
@@ -1177,15 +1208,19 @@ impl Snap for SEllipse {
         use HandleSelection::*;
         match self.selection {
             Center | End => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.center, &self.end, true, &mut cst);
             }
             MidTop => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.center, &self.end, true, &mut cst);
             }
             MidRight => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.center, &self.end, true, &mut cst);
             }
             All => {
+                cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
                 push_45_135(&self.center, &self.end, true, &mut cst);
             }
             _ => (),
@@ -1206,6 +1241,7 @@ pub enum ShapeType {
     Rectangle(SRectangle),
     Ellipse(SEllipse),
 }
+
 impl Snap for ShapeType {
     fn get_selection(&self) -> HandleSelection {
         use ShapeType::*;

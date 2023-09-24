@@ -1,7 +1,7 @@
 use crate::math::*;
 use crate::shapes::{
-    ConstructionType, HandleSelection, SCubicBezier, SEllipse, SLine, SQuadBezier, SRectangle,
-    Shape, ShapeType,
+    ConstructionType, HandleSelection, LayerType, SCubicBezier, SEllipse, SLine, SQuadBezier,
+    SRectangle, Shape, ShapeType,
 };
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
@@ -19,19 +19,6 @@ use web_sys::{
 //console::log_1(&"ddd".into());
 
 pub type ElementCallback = Box<dyn Fn(Rc<RefCell<PlayingArea>>, Event) + 'static>;
-
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
-pub enum LayerType {
-    Worksheet,
-    Dimension,
-    GeometryHelpers,
-    Origin,
-    Grid,
-    Selection,
-    Selected,
-    Handle,
-}
 
 #[derive(Debug, Copy, Clone)]
 #[repr(u16)]
@@ -67,6 +54,7 @@ pub struct PlayingArea {
     _snapgrid_element: HtmlElement,
 
     shapes: Vec<Shape>,
+
     // First usize is Shape id, second is Group id
     groups: HashMap<usize, usize>,
     // shape_buffer_copy_paste: Vec<Shape>,
@@ -284,7 +272,6 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
 
     Ok(playing_area)
 }
-
 fn init_window(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
     // Resize event
     let pa_cloned1 = pa.clone();
@@ -814,7 +801,6 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
 
 ///////////////
 // Canvas events: mouse, keyboard and context menu
-
 fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
         if mouse_event.buttons() == MouseState::LeftDown as u16 {
@@ -1316,7 +1302,6 @@ fn on_window_click(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     //     }
     // }
 }
-
 ///////////////
 // Icons events
 fn on_icon_click(pa: Rc<RefCell<PlayingArea>>, event: Event) {
@@ -1381,13 +1366,12 @@ fn on_icon_mouseout(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
         .expect("Failed to set display property");
 }
 
+// Helpers
 fn go_to_arrow_tool(pa_ref: &mut RefMut<'_, PlayingArea>) {
     pa_ref.icon_selected = "icon-arrow";
     deselect_icons(&pa_ref);
     select_icon(&pa_ref, "icon-arrow");
 }
-
-// Helpers
 fn select_icon(pa_ref: &RefMut<'_, PlayingArea>, name: &str) {
     if let Some(element) = pa_ref.user_icons.get(name).unwrap().clone() {
         if let Ok(html_element) = element.dyn_into::<HtmlElement>() {
@@ -1438,82 +1422,65 @@ fn draw_all(pa: Rc<RefCell<PlayingArea>>) {
 }
 
 fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
+    use ConstructionType::*;
     let pa_ref = pa.borrow();
-
-    // // Debug: check good canvas size
-    // let (canvas_width, canvas_height) =
-    //     { (pa_ref.canvas.width() as f64, pa_ref.canvas.height() as f64) };
-    // let solid_pattern = pa_ref.pattern_solid.clone();
-    // pa_ref.ctx.set_line_dash(&solid_pattern).unwrap();
-    // pa_ref.ctx.set_line_width(10.);
-    // pa_ref.ctx.set_stroke_style(&"FFF".into());
-    // let p = Path2d::new().unwrap();
-    // p.move_to(1., 1.);
-    // p.line_to(1., canvas_height);
-    // p.line_to(canvas_width - 1., canvas_height - 1.);
-    // p.line_to(canvas_width - 1., 1.);
-    // p.line_to(1., 1.);
-    // pa_ref.ctx.begin_path();
-    // pa_ref.ctx.stroke_with_path(&p);
 
     // Draw working area
     let mut cst = Vec::new();
     let wa = pa_ref.working_area;
 
+    cst.push(Layer(LayerType::Worksheet));
     // Title
-    cst.push(ConstructionType::Text(
+    cst.push(Text(
         WXY {
             wx: wa.wx / 3.,
             wy: -20.,
         },
         "Working sheet".into(),
     ));
-
     // Arrows
-    cst.push(ConstructionType::Move(WXY { wx: 0., wy: -10. }));
-    cst.push(ConstructionType::Line(WXY { wx: 100., wy: -10. }));
-    cst.push(ConstructionType::Line(WXY { wx: 90., wy: -15. }));
-    cst.push(ConstructionType::Line(WXY { wx: 90., wy: -5. }));
-    cst.push(ConstructionType::Line(WXY { wx: 100., wy: -10. }));
-    cst.push(ConstructionType::Move(WXY { wx: -10., wy: 0. }));
-    cst.push(ConstructionType::Line(WXY { wx: -10., wy: 100. }));
-    cst.push(ConstructionType::Line(WXY { wx: -15., wy: 90. }));
-    cst.push(ConstructionType::Line(WXY { wx: -5., wy: 90. }));
-    cst.push(ConstructionType::Line(WXY { wx: -10., wy: 100. }));
-    cst.push(ConstructionType::Text(
-        WXY { wx: 40., wy: -20. },
-        "X".into(),
-    ));
-    cst.push(ConstructionType::Text(
-        WXY { wx: -30., wy: 50. },
-        "Y".into(),
-    ));
+    cst.push(Move(WXY { wx: 0., wy: -10. }));
+    cst.push(Line(WXY { wx: 100., wy: -10. }));
+    cst.push(Line(WXY { wx: 90., wy: -15. }));
+    cst.push(Line(WXY { wx: 90., wy: -5. }));
+    cst.push(Line(WXY { wx: 100., wy: -10. }));
+    cst.push(Move(WXY { wx: -10., wy: 0. }));
+    cst.push(Line(WXY { wx: -10., wy: 100. }));
+    cst.push(Line(WXY { wx: -15., wy: 90. }));
+    cst.push(Line(WXY { wx: -5., wy: 90. }));
+    cst.push(Line(WXY { wx: -10., wy: 100. }));
+    cst.push(Text(WXY { wx: 40., wy: -20. }, "X".into()));
+    cst.push(Text(WXY { wx: -30., wy: 50. }, "Y".into()));
 
     // Border
-    cst.push(ConstructionType::Move(WXY { wx: 0., wy: 0. }));
-    cst.push(ConstructionType::Line(WXY { wx: 0., wy: wa.wy }));
-    cst.push(ConstructionType::Line(WXY {
+    cst.push(Move(WXY { wx: 0., wy: 0. }));
+    cst.push(Line(WXY { wx: 0., wy: wa.wy }));
+    cst.push(Line(WXY {
         wx: wa.wx,
         wy: wa.wy,
     }));
-    cst.push(ConstructionType::Line(WXY { wx: wa.wx, wy: 0. }));
-    cst.push(ConstructionType::Line(WXY { wx: 0., wy: 0. }));
+    cst.push(Line(WXY { wx: wa.wx, wy: 0. }));
+    cst.push(Line(WXY { wx: 0., wy: 0. }));
 
-    raw_draw(&pa_ref, &cst, LayerType::Worksheet);
+    raw_draw(&pa_ref, &cst);
 }
 
 fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
+    use ConstructionType::*;
     let pa_ref = pa.borrow();
 
     let wa = pa_ref.working_area;
     let w_grid_spacing = pa_ref.working_area_visual_grid;
-    // Vertical grid lines
+
     let mut cst = Vec::new();
+    cst.push(Layer(LayerType::Grid));
+
+    // Vertical grid lines
     let mut wx = 0.;
     while wx <= wa.wx {
-        cst.push(ConstructionType::Move(WXY { wx: wx, wy: 0. }));
-        cst.push(ConstructionType::Line(WXY { wx: wx, wy: wa.wy }));
-        raw_draw(&pa_ref, &cst, LayerType::Grid);
+        cst.push(Move(WXY { wx: wx, wy: 0. }));
+        cst.push(Line(WXY { wx: wx, wy: wa.wy }));
+        raw_draw(&pa_ref, &cst);
         wx += w_grid_spacing;
     }
 
@@ -1521,9 +1488,9 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     let mut cst = Vec::new();
     let mut wy = 0.;
     while wy <= wa.wy {
-        cst.push(ConstructionType::Move(WXY { wx: 0., wy: wy }));
-        cst.push(ConstructionType::Line(WXY { wx: wa.wx, wy: wy }));
-        raw_draw(&pa_ref, &cst, LayerType::Grid);
+        cst.push(Move(WXY { wx: 0., wy: wy }));
+        cst.push(Line(WXY { wx: wa.wx, wy: wy }));
+        raw_draw(&pa_ref, &cst);
         wy += w_grid_spacing;
     }
 }
@@ -1533,33 +1500,17 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
 
     // Draw all shapes
     for shape in pa_ref.shapes.iter() {
-        raw_draw(&pa_ref, &shape.get_construction(), LayerType::Worksheet);
-        raw_draw(
-            &pa_ref,
-            &shape.get_handles_construction(),
-            LayerType::Worksheet,
-        );
-        raw_draw(
-            &pa_ref,
-            &shape.get_helpers_construction(),
-            LayerType::GeometryHelpers,
-        );
+        raw_draw(&pa_ref, &shape.get_construction());
+        raw_draw(&pa_ref, &shape.get_handles_construction());
+        raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
     // Draw the current drawing shape
     if let Some(shape) = pa_ref.current_shape.as_ref() {
         shape.get_construction();
-        raw_draw(&pa_ref, &shape.get_construction(), LayerType::Worksheet);
-        raw_draw(
-            &pa_ref,
-            &shape.get_handles_construction(),
-            LayerType::Worksheet,
-        );
-        raw_draw(
-            &pa_ref,
-            &&shape.get_helpers_construction(),
-            LayerType::GeometryHelpers,
-        );
+        raw_draw(&pa_ref, &shape.get_construction());
+        raw_draw(&pa_ref, &shape.get_handles_construction());
+        raw_draw(&pa_ref, &&shape.get_helpers_construction());
     }
 
     // If using a selection area, draw it
@@ -1567,6 +1518,7 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
 }
 
 fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
+    use ConstructionType::*;
     let pa_ref = pa.borrow();
 
     if let Some(sa) = pa_ref.selection_area {
@@ -1574,54 +1526,95 @@ fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
         let tr = sa[1];
         if bl.wx != tr.wx && bl.wy != tr.wy {
             let mut cst = Vec::new();
-            cst.push(ConstructionType::Move(WXY {
+            cst.push(Layer(LayerType::Selection));
+            cst.push(Move(WXY {
                 wx: bl.wx,
                 wy: bl.wy,
             }));
-            cst.push(ConstructionType::Line(WXY {
+            cst.push(Line(WXY {
                 wx: bl.wx,
                 wy: tr.wy,
             }));
-            cst.push(ConstructionType::Line(WXY {
+            cst.push(Line(WXY {
                 wx: tr.wx,
                 wy: tr.wy,
             }));
-            cst.push(ConstructionType::Line(WXY {
+            cst.push(Line(WXY {
                 wx: tr.wx,
                 wy: bl.wy,
             }));
-            cst.push(ConstructionType::Line(WXY {
+            cst.push(Line(WXY {
                 wx: bl.wx,
                 wy: bl.wy,
             }));
-            raw_draw(&pa_ref, &cst, LayerType::Selection);
+            raw_draw(&pa_ref, &cst);
         }
     }
 }
 
-fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: LayerType) {
-    use LayerType::*;
-    let (color, line_dash, line_width) = match layer {
-        Worksheet => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
-        Dimension => (&pa_ref.dimension_color, &pa_ref.pattern_solid, 1.),
-        GeometryHelpers => (&pa_ref.geohelper_color, &pa_ref.pattern_dashed, 1.),
-        Origin => (&pa_ref.origin_color, &pa_ref.pattern_solid, 1.),
-        Grid => (&pa_ref.grid_color, &pa_ref.pattern_solid, 1.),
-        Selection => (&pa_ref.selection_color, &pa_ref.pattern_dashed, 1.),
-        Selected => (&pa_ref.selected_color, &pa_ref.pattern_solid, 1.),
-        Handle => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
-    };
-    pa_ref.ctx.set_line_dash(line_dash).unwrap();
-    pa_ref.ctx.set_line_width(line_width);
-    pa_ref.ctx.set_stroke_style(&color.into());
-
+fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     let p = Path2d::new().unwrap();
-
     let scale = pa_ref.global_scale;
     let offset = pa_ref.canvas_offset;
+
+    let (mut color, mut line_dash, mut line_width) = (None, None, None);
     for prim in cst.iter() {
         use ConstructionType::*;
         match prim {
+            Layer(layer_type) => {
+                use LayerType::*;
+                (color, line_dash, line_width) = match layer_type {
+                    Worksheet => (
+                        Some(&pa_ref.worksheet_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(2.),
+                    ),
+                    Dimension => (
+                        Some(&pa_ref.dimension_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(1.),
+                    ),
+                    GeometryHelpers => (
+                        Some(&pa_ref.geohelper_color),
+                        Some(&pa_ref.pattern_dashed),
+                        Some(1.),
+                    ),
+                    Origin => (
+                        Some(&pa_ref.origin_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(1.),
+                    ),
+                    Grid => (
+                        Some(&pa_ref.grid_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(1.),
+                    ),
+                    Selection => (
+                        Some(&pa_ref.selection_color),
+                        Some(&pa_ref.pattern_dashed),
+                        Some(1.),
+                    ),
+                    Selected => (
+                        Some(&pa_ref.selected_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(1.),
+                    ),
+                    Handle(_) => (
+                        Some(&pa_ref.worksheet_color),
+                        Some(&pa_ref.pattern_solid),
+                        Some(1.),
+                    ),
+                };
+                if let Some(ld) = line_dash {
+                    pa_ref.ctx.set_line_dash(ld).unwrap();
+                }
+                if let Some(lw) = line_width {
+                    pa_ref.ctx.set_line_width(lw);
+                }
+                if let Some(c) = color {
+                    pa_ref.ctx.set_stroke_style(&c.into());
+                }
+            }
             Move(w_end) => {
                 let c_end = w_end.to_canvas(scale, offset);
                 p.move_to(c_end.cx, c_end.cy);
