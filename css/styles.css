@@ -8,6 +8,7 @@
     --canvas-grid-color: #c1c0c0;
     --canvas-selection-color: rgb(255, 255, 0);
     --canvas-selected-color:  rgb(130, 52, 0);
+    --canvas-highlight-color:  rgb(255, 0, 0);
     --canvas-fill-color: rgb(130, 52, 0);
 }
 

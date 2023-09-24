@@ -54,7 +54,7 @@ pub struct PlayingArea {
     _snapgrid_element: HtmlElement,
 
     shapes: Vec<Shape>,
-    current_selection_pool: Vec<(HandleSelection, usize)>,
+    current_shape_mouse_selection: Option<(HandleSelection, usize)>,
 
     // First usize is Shape id, second is Group id
     groups: HashMap<usize, usize>,
@@ -85,6 +85,7 @@ pub struct PlayingArea {
     selected_color: String,
     background_color: String,
     fill_color: String,
+    highlight_color: String,
 
     // line patterns
     pub pattern_dashed: JsValue,
@@ -92,6 +93,7 @@ pub struct PlayingArea {
 
     // head_position: WXY,
     visual_handle_size: f64,
+    highlight_handle_size: f64,
     //
     grab_handle_precision: f64,
 }
@@ -178,6 +180,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     let selected_color = style.get_property_value("--canvas-selected-color")?;
     let background_color = style.get_property_value("--canvas-background-color")?;
     let fill_color = style.get_property_value("--canvas-fill-color")?;
+    let highlight_color = style.get_property_value("--canvas-highlight-color")?;
     let dash_pattern = Array::new();
     let solid_pattern = Array::new();
     dash_pattern.push(&JsValue::from_f64(3.0));
@@ -222,7 +225,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         _snapgrid_element: snapgrid_element,
 
         shapes: Vec::new(),
-        current_selection_pool: Vec::new(),
+        current_shape_mouse_selection: None,
         groups: HashMap::new(),
         // shape_buffer_copy_paste: Vec::new(),
         current_shape: None,
@@ -253,9 +256,11 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         selected_color,
         background_color,
         fill_color,
+        highlight_color,
 
         // head_position,
         visual_handle_size: 6.,
+        highlight_handle_size: 12.,
 
         pattern_dashed: JsValue::from(dash_pattern),
         pattern_solid: JsValue::from(solid_pattern),
@@ -530,6 +535,7 @@ fn set_callback(
 fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<Shape> {
     let pa_ref = pa.borrow_mut();
     let visual_handle_size = pa_ref.visual_handle_size;
+    let highlight_handle_size = pa_ref.highlight_handle_size;
 
     let mut shapes: Vec<Shape> = Vec::new();
 
@@ -580,6 +586,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     let mut line = Shape::new(
                                         ShapeType::Line(SLine::new(current_position, new_position)),
                                         visual_handle_size,
+                                        highlight_handle_size,
                                     );
                                     line.init_done();
                                     shapes.push(line);
@@ -602,6 +609,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                 let mut line = Shape::new(
                                     ShapeType::Line(SLine::new(current_position, new_position)),
                                     visual_handle_size,
+                                    highlight_handle_size,
                                 );
                                 line.init_done();
                                 shapes.push(line);
@@ -623,6 +631,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                 let mut line = Shape::new(
                                     ShapeType::Line(SLine::new(current_position, new_position)),
                                     visual_handle_size,
+                                    highlight_handle_size,
                                 );
                                 line.init_done();
                                 shapes.push(line);
@@ -657,6 +666,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
+                                        highlight_handle_size,
                                     );
                                     quadbezier.init_done();
                                     shapes.push(quadbezier);
@@ -691,6 +701,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
+                                        highlight_handle_size,
                                     );
                                     quadbezier.init_done();
                                     shapes.push(quadbezier);
@@ -732,6 +743,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
+                                        highlight_handle_size,
                                     );
                                     cubicbezier.init_done();
                                     shapes.push(cubicbezier);
@@ -774,6 +786,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             new_position,
                                         )),
                                         visual_handle_size,
+                                        highlight_handle_size,
                                     );
                                     cubicbezier.init_done();
                                     shapes.push(cubicbezier);
@@ -788,6 +801,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                             shapes.push(Shape::new(
                                 ShapeType::Line(SLine::new(current_position, start_position)),
                                 visual_handle_size,
+                                highlight_handle_size,
                             ));
                             current_position = start_position;
                             last_quad_control_point = None;
@@ -838,6 +852,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             pa_ref.mouse_down_world_coord = mouse_pos_world;
 
             let visual_handle_size = pa_ref.visual_handle_size;
+            let highlight_handle_size = pa_ref.highlight_handle_size;
             let mut start = mouse_pos_world;
             snap_to_snap_grid(&mut start, pa_ref.working_area_snap_grid);
 
@@ -851,8 +866,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             match pa_ref.icon_selected {
                 "icon-arrow" => {
                     let precision = pa_ref.grab_handle_precision;
-                    let mut handle_selected = false;
-
+                    let mut current_shape_mouse_selection = None;
                     for shape in pa_ref.shapes.iter_mut() {
                         use HandleSelection::*;
                         let shape_selection = shape.get_selection();
@@ -864,28 +878,17 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                                     shape.set_selection(None);
                                 } else {
                                     shape.set_selection(All);
+                                    current_shape_mouse_selection = Some((All, shape.get_id()));
                                 }
                             }
                             _ => {
                                 shape.set_selection(cursor_selection);
-                            } // _ => (),
+                                current_shape_mouse_selection =
+                                    Some((cursor_selection, shape.get_id()));
+                            }
                         }
                     }
-
-                    // for shape in pa_ref.shapes.iter_mut() {
-                    //     let selection =
-                    //         shape.get_selection_from_position(&mouse_pos_world, precision);
-                    //     match selection {
-                    //         HandleSelection::None => shape.set_selection(HandleSelection::None),
-                    //         HandleSelection::All => shape.set_selection(HandleSelection::All),
-                    //         _ => {
-                    //             if !handle_selected {
-                    //                 shape.set_selection(selection);
-                    //                 handle_selected = true;
-                    //             }
-                    //         }
-                    //     }
-                    // }
+                    pa_ref.current_shape_mouse_selection = current_shape_mouse_selection;
                 }
                 "icon-selection" => {
                     pa_ref.selection_area = Some([mouse_pos_world, mouse_pos_world])
@@ -894,30 +897,35 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     pa_ref.current_shape = Some(Shape::new(
                         ShapeType::Line(SLine::new(start, start)),
                         visual_handle_size,
+                        highlight_handle_size,
                     ));
                 }
                 "icon-quadbezier" => {
                     pa_ref.current_shape = Some(Shape::new(
                         ShapeType::QuadBezier(SQuadBezier::new(start, start, start)),
                         visual_handle_size,
+                        highlight_handle_size,
                     ));
                 }
                 "icon-cubicbezier" => {
                     pa_ref.current_shape = Some(Shape::new(
                         ShapeType::CubicBezier(SCubicBezier::new(start, start, start, start)),
                         visual_handle_size,
+                        highlight_handle_size,
                     ));
                 }
                 "icon-square" => {
                     pa_ref.current_shape = Some(Shape::new(
                         ShapeType::Rectangle(SRectangle::new(start, WXY::default())),
                         visual_handle_size,
+                        highlight_handle_size,
                     ));
                 }
                 "icon-circle" => {
                     pa_ref.current_shape = Some(Shape::new(
                         ShapeType::Ellipse(SEllipse::new(start, WXY::default())),
                         visual_handle_size,
+                        highlight_handle_size,
                     ));
                 }
                 _ => (),
@@ -960,19 +968,39 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let delta_pos_world = mouse_pos_world - pa_ref.mouse_previous_pos_word;
 
         let snap_distance = pa_ref.working_area_snap_grid;
+        let precision = pa_ref.grab_handle_precision;
 
         if let MouseState::LeftDown = mouse_state {
             match pa_ref.icon_selected {
                 "icon-arrow" => {
-                    let mut some_shape_selected = false;
-                    for shape in pa_ref.shapes.iter_mut() {
-                        if shape.has_selection() {
+                    if let Some((handle_selection, shape_id)) = pa_ref.current_shape_mouse_selection
+                    {
+                        if let Some(shape) = pa_ref
+                            .shapes
+                            .iter_mut()
+                            .find(|shape| shape.get_id() == shape_id)
+                        {
                             shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
-                            some_shape_selected = true;
+
+                            use HandleSelection::*;
+                            let v_h = match handle_selection {
+                                All => shape.get_highlightable_handles_positions(),
+                                Start | End => vec![(handle_selection, mouse_pos_world)],
+                                _ => vec![],
+                            };
+
+                            for shape in pa_ref.shapes.iter_mut() {
+                                if shape.get_id() != shape_id {
+                                    for (_, pos) in v_h.iter() {
+                                        if shape.set_highlight(&pos, precision) {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
-                    // move the canvas if no object was selected
-                    if !some_shape_selected {
+                    } else {
+                        // move the canvas if no object was selected
                         pa_ref.canvas_offset += mouse_delta_canvas;
                     }
                 }
@@ -985,16 +1013,16 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 | "icon-square" => {
                     if let Some(shape) = pa_ref.current_shape.as_mut() {
                         shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
+                        for shape in pa_ref.shapes.iter_mut() {
+                            // Set highlight if any
+                            shape.set_highlight(&mouse_pos_world, precision);
+                        }
                     }
                 }
                 _ => (),
             }
-        }
-        pa_ref.mouse_previous_pos_canvas = mouse_pos_canvas;
-        pa_ref.mouse_previous_pos_word = mouse_pos_world;
 
-        // Update display mouse world position
-        if let MouseState::LeftDown = mouse_state {
+            // Update display mouse world position
             pa_ref
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
@@ -1013,6 +1041,9 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     mouse_pos_world.wy.round() as i32
                 )));
         }
+
+        pa_ref.mouse_previous_pos_canvas = mouse_pos_canvas;
+        pa_ref.mouse_previous_pos_word = mouse_pos_world;
 
         drop(pa_ref);
         render(pa.clone());
@@ -1041,13 +1072,17 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 pa_ref.selection_area = None;
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
-            | "icon-square" => {
+            | "icon-square" | "icon-arrow" => {
                 let oshape = pa_ref.current_shape.clone();
                 if let Some(mut shape) = oshape {
                     shape.init_done();
                     pa_ref.shapes.push(shape);
                     pa_ref.current_shape = None;
                 }
+                for shape in &mut pa_ref.shapes {
+                    shape.remove_highlight();
+                }
+                pa_ref.current_shape_mouse_selection = None;
             }
             _ => (),
         }
@@ -1529,6 +1564,7 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     for shape in pa_ref.shapes.iter() {
         raw_draw(&pa_ref, &shape.get_construction());
         raw_draw(&pa_ref, &shape.get_handles_construction());
+        raw_draw(&pa_ref, &shape.get_highlight_construction());
         raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
@@ -1634,6 +1670,12 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                     ),
                     Handle(_) => (
                         &pa_ref.fill_color,
+                        &pa_ref.worksheet_color,
+                        &pa_ref.pattern_solid,
+                        1.,
+                    ),
+                    Highlight => (
+                        &pa_ref.highlight_color,
                         &pa_ref.worksheet_color,
                         &pa_ref.pattern_solid,
                         1.,

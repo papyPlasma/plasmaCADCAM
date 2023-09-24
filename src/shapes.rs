@@ -1,5 +1,7 @@
 // use web_sys::console;
 
+use web_sys::console;
+
 use crate::math::*;
 use std::{
     f64::consts::PI,
@@ -31,6 +33,7 @@ pub enum LayerType {
     Grid,
     SelectionTool,
     Selected,
+    Highlight,
     Handle(bool),
 }
 
@@ -53,8 +56,12 @@ pub trait Snap {
     fn get_selection_from_position(&mut self, p: &WXY, precision: f64) -> HandleSelection;
     fn remove_any_selection(&mut self);
     fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64);
+    fn remove_highlight(&mut self);
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool;
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)>;
     fn get_construction(&self) -> Vec<ConstructionType>;
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType>;
+    fn get_highlight_construction(&self, size_highlight: WXY) -> Vec<ConstructionType>;
     fn get_helpers_construction(&self) -> Vec<ConstructionType>;
     fn get_bounding_box(&self) -> [WXY; 2];
     fn init_done(&mut self);
@@ -79,6 +86,7 @@ pub struct SLine {
     start: WXY,
     end: WXY,
     selection: HandleSelection,
+    highlight: HandleSelection,
     tmp: WXY,
 }
 impl SLine {
@@ -87,6 +95,7 @@ impl SLine {
             start,
             end,
             selection: HandleSelection::End,
+            highlight: HandleSelection::None,
             tmp: WXY::default(),
         }
     }
@@ -151,6 +160,30 @@ impl Snap for SLine {
             _ => (),
         }
     }
+    fn remove_highlight(&mut self) {
+        self.highlight = HandleSelection::None;
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        if is_point_on_point(p, &self.start, snap_distance) {
+            self.highlight = HandleSelection::Start;
+            true
+        } else {
+            if is_point_on_point(p, &self.end, snap_distance) {
+                self.highlight = HandleSelection::End;
+                true
+            } else {
+                self.highlight = HandleSelection::None;
+                false
+            }
+        }
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        let mut v = Vec::new();
+        use HandleSelection::*;
+        v.push((Start, self.start));
+        v.push((End, self.end));
+        v
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -176,6 +209,23 @@ impl Snap for SLine {
             push_handle(&self.start, &size_handle, fill_start, &mut cst);
             push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
+        cst
+    }
+    fn get_highlight_construction(&self, size_highlight: WXY) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use ConstructionType::*;
+        use HandleSelection::*;
+        match self.highlight {
+            Start => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.start, &size_highlight, false, &mut cst);
+            }
+            End => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.end, &size_highlight, false, &mut cst);
+            }
+            _ => (),
+        };
         cst
     }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
@@ -204,6 +254,7 @@ pub struct SQuadBezier {
     ctrl: WXY,
     end: WXY,
     selection: HandleSelection,
+    highlight: HandleSelection,
     init: bool,
     tmp: WXY,
 }
@@ -214,6 +265,7 @@ impl SQuadBezier {
             ctrl,
             end,
             selection: HandleSelection::End,
+            highlight: HandleSelection::None,
             init: true,
             tmp: WXY::default(),
         }
@@ -306,6 +358,30 @@ impl Snap for SQuadBezier {
             _ => (),
         }
     }
+    fn remove_highlight(&mut self) {
+        self.highlight = HandleSelection::None;
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        if is_point_on_point(p, &self.start, snap_distance) {
+            self.highlight = HandleSelection::Start;
+            true
+        } else {
+            if is_point_on_point(p, &self.end, snap_distance) {
+                self.highlight = HandleSelection::End;
+                true
+            } else {
+                self.highlight = HandleSelection::None;
+                false
+            }
+        }
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        let mut v = Vec::new();
+        use HandleSelection::*;
+        v.push((Start, self.start));
+        v.push((End, self.end));
+        v
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -333,6 +409,23 @@ impl Snap for SQuadBezier {
             push_handle(&self.ctrl, &size_handle, fill_ctrl, &mut cst);
             push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
+        cst
+    }
+    fn get_highlight_construction(&self, size_highlight: WXY) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use ConstructionType::*;
+        use HandleSelection::*;
+        match self.highlight {
+            Start => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.start, &size_highlight, false, &mut cst);
+            }
+            End => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.end, &size_highlight, false, &mut cst);
+            }
+            _ => (),
+        };
         cst
     }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
@@ -379,6 +472,7 @@ pub struct SCubicBezier {
     ctrl2: WXY,
     end: WXY,
     selection: HandleSelection,
+    highlight: HandleSelection,
     init: bool,
     tmp: WXY,
 }
@@ -390,6 +484,7 @@ impl SCubicBezier {
             ctrl2,
             end,
             selection: HandleSelection::End,
+            highlight: HandleSelection::None,
             init: true,
             tmp: WXY::default(),
         }
@@ -518,6 +613,30 @@ impl Snap for SCubicBezier {
             _ => (),
         }
     }
+    fn remove_highlight(&mut self) {
+        self.highlight = HandleSelection::None;
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        if is_point_on_point(p, &self.start, snap_distance) {
+            self.highlight = HandleSelection::Start;
+            true
+        } else {
+            if is_point_on_point(p, &self.end, snap_distance) {
+                self.highlight = HandleSelection::End;
+                true
+            } else {
+                self.highlight = HandleSelection::None;
+                false
+            }
+        }
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        let mut v = Vec::new();
+        use HandleSelection::*;
+        v.push((Start, self.start));
+        v.push((End, self.end));
+        v
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -547,6 +666,23 @@ impl Snap for SCubicBezier {
             push_handle(&self.ctrl2, &size_handle, fill_ctrl2, &mut cst);
             push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
+        cst
+    }
+    fn get_highlight_construction(&self, size_highlight: WXY) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        use ConstructionType::*;
+        use HandleSelection::*;
+        match self.highlight {
+            Start => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.start, &size_highlight, false, &mut cst);
+            }
+            End => {
+                cst.push(Layer(LayerType::Highlight));
+                push_handle(&self.end, &size_highlight, false, &mut cst);
+            }
+            _ => (),
+        };
         cst
     }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
@@ -608,6 +744,7 @@ pub struct SRectangle {
     mid_right: WXY,
     end: WXY,
     selection: HandleSelection,
+    highlight: HandleSelection,
     tmp: WXY,
 }
 impl SRectangle {
@@ -627,6 +764,7 @@ impl SRectangle {
                 wy: start.wy + dim.wy,
             },
             selection: HandleSelection::End,
+            highlight: HandleSelection::None,
             tmp: WXY::default(),
         }
     }
@@ -779,6 +917,16 @@ impl Snap for SRectangle {
             _ => (),
         }
     }
+    fn remove_highlight(&mut self) {
+        self.highlight = HandleSelection::None;
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        false
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        let mut v = Vec::new();
+        v
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -825,6 +973,10 @@ impl Snap for SRectangle {
         }
         cst
     }
+    fn get_highlight_construction(&self, _size_highlight: WXY) -> Vec<ConstructionType> {
+        let cst = Vec::new();
+        cst
+    }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use HandleSelection::*;
@@ -862,6 +1014,7 @@ pub struct SEllipse {
     mid_right: WXY,
     end: WXY,
     selection: HandleSelection,
+    highlight: HandleSelection,
     tmp: WXY,
 }
 impl SEllipse {
@@ -881,6 +1034,7 @@ impl SEllipse {
                 wy: center.wy + radius.wy,
             },
             selection: HandleSelection::End,
+            highlight: HandleSelection::None,
             tmp: WXY::default(),
         }
     }
@@ -1008,6 +1162,16 @@ impl Snap for SEllipse {
             _ => (),
         }
     }
+    fn remove_highlight(&mut self) {
+        self.highlight = HandleSelection::None;
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        false
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        let mut v = Vec::new();
+        v
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
@@ -1047,6 +1211,10 @@ impl Snap for SEllipse {
             push_handle(&self.mid_right, &size_handle, fill_mid_right, &mut cst);
             push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
+        cst
+    }
+    fn get_highlight_construction(&self, _size_highlight: WXY) -> Vec<ConstructionType> {
+        let cst = Vec::new();
         cst
     }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
@@ -1129,6 +1297,36 @@ impl Snap for ShapeType {
             Ellipse(ellipse) => ellipse.move_selection(p, dp, snap_distance),
         };
     }
+    fn remove_highlight(&mut self) {
+        use ShapeType::*;
+        match self {
+            Line(line) => line.remove_highlight(),
+            QuadBezier(quadbezier) => quadbezier.remove_highlight(),
+            CubicBezier(cubicbezier) => cubicbezier.remove_highlight(),
+            Rectangle(rectangle) => rectangle.remove_highlight(),
+            Ellipse(ellipse) => ellipse.remove_highlight(),
+        }
+    }
+    fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        use ShapeType::*;
+        match self {
+            Line(line) => line.set_highlight(p, snap_distance),
+            QuadBezier(quadbezier) => quadbezier.set_highlight(p, snap_distance),
+            CubicBezier(cubicbezier) => cubicbezier.set_highlight(p, snap_distance),
+            Rectangle(rectangle) => rectangle.set_highlight(p, snap_distance),
+            Ellipse(ellipse) => ellipse.set_highlight(p, snap_distance),
+        }
+    }
+    fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        use ShapeType::*;
+        match self {
+            Line(line) => line.get_highlightable_handles_positions(),
+            QuadBezier(quadbezier) => quadbezier.get_highlightable_handles_positions(),
+            CubicBezier(cubicbezier) => cubicbezier.get_highlightable_handles_positions(),
+            Rectangle(rectangle) => rectangle.get_highlightable_handles_positions(),
+            Ellipse(ellipse) => ellipse.get_highlightable_handles_positions(),
+        }
+    }
     fn get_construction(&self) -> Vec<ConstructionType> {
         use ShapeType::*;
         match self {
@@ -1147,6 +1345,16 @@ impl Snap for ShapeType {
             CubicBezier(cubicbezier) => cubicbezier.get_handles_construction(size_handle),
             Rectangle(rectangle) => rectangle.get_handles_construction(size_handle),
             Ellipse(ellipse) => ellipse.get_handles_construction(size_handle),
+        }
+    }
+    fn get_highlight_construction(&self, size_highlight: WXY) -> Vec<ConstructionType> {
+        use ShapeType::*;
+        match self {
+            Line(line) => line.get_highlight_construction(size_highlight),
+            QuadBezier(quadbezier) => quadbezier.get_highlight_construction(size_highlight),
+            CubicBezier(cubicbezier) => cubicbezier.get_highlight_construction(size_highlight),
+            Rectangle(rectangle) => rectangle.get_highlight_construction(size_highlight),
+            Ellipse(ellipse) => ellipse.get_highlight_construction(size_highlight),
         }
     }
     fn get_helpers_construction(&self) -> Vec<ConstructionType> {
@@ -1196,12 +1404,13 @@ pub struct Shape {
     id: usize,
     shape: ShapeType,
     handles_size: WXY,
+    highlight_size: WXY,
 }
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Shape {
-    pub fn new(shape: ShapeType, handles_size: f64) -> Shape {
+    pub fn new(shape: ShapeType, handles_size: f64, highlight_size: f64) -> Shape {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         Shape {
             id,
@@ -1209,6 +1418,10 @@ impl Shape {
             handles_size: WXY {
                 wx: handles_size,
                 wy: handles_size,
+            },
+            highlight_size: WXY {
+                wx: highlight_size,
+                wy: highlight_size,
             },
         }
     }
@@ -1234,6 +1447,15 @@ impl Shape {
     pub fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64) {
         self.shape.move_selection(p, dp, snap_distance);
     }
+    pub fn remove_highlight(&mut self) {
+        self.shape.remove_highlight();
+    }
+    pub fn set_highlight(&mut self, p: &WXY, snap_distance: f64) -> bool {
+        self.shape.set_highlight(p, snap_distance)
+    }
+    pub fn get_highlightable_handles_positions(&self) -> Vec<(HandleSelection, WXY)> {
+        self.shape.get_highlightable_handles_positions()
+    }
     pub fn remove_selection(&mut self) {
         self.shape.remove_any_selection();
     }
@@ -1242,6 +1464,9 @@ impl Shape {
     }
     pub fn get_handles_construction(&self) -> Vec<ConstructionType> {
         self.shape.get_handles_construction(self.handles_size)
+    }
+    pub fn get_highlight_construction(&self) -> Vec<ConstructionType> {
+        self.shape.get_highlight_construction(self.highlight_size)
     }
     pub fn get_helpers_construction(&self) -> Vec<ConstructionType> {
         self.shape.get_helpers_construction()
