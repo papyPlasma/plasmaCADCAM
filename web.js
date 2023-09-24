@@ -557,6 +557,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_stroke_c4647eb26598b90b = function(arg0, arg1) {
         getObject(arg0).stroke(getObject(arg1));
     };
+    imports.wbg.__wbg_ellipse_0dee6a12ad9df46f = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+        getObject(arg0).ellipse(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+    }, arguments) };
     imports.wbg.__wbg_setLineDash_ffd4b25a7a33e57b = function() { return handleError(function (arg0, arg1) {
         getObject(arg0).setLineDash(getObject(arg1));
     }, arguments) };
@@ -707,12 +710,12 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_rethrow = function(arg0) {
         throw takeObject(arg0);
     };
-    imports.wbg.__wbindgen_closure_wrapper229 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 91, __wbg_adapter_24);
+    imports.wbg.__wbindgen_closure_wrapper233 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 94, __wbg_adapter_24);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper230 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 91, __wbg_adapter_27);
+    imports.wbg.__wbindgen_closure_wrapper234 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 94, __wbg_adapter_27);
         return addHeapObject(ret);
     };
 

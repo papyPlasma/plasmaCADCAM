@@ -1,5 +1,8 @@
 use crate::shapes::ConstructionType;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use std::{
+    f64::consts::PI,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
+};
 
 pub fn magnet(pt1: &WXY, pt2: &mut WXY, pt: &WXY, snap_distance: f64) -> bool {
     let dx = (pt.wx - pt1.wx).abs();
@@ -149,6 +152,17 @@ pub fn push_horizontal(pt1: &WXY, pt2: &WXY, full: bool, cst: &mut Vec<Construct
             }));
         }
     }
+}
+pub fn push_handle(pt: &WXY, size_handle: &WXY, fill: bool, cst: &mut Vec<ConstructionType>) {
+    let radius = *size_handle / 2.;
+    use ConstructionType::*;
+    cst.push(Move(
+        *pt + WXY {
+            wx: radius.wx,
+            wy: 0.,
+        },
+    ));
+    cst.push(Ellipse(*pt, radius, 0., 0., 2. * PI, fill));
 }
 
 pub fn snap_to_snap_grid(pos: &mut WXY, snap_distance: f64) {
@@ -403,6 +417,18 @@ impl WXY {
         CXY {
             cx: canvas_x,
             cy: canvas_y,
+        }
+    }
+    pub fn add_x(&self, wx: f64) -> WXY {
+        WXY {
+            wx: self.wx + wx,
+            wy: self.wy,
+        }
+    }
+    pub fn add_y(&self, wy: f64) -> WXY {
+        WXY {
+            wx: self.wx,
+            wy: self.wy + wy,
         }
     }
 

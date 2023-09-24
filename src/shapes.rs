@@ -29,7 +29,7 @@ pub enum LayerType {
     GeometryHelpers,
     Origin,
     Grid,
-    Selection,
+    SelectionTool,
     Selected,
     Handle(bool),
 }
@@ -154,29 +154,27 @@ impl Snap for SLine {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
-        cst.push(Layer(LayerType::Worksheet));
+        if let HandleSelection::None = self.selection {
+            cst.push(Layer(LayerType::Worksheet));
+        } else {
+            cst.push(Layer(LayerType::Selected));
+        }
         cst.push(Move(self.start));
         cst.push(Line(self.end));
         cst
     }
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        use ConstructionType::*;
         use HandleSelection::*;
-        match self.selection {
-            Start => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            End => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, true));
-            }
-            All => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            _ => (),
+        let handle_select = match self.selection {
+            Start => Some((true, false)),
+            End => Some((false, true)),
+            All => Some((false, false)),
+            _ => Option::None,
+        };
+        if let Some((fill_start, fill_end)) = handle_select {
+            push_handle(&self.start, &size_handle, fill_start, &mut cst);
+            push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
         cst
     }
@@ -311,37 +309,29 @@ impl Snap for SQuadBezier {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
-        cst.push(Layer(LayerType::Worksheet));
+        if let HandleSelection::None = self.selection {
+            cst.push(Layer(LayerType::Worksheet));
+        } else {
+            cst.push(Layer(LayerType::Selected));
+        }
         cst.push(Move(self.start));
         cst.push(Quadratic(self.ctrl, self.end));
         cst
     }
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        use ConstructionType::*;
         use HandleSelection::*;
-        match self.selection {
-            Start => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.ctrl - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            Ctrl => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            End => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, true));
-            }
-            All => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            _ => (),
+        let handle_select = match self.selection {
+            Start => Some((true, false, false)),
+            Ctrl => Some((false, true, false)),
+            End => Some((false, false, true)),
+            All => Some((false, false, false)),
+            _ => Option::None,
+        };
+        if let Some((fill_start, fill_ctrl, fill_end)) = handle_select {
+            push_handle(&self.start, &size_handle, fill_start, &mut cst);
+            push_handle(&self.ctrl, &size_handle, fill_ctrl, &mut cst);
+            push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
         cst
     }
@@ -531,47 +521,31 @@ impl Snap for SCubicBezier {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
-        cst.push(Layer(LayerType::Worksheet));
+        if let HandleSelection::None = self.selection {
+            cst.push(Layer(LayerType::Worksheet));
+        } else {
+            cst.push(Layer(LayerType::Selected));
+        }
         cst.push(Move(self.start));
         cst.push(Bezier(self.ctrl1, self.ctrl2, self.end));
         cst
     }
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        use ConstructionType::*;
         use HandleSelection::*;
-        match self.selection {
-            Start => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.ctrl1 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl2 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            Ctrl1 => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl1 - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.ctrl2 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            Ctrl2 => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl1 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl2 - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            End => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl1 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl2 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, true));
-            }
-            All => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl1 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.ctrl2 - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            _ => (),
+        let handle_select = match self.selection {
+            Start => Some((true, false, false, false)),
+            Ctrl1 => Some((false, true, false, false)),
+            Ctrl2 => Some((false, false, true, false)),
+            End => Some((false, false, false, true)),
+            All => Some((false, false, false, false)),
+            _ => Option::None,
+        };
+        if let Some((fill_start, fill_ctrl1, fill_ctrl2, fill_end)) = handle_select {
+            push_handle(&self.start, &size_handle, fill_start, &mut cst);
+            push_handle(&self.ctrl1, &size_handle, fill_ctrl1, &mut cst);
+            push_handle(&self.ctrl2, &size_handle, fill_ctrl2, &mut cst);
+            push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
         cst
     }
@@ -808,7 +782,11 @@ impl Snap for SRectangle {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
-        cst.push(Layer(LayerType::Worksheet));
+        if let HandleSelection::None = self.selection {
+            cst.push(Layer(LayerType::Worksheet));
+        } else {
+            cst.push(Layer(LayerType::Selected));
+        }
         cst.push(Move(self.start));
         cst.push(Line(WXY {
             wx: self.start.wx,
@@ -830,80 +808,20 @@ impl Snap for SRectangle {
     }
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        use ConstructionType::*;
         use HandleSelection::*;
-        match self.selection {
-            Start => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            MidTop => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    true,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            MidRight => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    true,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            End => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, true));
-            }
-            All => {
-                cst.push(Rectangle(self.start - size_handle / 2., size_handle, false));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            _ => (),
+        let handle_select = match self.selection {
+            Start => Some((true, false, false, false)),
+            MidTop => Some((false, true, false, false)),
+            MidRight => Some((false, false, true, false)),
+            End => Some((false, false, false, true)),
+            All => Some((false, false, false, false)),
+            _ => Option::None,
+        };
+        if let Some((fill_start, fill_mid_top, fill_mid_right, fill_end)) = handle_select {
+            push_handle(&self.start, &size_handle, fill_start, &mut cst);
+            push_handle(&self.mid_top, &size_handle, fill_mid_top, &mut cst);
+            push_handle(&self.mid_right, &size_handle, fill_mid_right, &mut cst);
+            push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
         cst
     }
@@ -1093,11 +1011,15 @@ impl Snap for SEllipse {
     fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
         use ConstructionType::*;
+        if let HandleSelection::None = self.selection {
+            cst.push(Layer(LayerType::Worksheet));
+        } else {
+            cst.push(Layer(LayerType::Selected));
+        }
         let radius = WXY {
             wx: (self.end.wx - self.center.wx).abs(),
             wy: (self.end.wy - self.center.wy).abs(),
         };
-        cst.push(Layer(LayerType::Worksheet));
         cst.push(Move(
             self.center
                 + WXY {
@@ -1110,96 +1032,20 @@ impl Snap for SEllipse {
     }
     fn get_handles_construction(&self, size_handle: WXY) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        use ConstructionType::*;
         use HandleSelection::*;
-        match self.selection {
-            Center => {
-                cst.push(Rectangle(self.center - size_handle / 2., size_handle, true));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            MidTop => {
-                cst.push(Rectangle(
-                    self.center - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    true,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            MidRight => {
-                cst.push(Rectangle(
-                    self.center - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    true,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            End => {
-                cst.push(Rectangle(
-                    self.center - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, true));
-            }
-            All => {
-                cst.push(Rectangle(
-                    self.center - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_top - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(
-                    self.mid_right - size_handle / 2.,
-                    size_handle,
-                    false,
-                ));
-                cst.push(Rectangle(self.end - size_handle / 2., size_handle, false));
-            }
-            _ => (),
+        let handle_select = match self.selection {
+            Center => Some((true, false, false, false)),
+            MidTop => Some((false, true, false, false)),
+            MidRight => Some((false, false, true, false)),
+            End => Some((false, false, false, true)),
+            All => Some((false, false, false, false)),
+            _ => Option::None,
+        };
+        if let Some((fill_center, fill_mid_top, fill_mid_right, fill_end)) = handle_select {
+            push_handle(&self.center, &size_handle, fill_center, &mut cst);
+            push_handle(&self.mid_top, &size_handle, fill_mid_top, &mut cst);
+            push_handle(&self.mid_right, &size_handle, fill_mid_right, &mut cst);
+            push_handle(&self.end, &size_handle, fill_end, &mut cst);
         }
         cst
     }
@@ -1376,14 +1222,17 @@ impl Shape {
             Start | Ctrl | Ctrl1 | Ctrl2 | MidTop | MidRight | End | Center | All => true,
         }
     }
-    pub fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64) {
-        self.shape.move_selection(p, dp, snap_distance);
+    pub fn get_selection(&self) -> HandleSelection {
+        self.shape.get_selection()
     }
     pub fn set_selection(&mut self, handle_selection: HandleSelection) {
         self.shape.set_selection(handle_selection);
     }
     pub fn get_selection_from_position(&mut self, pos: &WXY, precision: f64) -> HandleSelection {
         self.shape.get_selection_from_position(pos, precision)
+    }
+    pub fn move_selection(&mut self, p: &WXY, dp: &WXY, snap_distance: f64) {
+        self.shape.move_selection(p, dp, snap_distance);
     }
     pub fn remove_selection(&mut self) {
         self.shape.remove_any_selection();

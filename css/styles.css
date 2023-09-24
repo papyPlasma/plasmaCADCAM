@@ -6,11 +6,10 @@
     --canvas-geohelper-color: #ffffff;
     --canvas-origin-color: #e0e;
     --canvas-grid-color: #c1c0c0;
-    --canvas-selection-color: #850;
-    --canvas-selected-color: #0F6;
+    --canvas-selection-color: rgb(255, 255, 0);
+    --canvas-selected-color:  rgb(130, 52, 0);
+    --canvas-fill-color: rgb(130, 52, 0);
 }
-
-
 
 body, html {
     margin: 0;

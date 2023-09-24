@@ -54,6 +54,7 @@ pub struct PlayingArea {
     _snapgrid_element: HtmlElement,
 
     shapes: Vec<Shape>,
+    current_selection_pool: Vec<(HandleSelection, usize)>,
 
     // First usize is Shape id, second is Group id
     groups: HashMap<usize, usize>,
@@ -83,6 +84,7 @@ pub struct PlayingArea {
     selection_color: String,
     selected_color: String,
     background_color: String,
+    fill_color: String,
 
     // line patterns
     pub pattern_dashed: JsValue,
@@ -175,7 +177,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     let selection_color = style.get_property_value("--canvas-selection-color")?;
     let selected_color = style.get_property_value("--canvas-selected-color")?;
     let background_color = style.get_property_value("--canvas-background-color")?;
-
+    let fill_color = style.get_property_value("--canvas-fill-color")?;
     let dash_pattern = Array::new();
     let solid_pattern = Array::new();
     dash_pattern.push(&JsValue::from_f64(3.0));
@@ -220,6 +222,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         _snapgrid_element: snapgrid_element,
 
         shapes: Vec::new(),
+        current_selection_pool: Vec::new(),
         groups: HashMap::new(),
         // shape_buffer_copy_paste: Vec::new(),
         current_shape: None,
@@ -249,14 +252,15 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         selection_color,
         selected_color,
         background_color,
+        fill_color,
 
         // head_position,
-        visual_handle_size: 8.,
+        visual_handle_size: 6.,
 
         pattern_dashed: JsValue::from(dash_pattern),
         pattern_solid: JsValue::from(solid_pattern),
         //
-        grab_handle_precision: 5.,
+        grab_handle_precision: 3.,
     }));
 
     init_window(playing_area.clone())?;
@@ -848,20 +852,40 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 "icon-arrow" => {
                     let precision = pa_ref.grab_handle_precision;
                     let mut handle_selected = false;
+
                     for shape in pa_ref.shapes.iter_mut() {
-                        let selection =
+                        use HandleSelection::*;
+                        let shape_selection = shape.get_selection();
+                        let cursor_selection =
                             shape.get_selection_from_position(&mouse_pos_world, precision);
-                        match selection {
-                            HandleSelection::None => shape.set_selection(HandleSelection::None),
-                            HandleSelection::All => shape.set_selection(HandleSelection::All),
-                            _ => {
-                                if !handle_selected {
-                                    shape.set_selection(selection);
-                                    handle_selected = true;
+                        match shape_selection {
+                            None => {
+                                if let None = cursor_selection {
+                                    shape.set_selection(None);
+                                } else {
+                                    shape.set_selection(All);
                                 }
                             }
+                            _ => {
+                                shape.set_selection(cursor_selection);
+                            } // _ => (),
                         }
                     }
+
+                    // for shape in pa_ref.shapes.iter_mut() {
+                    //     let selection =
+                    //         shape.get_selection_from_position(&mouse_pos_world, precision);
+                    //     match selection {
+                    //         HandleSelection::None => shape.set_selection(HandleSelection::None),
+                    //         HandleSelection::All => shape.set_selection(HandleSelection::All),
+                    //         _ => {
+                    //             if !handle_selected {
+                    //                 shape.set_selection(selection);
+                    //                 handle_selected = true;
+                    //             }
+                    //         }
+                    //     }
+                    // }
                 }
                 "icon-selection" => {
                     pa_ref.selection_area = Some([mouse_pos_world, mouse_pos_world])
@@ -1070,10 +1094,14 @@ fn on_mouse_wheel(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         render(pa);
     }
 }
-#[allow(dead_code)]
-fn on_mouse_enter(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
-#[allow(dead_code)]
-fn on_mouse_leave(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {}
+fn on_mouse_enter(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+    let mut pa_ref = pa.borrow_mut();
+    pa_ref.mouse_state = MouseState::NoButton;
+}
+fn on_mouse_leave(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
+    let mut pa_ref = pa.borrow_mut();
+    pa_ref.mouse_state = MouseState::NoButton;
+}
 fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
         console::log_1(&format!("{:?}", keyboard_event.key()).into());
@@ -1130,7 +1158,6 @@ fn on_keyup(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         render(pa.clone());
     }
 }
-#[allow(dead_code)]
 fn on_context_menu(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     let pa_ref = pa.borrow_mut();
     // Prevent the default context menu from appearing
@@ -1526,7 +1553,7 @@ fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
         let tr = sa[1];
         if bl.wx != tr.wx && bl.wy != tr.wy {
             let mut cst = Vec::new();
-            cst.push(Layer(LayerType::Selection));
+            cst.push(Layer(LayerType::SelectionTool));
             cst.push(Move(WXY {
                 wx: bl.wx,
                 wy: bl.wy,
@@ -1562,20 +1589,60 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
         match prim {
             Layer(layer_type) => {
                 use LayerType::*;
-                let (color, line_dash, line_width) = match layer_type {
-                    Worksheet => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 2.),
-                    Dimension => (&pa_ref.dimension_color, &pa_ref.pattern_solid, 1.),
-                    GeometryHelpers => (&pa_ref.geohelper_color, &pa_ref.pattern_dashed, 1.),
-                    Origin => (&pa_ref.origin_color, &pa_ref.pattern_solid, 1.),
-                    Grid => (&pa_ref.grid_color, &pa_ref.pattern_solid, 1.),
-                    Selection => (&pa_ref.selection_color, &pa_ref.pattern_dashed, 1.),
-                    Selected => (&pa_ref.selected_color, &pa_ref.pattern_solid, 1.),
-                    Handle(_) => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
+                let (fill_color, color, line_dash, line_width) = match layer_type {
+                    Worksheet => (
+                        &pa_ref.fill_color,
+                        &pa_ref.worksheet_color,
+                        &pa_ref.pattern_solid,
+                        2.,
+                    ),
+                    Dimension => (
+                        &pa_ref.fill_color,
+                        &pa_ref.dimension_color,
+                        &pa_ref.pattern_solid,
+                        1.,
+                    ),
+                    GeometryHelpers => (
+                        &pa_ref.fill_color,
+                        &pa_ref.geohelper_color,
+                        &pa_ref.pattern_dashed,
+                        1.,
+                    ),
+                    Origin => (
+                        &pa_ref.fill_color,
+                        &pa_ref.origin_color,
+                        &pa_ref.pattern_solid,
+                        1.,
+                    ),
+                    Grid => (
+                        &pa_ref.fill_color,
+                        &pa_ref.grid_color,
+                        &pa_ref.pattern_solid,
+                        1.,
+                    ),
+                    SelectionTool => (
+                        &pa_ref.fill_color,
+                        &pa_ref.selection_color,
+                        &pa_ref.pattern_dashed,
+                        1.,
+                    ),
+                    Selected => (
+                        &pa_ref.fill_color,
+                        &pa_ref.selected_color,
+                        &pa_ref.pattern_solid,
+                        2.,
+                    ),
+                    Handle(_) => (
+                        &pa_ref.fill_color,
+                        &pa_ref.worksheet_color,
+                        &pa_ref.pattern_solid,
+                        1.,
+                    ),
                 };
                 pa_ref.ctx.set_line_dash(line_dash).unwrap();
                 pa_ref.ctx.set_line_width(line_width);
                 pa_ref.ctx.set_stroke_style(&color.into());
-                pa_ref.ctx.set_fill_style(&color.into());
+                pa_ref.ctx.set_fill_style(&fill_color.into());
             }
             Move(w_end) => {
                 let c_end = w_end.to_canvas(scale, offset);
@@ -1598,21 +1665,6 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                     c_ctrl1.cx, c_ctrl1.cy, c_ctrl2.cx, c_ctrl2.cy, c_end.cx, c_end.cy,
                 );
             }
-            Ellipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
-                let c_center = w_center.to_canvas(scale, offset);
-                if *fill {
-                    pa_ref.ctx.fill();
-                }
-                let _ = p.ellipse(
-                    c_center.cx,
-                    c_center.cy,
-                    radius.wx * scale,
-                    radius.wy * scale,
-                    *rotation,
-                    *start_angle,
-                    *end_angle,
-                );
-            }
             Rectangle(w_start, w_dimensions, fill) => {
                 let c_start = w_start.to_canvas(scale, offset);
                 let c_dimensions = *w_dimensions * scale;
@@ -1622,12 +1674,33 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                         .ctx
                         .fill_rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
                 } else {
-                    pa_ref.ctx.set_fill_style(&"#FFF".into());
-                    pa_ref.ctx.fill();
-                    pa_ref
-                        .ctx
-                        .fill_rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
                     p.rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
+                }
+            }
+            Ellipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
+                let c_center = w_center.to_canvas(scale, offset);
+                if *fill {
+                    pa_ref.ctx.begin_path();
+                    let _ = pa_ref.ctx.ellipse(
+                        c_center.cx,
+                        c_center.cy,
+                        radius.wx * scale,
+                        radius.wy * scale,
+                        *rotation,
+                        *start_angle,
+                        *end_angle,
+                    );
+                    pa_ref.ctx.fill();
+                } else {
+                    let _ = p.ellipse(
+                        c_center.cx,
+                        c_center.cy,
+                        radius.wx * scale,
+                        radius.wy * scale,
+                        *rotation,
+                        *start_angle,
+                        *end_angle,
+                    );
                 }
             }
             Text(w_pos, txt) => {
