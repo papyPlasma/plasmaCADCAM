@@ -1557,63 +1557,25 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     let scale = pa_ref.global_scale;
     let offset = pa_ref.canvas_offset;
 
-    let (mut color, mut line_dash, mut line_width) = (None, None, None);
     for prim in cst.iter() {
         use ConstructionType::*;
         match prim {
             Layer(layer_type) => {
                 use LayerType::*;
-                (color, line_dash, line_width) = match layer_type {
-                    Worksheet => (
-                        Some(&pa_ref.worksheet_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(2.),
-                    ),
-                    Dimension => (
-                        Some(&pa_ref.dimension_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(1.),
-                    ),
-                    GeometryHelpers => (
-                        Some(&pa_ref.geohelper_color),
-                        Some(&pa_ref.pattern_dashed),
-                        Some(1.),
-                    ),
-                    Origin => (
-                        Some(&pa_ref.origin_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(1.),
-                    ),
-                    Grid => (
-                        Some(&pa_ref.grid_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(1.),
-                    ),
-                    Selection => (
-                        Some(&pa_ref.selection_color),
-                        Some(&pa_ref.pattern_dashed),
-                        Some(1.),
-                    ),
-                    Selected => (
-                        Some(&pa_ref.selected_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(1.),
-                    ),
-                    Handle(_) => (
-                        Some(&pa_ref.worksheet_color),
-                        Some(&pa_ref.pattern_solid),
-                        Some(1.),
-                    ),
+                let (color, line_dash, line_width) = match layer_type {
+                    Worksheet => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 2.),
+                    Dimension => (&pa_ref.dimension_color, &pa_ref.pattern_solid, 1.),
+                    GeometryHelpers => (&pa_ref.geohelper_color, &pa_ref.pattern_dashed, 1.),
+                    Origin => (&pa_ref.origin_color, &pa_ref.pattern_solid, 1.),
+                    Grid => (&pa_ref.grid_color, &pa_ref.pattern_solid, 1.),
+                    Selection => (&pa_ref.selection_color, &pa_ref.pattern_dashed, 1.),
+                    Selected => (&pa_ref.selected_color, &pa_ref.pattern_solid, 1.),
+                    Handle(_) => (&pa_ref.worksheet_color, &pa_ref.pattern_solid, 1.),
                 };
-                if let Some(ld) = line_dash {
-                    pa_ref.ctx.set_line_dash(ld).unwrap();
-                }
-                if let Some(lw) = line_width {
-                    pa_ref.ctx.set_line_width(lw);
-                }
-                if let Some(c) = color {
-                    pa_ref.ctx.set_stroke_style(&c.into());
-                }
+                pa_ref.ctx.set_line_dash(line_dash).unwrap();
+                pa_ref.ctx.set_line_width(line_width);
+                pa_ref.ctx.set_stroke_style(&color.into());
+                pa_ref.ctx.set_fill_style(&color.into());
             }
             Move(w_end) => {
                 let c_end = w_end.to_canvas(scale, offset);
@@ -1655,7 +1617,6 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                 let c_start = w_start.to_canvas(scale, offset);
                 let c_dimensions = *w_dimensions * scale;
                 if *fill {
-                    pa_ref.ctx.set_fill_style(&color.into());
                     pa_ref.ctx.fill();
                     pa_ref
                         .ctx
