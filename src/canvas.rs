@@ -1,11 +1,9 @@
 use crate::math::*;
-use crate::shapes::{
-    ConstructionType, HandleSelection, LayerType, SCubicBezier, SEllipse, SLine, SQuadBezier,
-    SRectangle, Shape, ShapeType,
-};
+use crate::shapes::{ConstructionType, Handle, LayerType, Shape, ShapesGroups};
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
@@ -54,22 +52,22 @@ pub struct PlayingArea {
     _snapgrid_element: HtmlElement,
 
     shapes: Vec<Shape>,
-    current_shape_mouse_selection: Option<(HandleSelection, usize)>,
+    #[allow(dead_code)]
+    groups: ShapesGroups,
+    current_shape_mouse_selection: Option<(Handle, usize)>,
 
-    // First usize is Shape id, second is Group id
-    groups: HashMap<usize, usize>,
     // shape_buffer_copy_paste: Vec<Shape>,
-    current_shape: Option<Shape>,
+    current_drawing_shape: Option<Shape>,
     icon_selected: &'static str,
-    selection_area: Option<[WXY; 2]>,
+    selection_area: Option<[WPoint; 2]>,
     ctrl_or_meta_pressed: bool,
     //
     mouse_state: MouseState,
     mouse_previous_pos_canvas: CXY,
-    mouse_previous_pos_word: WXY,
-    mouse_down_world_coord: WXY,
+    mouse_previous_pos_word: WPoint,
+    mouse_down_world_coord: WPoint,
 
-    working_area: WXY,
+    working_area: WPoint,
     global_scale: f64,
     canvas_offset: CXY,
     working_area_visual_grid: f64,
@@ -160,7 +158,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     user_icons.insert("icon-quadbezier", None);
     user_icons.insert("icon-cubicbezier", None);
     user_icons.insert("icon-square", None);
-    user_icons.insert("icon-circle", None);
+    user_icons.insert("icon-ellipse", None);
     user_icons.insert("icon-cog", None);
 
     let document_element = document
@@ -189,7 +187,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     // Calculation starting parameters
     let (canvas_width, canvas_height) = { (canvas.width() as f64, canvas.height() as f64) };
     // let head_position = WXY { wx: 10., wy: 10. };
-    let working_area = WXY {
+    let working_area = WPoint {
         wx: 1000.,
         wy: 500.,
     };
@@ -225,17 +223,17 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         _snapgrid_element: snapgrid_element,
 
         shapes: Vec::new(),
+        groups: ShapesGroups::new(),
         current_shape_mouse_selection: None,
-        groups: HashMap::new(),
-        // shape_buffer_copy_paste: Vec::new(),
-        current_shape: None,
+        current_drawing_shape: None,
+
         icon_selected: "icon-arrow",
         selection_area: None,
         ctrl_or_meta_pressed: false,
         mouse_state: MouseState::NoButton,
         mouse_previous_pos_canvas: CXY::default(),
-        mouse_previous_pos_word: WXY::default(),
-        mouse_down_world_coord: WXY::default(),
+        mouse_previous_pos_word: WPoint::default(),
+        mouse_down_world_coord: WPoint::default(),
 
         // Real word dimensions
         working_area,
@@ -536,6 +534,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
     let pa_ref = pa.borrow_mut();
     let visual_handle_size = pa_ref.visual_handle_size;
     let highlight_handle_size = pa_ref.highlight_handle_size;
+    let snap_distance = pa_ref.working_area_snap_grid;
 
     let mut shapes: Vec<Shape> = Vec::new();
 
@@ -545,10 +544,10 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
             svg::parser::Event::Tag(svg::node::element::tag::Path, _, attributes) => {
                 let data = attributes.get("d").unwrap();
                 let data = svg::node::element::path::Data::parse(data).unwrap();
-                let mut current_position = WXY::default();
-                let mut start_position = WXY::default();
-                let mut last_quad_control_point: Option<WXY> = None;
-                let mut last_cubic_control_point: Option<WXY> = None;
+                let mut current_position = WPoint::default();
+                let mut start_position = WPoint::default();
+                let mut last_quad_control_point: Option<WPoint> = None;
+                let mut last_cubic_control_point: Option<WPoint> = None;
 
                 for command in data.iter() {
                     let command_clone = command.clone();
@@ -557,11 +556,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                         Command::Move(postype, params) => {
                             if params.len() == 2 {
                                 current_position = match postype {
-                                    Position::Absolute => WXY {
+                                    Position::Absolute => WPoint {
                                         wx: params[0] as f64,
                                         wy: params[1] as f64,
                                     },
-                                    Position::Relative => WXY {
+                                    Position::Relative => WPoint {
                                         wx: params[0] as f64 + current_position.wx,
                                         wy: params[1] as f64 + current_position.wy,
                                     },
@@ -575,7 +574,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                             if params.len() % 2 == 0 {
                                 let nb_curves = params.len() / 2;
                                 for curve in 0..nb_curves {
-                                    let end_point = WXY {
+                                    let end_point = WPoint {
                                         wx: params[2 * curve] as f64,
                                         wy: params[2 * curve + 1] as f64,
                                     };
@@ -583,8 +582,10 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let mut line = Shape::new(
-                                        ShapeType::Line(SLine::new(current_position, new_position)),
+                                    let mut line = Shape::new_line(
+                                        &current_position,
+                                        &new_position,
+                                        snap_distance,
                                         visual_handle_size,
                                         highlight_handle_size,
                                     );
@@ -598,7 +599,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                         }
                         Command::HorizontalLine(postype, params) => {
                             for curve in 0..params.len() {
-                                let end_point = WXY {
+                                let end_point = WPoint {
                                     wx: params[curve] as f64,
                                     wy: current_position.wy,
                                 };
@@ -606,8 +607,10 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let mut line = Shape::new(
-                                    ShapeType::Line(SLine::new(current_position, new_position)),
+                                let mut line = Shape::new_line(
+                                    &current_position,
+                                    &new_position,
+                                    snap_distance,
                                     visual_handle_size,
                                     highlight_handle_size,
                                 );
@@ -620,7 +623,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                         }
                         Command::VerticalLine(postype, params) => {
                             for curve in 0..params.len() {
-                                let end_point = WXY {
+                                let end_point = WPoint {
                                     wx: current_position.wx,
                                     wy: params[curve] as f64,
                                 };
@@ -628,8 +631,10 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let mut line = Shape::new(
-                                    ShapeType::Line(SLine::new(current_position, new_position)),
+                                let mut line = Shape::new_line(
+                                    &current_position,
+                                    &new_position,
+                                    snap_distance,
                                     visual_handle_size,
                                     highlight_handle_size,
                                 );
@@ -644,11 +649,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                             if params.len() % 4 == 0 {
                                 let nb_curves = params.len() / 4;
                                 for curve in 0..nb_curves {
-                                    let mut control_point = WXY {
+                                    let mut control_point = WPoint {
                                         wx: params[4 * curve] as f64,
                                         wy: params[4 * curve + 1] as f64,
                                     };
-                                    let end_point = WXY {
+                                    let end_point = WPoint {
                                         wx: params[4 * curve + 2] as f64,
                                         wy: params[4 * curve + 3] as f64,
                                     };
@@ -659,12 +664,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut quadbezier = Shape::new(
-                                        ShapeType::QuadBezier(SQuadBezier::new(
-                                            current_position,
-                                            control_point,
-                                            new_position,
-                                        )),
+                                    let mut quadbezier = Shape::new_quadbezier(
+                                        &current_position,
+                                        &control_point,
+                                        &new_position,
+                                        snap_distance,
                                         visual_handle_size,
                                         highlight_handle_size,
                                     );
@@ -686,7 +690,7 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         } else {
                                             current_position
                                         };
-                                    let end_point = WXY {
+                                    let end_point = WPoint {
                                         wx: params[2 * curve] as f64,
                                         wy: params[2 * curve + 1] as f64,
                                     };
@@ -694,12 +698,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let mut quadbezier = Shape::new(
-                                        ShapeType::QuadBezier(SQuadBezier::new(
-                                            current_position,
-                                            control_point,
-                                            new_position,
-                                        )),
+                                    let mut quadbezier = Shape::new_quadbezier(
+                                        &current_position,
+                                        &control_point,
+                                        &new_position,
+                                        snap_distance,
                                         visual_handle_size,
                                         highlight_handle_size,
                                     );
@@ -715,15 +718,15 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                             if params.len() % 6 == 0 {
                                 let nb_curves = params.len() / 6;
                                 for curve in 0..nb_curves {
-                                    let mut control_point1 = WXY {
+                                    let mut control_point1 = WPoint {
                                         wx: params[6 * curve] as f64,
                                         wy: params[6 * curve + 1] as f64,
                                     };
-                                    let mut control_point2 = WXY {
+                                    let mut control_point2 = WPoint {
                                         wx: params[6 * curve + 2] as f64,
                                         wy: params[6 * curve + 3] as f64,
                                     };
-                                    let end_point = WXY {
+                                    let end_point = WPoint {
                                         wx: params[6 * curve + 4] as f64,
                                         wy: params[6 * curve + 5] as f64,
                                     };
@@ -735,13 +738,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut cubicbezier = Shape::new(
-                                        ShapeType::CubicBezier(SCubicBezier::new(
-                                            current_position,
-                                            control_point1,
-                                            control_point2,
-                                            new_position,
-                                        )),
+                                    let mut cubicbezier = Shape::new_cubicbezier(
+                                        &current_position,
+                                        &control_point1,
+                                        &control_point2,
+                                        &new_position,
+                                        snap_distance,
                                         visual_handle_size,
                                         highlight_handle_size,
                                     );
@@ -763,11 +765,11 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         } else {
                                             current_position
                                         };
-                                    let mut control_point2 = WXY {
+                                    let mut control_point2 = WPoint {
                                         wx: params[4 * curve] as f64,
                                         wy: params[4 * curve + 1] as f64,
                                     };
-                                    let end_point = WXY {
+                                    let end_point = WPoint {
                                         wx: params[4 * curve + 2] as f64,
                                         wy: params[4 * curve + 3] as f64,
                                     };
@@ -778,13 +780,12 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut cubicbezier = Shape::new(
-                                        ShapeType::CubicBezier(SCubicBezier::new(
-                                            current_position,
-                                            control_point1,
-                                            control_point2,
-                                            new_position,
-                                        )),
+                                    let mut cubicbezier = Shape::new_cubicbezier(
+                                        &current_position,
+                                        &control_point1,
+                                        &control_point2,
+                                        &new_position,
+                                        snap_distance,
                                         visual_handle_size,
                                         highlight_handle_size,
                                     );
@@ -798,8 +799,10 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                         }
                         Command::EllipticalArc(_postype, _params) => {}
                         Command::Close => {
-                            shapes.push(Shape::new(
-                                ShapeType::Line(SLine::new(current_position, start_position)),
+                            shapes.push(Shape::new_line(
+                                &current_position,
+                                &start_position,
+                                snap_distance,
                                 visual_handle_size,
                                 highlight_handle_size,
                             ));
@@ -853,6 +856,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 
             let visual_handle_size = pa_ref.visual_handle_size;
             let highlight_handle_size = pa_ref.highlight_handle_size;
+            let snap_distance = pa_ref.working_area_snap_grid;
             let mut start = mouse_pos_world;
             snap_to_snap_grid(&mut start, pa_ref.working_area_snap_grid);
 
@@ -860,7 +864,7 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 pa_ref
                     .shapes
                     .iter_mut()
-                    .for_each(|shape| shape.remove_selection());
+                    .for_each(|shape| shape.set_selection(None));
             }
 
             match pa_ref.icon_selected {
@@ -868,23 +872,27 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     let precision = pa_ref.grab_handle_precision;
                     let mut current_shape_mouse_selection = None;
                     for shape in pa_ref.shapes.iter_mut() {
-                        use HandleSelection::*;
-                        let shape_selection = shape.get_selection();
-                        let cursor_selection =
+                        use Handle::*;
+                        let oshape_selection = shape.get_selection();
+                        let ocursor_selection =
                             shape.get_selection_from_position(&mouse_pos_world, precision);
-                        match shape_selection {
+                        match oshape_selection {
                             None => {
-                                if let None = cursor_selection {
+                                if let None = ocursor_selection {
                                     shape.set_selection(None);
                                 } else {
-                                    shape.set_selection(All);
+                                    shape.set_selection(Some(All));
                                     current_shape_mouse_selection = Some((All, shape.get_id()));
                                 }
                             }
                             _ => {
-                                shape.set_selection(cursor_selection);
+                                shape.set_selection(ocursor_selection);
                                 current_shape_mouse_selection =
-                                    Some((cursor_selection, shape.get_id()));
+                                    if let Some(cursor_selection) = ocursor_selection {
+                                        Some((cursor_selection, shape.get_id()))
+                                    } else {
+                                        None
+                                    }
                             }
                         }
                     }
@@ -894,36 +902,53 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     pa_ref.selection_area = Some([mouse_pos_world, mouse_pos_world])
                 }
                 "icon-line" => {
-                    pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Line(SLine::new(start, start)),
+                    pa_ref.current_drawing_shape = Some(Shape::new_line(
+                        &start,
+                        &start,
+                        snap_distance,
                         visual_handle_size,
                         highlight_handle_size,
                     ));
                 }
                 "icon-quadbezier" => {
-                    pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::QuadBezier(SQuadBezier::new(start, start, start)),
+                    pa_ref.current_drawing_shape = Some(Shape::new_quadbezier(
+                        &start,
+                        &start,
+                        &start,
+                        snap_distance,
                         visual_handle_size,
                         highlight_handle_size,
                     ));
                 }
                 "icon-cubicbezier" => {
-                    pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::CubicBezier(SCubicBezier::new(start, start, start, start)),
+                    pa_ref.current_drawing_shape = Some(Shape::new_cubicbezier(
+                        &start,
+                        &start,
+                        &start,
+                        &start,
+                        snap_distance,
                         visual_handle_size,
                         highlight_handle_size,
                     ));
                 }
                 "icon-square" => {
-                    pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Rectangle(SRectangle::new(start, WXY::default())),
+                    pa_ref.current_drawing_shape = Some(Shape::new_rectangle(
+                        &start,
+                        0.,
+                        0.,
+                        snap_distance,
                         visual_handle_size,
                         highlight_handle_size,
                     ));
                 }
-                "icon-circle" => {
-                    pa_ref.current_shape = Some(Shape::new(
-                        ShapeType::Ellipse(SEllipse::new(start, WXY::default())),
+                "icon-ellipse" => {
+                    pa_ref.current_drawing_shape = Some(Shape::new_ellipse(
+                        &start,
+                        &WPoint::default(),
+                        0.,
+                        0.,
+                        2. * PI,
+                        snap_distance,
                         visual_handle_size,
                         highlight_handle_size,
                     ));
@@ -967,9 +992,6 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let mouse_pos_world = mouse_pos_canvas.to_world(scale, world_offset);
         let delta_pos_world = mouse_pos_world - pa_ref.mouse_previous_pos_word;
 
-        let snap_distance = pa_ref.working_area_snap_grid;
-        let precision = pa_ref.grab_handle_precision;
-
         if let MouseState::LeftDown = mouse_state {
             match pa_ref.icon_selected {
                 "icon-arrow" => {
@@ -980,9 +1002,9 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                             .iter_mut()
                             .find(|shape| shape.get_id() == shape_id)
                         {
-                            shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
+                            shape.move_selection(&mouse_pos_world, &delta_pos_world);
 
-                            use HandleSelection::*;
+                            use Handle::*;
                             let v_h = match handle_selection {
                                 All => shape.get_highlightable_handles_positions(),
                                 Start | End => vec![(handle_selection, mouse_pos_world)],
@@ -992,7 +1014,7 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                             for shape in pa_ref.shapes.iter_mut() {
                                 if shape.get_id() != shape_id {
                                     for (_, pos) in v_h.iter() {
-                                        if shape.set_highlight(&pos, precision) {
+                                        if shape.set_highlight_from_position(&pos) {
                                             break;
                                         }
                                     }
@@ -1009,13 +1031,13 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         sa[1] += delta_pos_world
                     }
                 }
-                "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
+                "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
                 | "icon-square" => {
-                    if let Some(shape) = pa_ref.current_shape.as_mut() {
-                        shape.move_selection(&mouse_pos_world, &delta_pos_world, snap_distance);
+                    if let Some(shape) = pa_ref.current_drawing_shape.as_mut() {
+                        shape.move_selection(&mouse_pos_world, &delta_pos_world);
                         for shape in pa_ref.shapes.iter_mut() {
                             // Set highlight if any
-                            shape.set_highlight(&mouse_pos_world, precision);
+                            shape.set_highlight_from_position(&mouse_pos_world);
                         }
                     }
                 }
@@ -1061,28 +1083,51 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     let mut bb_outer = sa_raw;
                     reorder_corners(&mut bb_outer);
                     for shape in &mut pa_ref.shapes {
-                        let bb_inner: [WXY; 2] = shape.get_bounding_box();
+                        let bb_inner: [WPoint; 2] = shape.get_bounding_box();
                         if is_box_inside(&bb_outer, &bb_inner) {
-                            shape.set_selection(HandleSelection::All);
+                            shape.set_selection(Some(Handle::All));
                         } else {
-                            shape.set_selection(HandleSelection::None);
+                            shape.set_selection(None);
                         }
                     }
                 }
                 pa_ref.selection_area = None;
             }
-            "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-circle"
-            | "icon-square" | "icon-arrow" => {
-                let oshape = pa_ref.current_shape.clone();
-                if let Some(mut shape) = oshape {
-                    shape.init_done();
-                    pa_ref.shapes.push(shape);
-                    pa_ref.current_shape = None;
+            "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
+            | "icon-square" => {
+                // Here we are drawing a new shape
+                let oshape = pa_ref.current_drawing_shape.clone();
+                if let Some(mut current_drawing_shape) = oshape {
+                    current_drawing_shape.init_done();
+
+                    let mut shapes = None;
+                    for shape_in_pool in &mut pa_ref.shapes {
+                        // Grouping if any
+                        if let Some(highlight) = shape_in_pool.get_highlight() {
+                            shapes = Some((
+                                (shape_in_pool.get_id(), highlight),
+                                (current_drawing_shape.get_id(), Handle::End),
+                            ));
+
+                            // reset highlighting
+                            shape_in_pool.remove_highlight();
+
+                            // only one group for two handles
+                            break;
+                        }
+                    }
+
+                    if let Some((shape1, shape2)) = shapes {
+                        pa_ref.groups.add(shape1, shape2);
+                    };
+
+                    pa_ref.shapes.push(current_drawing_shape);
+                    pa_ref.current_drawing_shape = None;
+                    pa_ref.current_shape_mouse_selection = None;
                 }
-                for shape in &mut pa_ref.shapes {
-                    shape.remove_highlight();
-                }
-                pa_ref.current_shape_mouse_selection = None;
+            }
+            "icon-arrow" => {
+                // Here we are moving/modifying an existing shape
             }
             _ => (),
         }
@@ -1254,7 +1299,7 @@ fn on_apply_settings_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
         .set_property("display", "none")
         .unwrap();
 
-    pa_ref.working_area = WXY {
+    pa_ref.working_area = WPoint {
         wx: width,
         wy: height,
     };
@@ -1494,35 +1539,35 @@ fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
     cst.push(Layer(LayerType::Worksheet));
     // Title
     cst.push(Text(
-        WXY {
+        WPoint {
             wx: wa.wx / 3.,
             wy: -20.,
         },
         "Working sheet".into(),
     ));
     // Arrows
-    cst.push(Move(WXY { wx: 0., wy: -10. }));
-    cst.push(Line(WXY { wx: 100., wy: -10. }));
-    cst.push(Line(WXY { wx: 90., wy: -15. }));
-    cst.push(Line(WXY { wx: 90., wy: -5. }));
-    cst.push(Line(WXY { wx: 100., wy: -10. }));
-    cst.push(Move(WXY { wx: -10., wy: 0. }));
-    cst.push(Line(WXY { wx: -10., wy: 100. }));
-    cst.push(Line(WXY { wx: -15., wy: 90. }));
-    cst.push(Line(WXY { wx: -5., wy: 90. }));
-    cst.push(Line(WXY { wx: -10., wy: 100. }));
-    cst.push(Text(WXY { wx: 40., wy: -20. }, "X".into()));
-    cst.push(Text(WXY { wx: -30., wy: 50. }, "Y".into()));
+    cst.push(Move(WPoint { wx: 0., wy: -10. }));
+    cst.push(Line(WPoint { wx: 100., wy: -10. }));
+    cst.push(Line(WPoint { wx: 90., wy: -15. }));
+    cst.push(Line(WPoint { wx: 90., wy: -5. }));
+    cst.push(Line(WPoint { wx: 100., wy: -10. }));
+    cst.push(Move(WPoint { wx: -10., wy: 0. }));
+    cst.push(Line(WPoint { wx: -10., wy: 100. }));
+    cst.push(Line(WPoint { wx: -15., wy: 90. }));
+    cst.push(Line(WPoint { wx: -5., wy: 90. }));
+    cst.push(Line(WPoint { wx: -10., wy: 100. }));
+    cst.push(Text(WPoint { wx: 40., wy: -20. }, "X".into()));
+    cst.push(Text(WPoint { wx: -30., wy: 50. }, "Y".into()));
 
     // Border
-    cst.push(Move(WXY { wx: 0., wy: 0. }));
-    cst.push(Line(WXY { wx: 0., wy: wa.wy }));
-    cst.push(Line(WXY {
+    cst.push(Move(WPoint { wx: 0., wy: 0. }));
+    cst.push(Line(WPoint { wx: 0., wy: wa.wy }));
+    cst.push(Line(WPoint {
         wx: wa.wx,
         wy: wa.wy,
     }));
-    cst.push(Line(WXY { wx: wa.wx, wy: 0. }));
-    cst.push(Line(WXY { wx: 0., wy: 0. }));
+    cst.push(Line(WPoint { wx: wa.wx, wy: 0. }));
+    cst.push(Line(WPoint { wx: 0., wy: 0. }));
 
     raw_draw(&pa_ref, &cst);
 }
@@ -1540,8 +1585,8 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     // Vertical grid lines
     let mut wx = 0.;
     while wx <= wa.wx {
-        cst.push(Move(WXY { wx: wx, wy: 0. }));
-        cst.push(Line(WXY { wx: wx, wy: wa.wy }));
+        cst.push(Move(WPoint { wx: wx, wy: 0. }));
+        cst.push(Line(WPoint { wx: wx, wy: wa.wy }));
         raw_draw(&pa_ref, &cst);
         wx += w_grid_spacing;
     }
@@ -1550,8 +1595,8 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     let mut cst = Vec::new();
     let mut wy = 0.;
     while wy <= wa.wy {
-        cst.push(Move(WXY { wx: 0., wy: wy }));
-        cst.push(Line(WXY { wx: wa.wx, wy: wy }));
+        cst.push(Move(WPoint { wx: 0., wy: wy }));
+        cst.push(Line(WPoint { wx: wa.wx, wy: wy }));
         raw_draw(&pa_ref, &cst);
         wy += w_grid_spacing;
     }
@@ -1562,18 +1607,18 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
 
     // Draw all shapes
     for shape in pa_ref.shapes.iter() {
-        raw_draw(&pa_ref, &shape.get_construction());
-        raw_draw(&pa_ref, &shape.get_handles_construction());
+        raw_draw(&pa_ref, &&shape.get_shape_construction());
+        raw_draw(&pa_ref, &&shape.get_handles_construction());
         raw_draw(&pa_ref, &shape.get_highlight_construction());
         raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
     // Draw the current drawing shape
-    if let Some(shape) = pa_ref.current_shape.as_ref() {
-        shape.get_construction();
-        raw_draw(&pa_ref, &shape.get_construction());
-        raw_draw(&pa_ref, &shape.get_handles_construction());
-        raw_draw(&pa_ref, &&shape.get_helpers_construction());
+    if let Some(shape) = pa_ref.current_drawing_shape.as_ref() {
+        raw_draw(&pa_ref, &&shape.get_shape_construction());
+        raw_draw(&pa_ref, &&shape.get_handles_construction());
+        raw_draw(&pa_ref, &shape.get_highlight_construction());
+        raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
     // If using a selection area, draw it
@@ -1590,23 +1635,23 @@ fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
         if bl.wx != tr.wx && bl.wy != tr.wy {
             let mut cst = Vec::new();
             cst.push(Layer(LayerType::SelectionTool));
-            cst.push(Move(WXY {
+            cst.push(Move(WPoint {
                 wx: bl.wx,
                 wy: bl.wy,
             }));
-            cst.push(Line(WXY {
+            cst.push(Line(WPoint {
                 wx: bl.wx,
                 wy: tr.wy,
             }));
-            cst.push(Line(WXY {
+            cst.push(Line(WPoint {
                 wx: tr.wx,
                 wy: tr.wy,
             }));
-            cst.push(Line(WXY {
+            cst.push(Line(WPoint {
                 wx: tr.wx,
                 wy: bl.wy,
             }));
-            cst.push(Line(WXY {
+            cst.push(Line(WPoint {
                 wx: bl.wx,
                 wy: bl.wy,
             }));
@@ -1694,12 +1739,12 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                 let c_end = w_end.to_canvas(scale, offset);
                 p.line_to(c_end.cx, c_end.cy);
             }
-            Quadratic(w_ctrl, w_end) => {
+            QuadBezier(w_ctrl, w_end) => {
                 let c_ctrl = w_ctrl.to_canvas(scale, offset);
                 let c_end = w_end.to_canvas(scale, offset);
                 p.quadratic_curve_to(c_ctrl.cx, c_ctrl.cy, c_end.cx, c_end.cy);
             }
-            Bezier(w_ctrl1, w_crtl2, w_end) => {
+            CubicBezier(w_ctrl1, w_crtl2, w_end) => {
                 let c_ctrl1 = w_ctrl1.to_canvas(scale, offset);
                 let c_ctrl2 = w_crtl2.to_canvas(scale, offset);
                 let c_end = w_end.to_canvas(scale, offset);
