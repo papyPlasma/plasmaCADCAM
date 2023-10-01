@@ -5,6 +5,8 @@ mod shapes;
 use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
+#[macro_use]
+extern crate lazy_static;
 
 #[wasm_bindgen]
 pub fn add(a: u32, b: u32) -> u32 {

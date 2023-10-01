@@ -1,5 +1,8 @@
 use crate::math::*;
-use crate::shapes::{ConstructionType, Handle, LayerType, Shape, ShapesGroups};
+use crate::shapes::{
+    ConstructionType, CubicBezier, Ellipse, Group, LayerType, Line, QuadBezier, Rectangle,
+    ShapeParameters,
+};
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -30,6 +33,8 @@ enum MouseState {
 }
 
 pub struct PlayingArea {
+    pub pool: DataPool,
+    //
     pub window: Window,
     pub document: Document,
     pub body: HtmlElement,
@@ -51,13 +56,11 @@ pub struct PlayingArea {
     _viewgrid_element: HtmlElement,
     _snapgrid_element: HtmlElement,
 
-    shapes: Vec<Shape>,
-    #[allow(dead_code)]
-    groups: ShapesGroups,
-    current_shape_mouse_selection: Option<(Handle, usize)>,
+    root_shape_id: usize,
+    current_drawing_shape_id: Option<usize>,
+    current_selected_shapes_ids: Vec<usize>,
+    current_selected_point_id: Option<usize>,
 
-    // shape_buffer_copy_paste: Vec<Shape>,
-    current_drawing_shape: Option<Shape>,
     icon_selected: &'static str,
     selection_area: Option<[WPoint; 2]>,
     ctrl_or_meta_pressed: bool,
@@ -89,11 +92,7 @@ pub struct PlayingArea {
     pub pattern_dashed: JsValue,
     pub pattern_solid: JsValue,
 
-    // head_position: WXY,
-    visual_handle_size: f64,
-    highlight_handle_size: f64,
-    //
-    grab_handle_precision: f64,
+    shape_parameters: ShapeParameters,
 }
 
 // Initialization
@@ -157,7 +156,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     user_icons.insert("icon-line", None);
     user_icons.insert("icon-quadbezier", None);
     user_icons.insert("icon-cubicbezier", None);
-    user_icons.insert("icon-square", None);
+    user_icons.insert("icon-rectangle", None);
     user_icons.insert("icon-ellipse", None);
     user_icons.insert("icon-cog", None);
 
@@ -203,7 +202,17 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
     };
     let global_scale = 1.;
 
+    let shape_parameters = ShapeParameters {
+        grab_handle_precision: 3.,
+        handles_size: 6.,
+        highlight_size: 12.,
+    };
+
+    let mut pool = DataPool::new();
+    let root_shape_id = Group::new(&mut pool, &shape_parameters);
+
     let playing_area = Rc::new(RefCell::new(PlayingArea {
+        pool,
         window,
         document,
         body,
@@ -222,10 +231,10 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         _viewgrid_element: viewgrid_element,
         _snapgrid_element: snapgrid_element,
 
-        shapes: Vec::new(),
-        groups: ShapesGroups::new(),
-        current_shape_mouse_selection: None,
-        current_drawing_shape: None,
+        root_shape_id,
+        current_selected_shapes_ids: vec![],
+        current_drawing_shape_id: None,
+        current_selected_point_id: None,
 
         icon_selected: "icon-arrow",
         selection_area: None,
@@ -256,14 +265,10 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         fill_color,
         highlight_color,
 
-        // head_position,
-        visual_handle_size: 6.,
-        highlight_handle_size: 12.,
-
         pattern_dashed: JsValue::from(dash_pattern),
         pattern_solid: JsValue::from(solid_pattern),
-        //
-        grab_handle_precision: 3.,
+
+        shape_parameters,
     }));
 
     init_window(playing_area.clone())?;
@@ -417,8 +422,8 @@ fn init_canvas(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
-    let pa_ref = pa.borrow_mut();
-    let document = pa_ref.document.clone();
+    let pa_mut = pa.borrow_mut();
+    let document = pa_mut.document.clone();
 
     let load_element = document.get_element_by_id("load-option").unwrap();
     let load_element: HtmlElement = load_element.dyn_into::<HtmlElement>()?;
@@ -446,10 +451,10 @@ fn init_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
     save_element.add_event_listener_with_callback("click", on_save.as_ref().unchecked_ref())?;
     on_save.forget(); // Leaks memory, but we need to do this to keep the callback alive
 
-    drop(pa_ref);
+    drop(pa_mut);
     // Set up an event listener to handle file selection
     let on_file_select = Closure::wrap(Box::new(move || {
-        console::log_1(&"File selected".into());
+        // console::log_1(&"File selected".into());
         let pa_clone = pa.clone();
         // Get the files from the file input element
         if let Some(file_input) = document.get_element_by_id("file-input") {
@@ -468,10 +473,14 @@ fn init_menu(pa: Rc<RefCell<PlayingArea>>) -> Result<(), JsValue> {
                     let result = file_reader.result().unwrap();
                     if let Some(content) = result.as_string() {
                         // console::log_1(&format!("content: {:?}", content).into());
-                        let shapes = convert_svg_to_shapes(pa_clone.clone(), content.clone());
-                        for shape in shapes.into_iter() {
-                            pa_clone.borrow_mut().shapes.push(shape);
-                        }
+                        let shape_id = convert_svg_to_shapes(pa_clone.clone(), content.clone());
+                        let mut pa_mut = pa_clone.borrow_mut();
+                        let root_shape_id = pa_mut.root_shape_id;
+                        pa_mut
+                            .pool
+                            .get_shape_mut(root_shape_id)
+                            .unwrap()
+                            .add_child_shape_id(shape_id);
                         drop(pa_clone.borrow_mut());
                         render(pa_clone.clone());
                     }
@@ -530,13 +539,12 @@ fn set_callback(
     Ok(())
 }
 
-fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<Shape> {
-    let pa_ref = pa.borrow_mut();
-    let visual_handle_size = pa_ref.visual_handle_size;
-    let highlight_handle_size = pa_ref.highlight_handle_size;
-    let snap_distance = pa_ref.working_area_snap_grid;
+fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> usize {
+    let mut pa_mut = pa.borrow_mut();
+    let snap_distance = pa_mut.working_area_snap_grid;
+    let shape_parameters = pa_mut.shape_parameters;
 
-    let mut shapes: Vec<Shape> = Vec::new();
+    let mut shapes_ids = Vec::new();
 
     for event in svg::parser::Parser::new(&svg_data).into_iter() {
         // console::log_1(&format!("event: {:?}", event).into());
@@ -582,15 +590,14 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let mut line = Shape::new_line(
+                                    let shape_id = Line::new(
+                                        &mut pa_mut.pool,
                                         &current_position,
                                         &new_position,
+                                        &shape_parameters,
                                         snap_distance,
-                                        visual_handle_size,
-                                        highlight_handle_size,
                                     );
-                                    line.init_done();
-                                    shapes.push(line);
+                                    shapes_ids.push(shape_id);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = None;
@@ -607,15 +614,14 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let mut line = Shape::new_line(
+                                let shape_id = Line::new(
+                                    &mut pa_mut.pool,
                                     &current_position,
                                     &new_position,
+                                    &shape_parameters,
                                     snap_distance,
-                                    visual_handle_size,
-                                    highlight_handle_size,
                                 );
-                                line.init_done();
-                                shapes.push(line);
+                                shapes_ids.push(shape_id);
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -631,15 +637,14 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let mut line = Shape::new_line(
+                                let shape_id = Line::new(
+                                    &mut pa_mut.pool,
                                     &current_position,
                                     &new_position,
+                                    &shape_parameters,
                                     snap_distance,
-                                    visual_handle_size,
-                                    highlight_handle_size,
                                 );
-                                line.init_done();
-                                shapes.push(line);
+                                shapes_ids.push(shape_id);
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -664,16 +669,15 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut quadbezier = Shape::new_quadbezier(
+                                    let shape_id = QuadBezier::new(
+                                        &mut pa_mut.pool,
                                         &current_position,
                                         &control_point,
                                         &new_position,
+                                        &shape_parameters,
                                         snap_distance,
-                                        visual_handle_size,
-                                        highlight_handle_size,
                                     );
-                                    quadbezier.init_done();
-                                    shapes.push(quadbezier);
+                                    shapes_ids.push(shape_id);
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -698,16 +702,15 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let mut quadbezier = Shape::new_quadbezier(
+                                    let shape_id = QuadBezier::new(
+                                        &mut pa_mut.pool,
                                         &current_position,
                                         &control_point,
                                         &new_position,
+                                        &shape_parameters,
                                         snap_distance,
-                                        visual_handle_size,
-                                        highlight_handle_size,
                                     );
-                                    quadbezier.init_done();
-                                    shapes.push(quadbezier);
+                                    shapes_ids.push(shape_id);
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -738,17 +741,16 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut cubicbezier = Shape::new_cubicbezier(
+                                    let shape_id = CubicBezier::new(
+                                        &mut pa_mut.pool,
                                         &current_position,
                                         &control_point1,
                                         &control_point2,
                                         &new_position,
+                                        &shape_parameters,
                                         snap_distance,
-                                        visual_handle_size,
-                                        highlight_handle_size,
                                     );
-                                    cubicbezier.init_done();
-                                    shapes.push(cubicbezier);
+                                    shapes_ids.push(shape_id);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -780,17 +782,16 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                                             current_position + end_point
                                         }
                                     };
-                                    let mut cubicbezier = Shape::new_cubicbezier(
+                                    let shape_id = CubicBezier::new(
+                                        &mut pa_mut.pool,
                                         &current_position,
                                         &control_point1,
                                         &control_point2,
                                         &new_position,
+                                        &shape_parameters,
                                         snap_distance,
-                                        visual_handle_size,
-                                        highlight_handle_size,
                                     );
-                                    cubicbezier.init_done();
-                                    shapes.push(cubicbezier);
+                                    shapes_ids.push(shape_id);
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -799,13 +800,14 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
                         }
                         Command::EllipticalArc(_postype, _params) => {}
                         Command::Close => {
-                            shapes.push(Shape::new_line(
+                            let shape_id = Line::new(
+                                &mut pa_mut.pool,
                                 &current_position,
                                 &start_position,
+                                &shape_parameters,
                                 snap_distance,
-                                visual_handle_size,
-                                highlight_handle_size,
-                            ));
+                            );
+                            shapes_ids.push(shape_id);
                             current_position = start_position;
                             last_quad_control_point = None;
                             last_cubic_control_point = None;
@@ -817,7 +819,14 @@ fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) -> Vec<
         }
     }
 
-    shapes
+    let shape_group_id = Group::new(&mut pa_mut.pool, &shape_parameters);
+    for shape_id in shapes_ids.iter() {
+        let shape = pa_mut.pool.get_shape_mut(*shape_id).unwrap();
+        shape.set_parent(*shape_id);
+        let shape_group = pa_mut.pool.get_shape_mut(shape_group_id).unwrap();
+        shape_group.add_child_shape_id(*shape_id);
+    }
+    shape_group_id
 }
 
 ///////////////
@@ -854,104 +863,104 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             pa_ref.mouse_previous_pos_word = mouse_pos_world;
             pa_ref.mouse_down_world_coord = mouse_pos_world;
 
-            let visual_handle_size = pa_ref.visual_handle_size;
-            let highlight_handle_size = pa_ref.highlight_handle_size;
+            let shape_parameters = pa_ref.shape_parameters;
             let snap_distance = pa_ref.working_area_snap_grid;
             let mut start = mouse_pos_world;
             snap_to_snap_grid(&mut start, pa_ref.working_area_snap_grid);
 
-            if "icon-arrow" != pa_ref.icon_selected {
-                pa_ref
-                    .shapes
-                    .iter_mut()
-                    .for_each(|shape| shape.set_selection(None));
-            }
-
             match pa_ref.icon_selected {
                 "icon-arrow" => {
-                    let precision = pa_ref.grab_handle_precision;
-                    let mut current_shape_mouse_selection = None;
-                    for shape in pa_ref.shapes.iter_mut() {
-                        use Handle::*;
-                        let oshape_selection = shape.get_selection();
-                        let ocursor_selection =
-                            shape.get_selection_from_position(&mouse_pos_world, precision);
-                        match oshape_selection {
-                            None => {
-                                if let None = ocursor_selection {
-                                    shape.set_selection(None);
-                                } else {
-                                    shape.set_selection(Some(All));
-                                    current_shape_mouse_selection = Some((All, shape.get_id()));
-                                }
+                    let mut current_selected_point_id = None;
+                    let mut current_selected_shapes_ids = vec![];
+
+                    let opick_pt_id = pa_ref.pool.get_point_id_from_position(
+                        &mouse_pos_world,
+                        shape_parameters.grab_handle_precision,
+                    );
+                    if let Some(pick_pt_id) = opick_pt_id {
+                        for shape_containing_pt_id in
+                            pa_ref.pool.get_shapes_ids_containing_pt_id(pick_pt_id)
+                        {
+                            let shape = pa_ref.pool.get_shape_mut(pick_pt_id).unwrap();
+                            if shape.is_selected() {
+                                current_selected_point_id = Some(pick_pt_id);
+                            } else {
+                                shape.set_selected();
                             }
-                            _ => {
-                                shape.set_selection(ocursor_selection);
-                                current_shape_mouse_selection =
-                                    if let Some(cursor_selection) = ocursor_selection {
-                                        Some((cursor_selection, shape.get_id()))
-                                    } else {
-                                        None
-                                    }
-                            }
+                            current_selected_shapes_ids.push(shape_containing_pt_id);
                         }
                     }
-                    pa_ref.current_shape_mouse_selection = current_shape_mouse_selection;
+                    pa_ref.current_selected_shapes_ids = current_selected_shapes_ids;
+                    pa_ref.current_selected_point_id = current_selected_point_id;
                 }
                 "icon-selection" => {
                     pa_ref.selection_area = Some([mouse_pos_world, mouse_pos_world])
                 }
                 "icon-line" => {
-                    pa_ref.current_drawing_shape = Some(Shape::new_line(
+                    let shape_id = Line::new(
+                        &mut pa_ref.pool,
                         &start,
                         &start,
+                        &shape_parameters,
                         snap_distance,
-                        visual_handle_size,
-                        highlight_handle_size,
-                    ));
+                    );
+                    let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+                    pa_ref.current_selected_point_id = Some(shape.get_pts_ids()[1]);
+                    pa_ref.current_drawing_shape_id = Some(shape_id);
                 }
                 "icon-quadbezier" => {
-                    pa_ref.current_drawing_shape = Some(Shape::new_quadbezier(
+                    let shape_id = QuadBezier::new(
+                        &mut pa_ref.pool,
                         &start,
                         &start,
                         &start,
+                        &shape_parameters,
                         snap_distance,
-                        visual_handle_size,
-                        highlight_handle_size,
-                    ));
+                    );
+                    let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+                    pa_ref.current_selected_point_id = Some(shape.get_pts_ids()[2]);
+                    pa_ref.current_drawing_shape_id = Some(shape_id);
                 }
                 "icon-cubicbezier" => {
-                    pa_ref.current_drawing_shape = Some(Shape::new_cubicbezier(
+                    let shape_id = CubicBezier::new(
+                        &mut pa_ref.pool,
                         &start,
                         &start,
                         &start,
                         &start,
+                        &shape_parameters,
                         snap_distance,
-                        visual_handle_size,
-                        highlight_handle_size,
-                    ));
+                    );
+                    let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+                    pa_ref.current_selected_point_id = Some(shape.get_pts_ids()[3]);
+                    pa_ref.current_drawing_shape_id = Some(shape_id);
                 }
-                "icon-square" => {
-                    pa_ref.current_drawing_shape = Some(Shape::new_rectangle(
+                "icon-rectangle" => {
+                    let shape_id = Rectangle::new(
+                        &mut pa_ref.pool,
                         &start,
                         0.,
                         0.,
+                        &shape_parameters,
                         snap_distance,
-                        visual_handle_size,
-                        highlight_handle_size,
-                    ));
+                    );
+                    let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+                    pa_ref.current_selected_point_id = Some(shape.get_pts_ids()[2]);
+                    pa_ref.current_drawing_shape_id = Some(shape_id);
                 }
                 "icon-ellipse" => {
-                    pa_ref.current_drawing_shape = Some(Shape::new_ellipse(
+                    let shape_id = Ellipse::new(
+                        &mut pa_ref.pool,
                         &start,
                         &WPoint::default(),
                         0.,
-                        0.,
                         2. * PI,
+                        &shape_parameters,
                         snap_distance,
-                        visual_handle_size,
-                        highlight_handle_size,
-                    ));
+                    );
+                    let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+                    pa_ref.current_selected_point_id = Some(shape.get_pts_ids()[1]);
+                    pa_ref.current_drawing_shape_id = Some(shape_id);
                 }
                 _ => (),
             }
@@ -995,31 +1004,16 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         if let MouseState::LeftDown = mouse_state {
             match pa_ref.icon_selected {
                 "icon-arrow" => {
-                    if let Some((handle_selection, shape_id)) = pa_ref.current_shape_mouse_selection
-                    {
-                        if let Some(shape) = pa_ref
-                            .shapes
-                            .iter_mut()
-                            .find(|shape| shape.get_id() == shape_id)
+                    if let Some(current_selected_point_id) = pa_ref.current_selected_point_id {
+                        let shapes_containing_pt_id = pa_ref
+                            .pool
+                            .get_shapes_ids_containing_pt_id(current_selected_point_id);
                         {
-                            shape.move_selection(&mouse_pos_world, &delta_pos_world);
-
-                            use Handle::*;
-                            let v_h = match handle_selection {
-                                All => shape.get_highlightable_handles_positions(),
-                                Start | End => vec![(handle_selection, mouse_pos_world)],
-                                _ => vec![],
-                            };
-
-                            for shape in pa_ref.shapes.iter_mut() {
-                                if shape.get_id() != shape_id {
-                                    for (_, pos) in v_h.iter() {
-                                        if shape.set_highlight_from_position(&pos) {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                            pa_ref.pool.move_point(
+                                current_selected_point_id,
+                                &shapes_containing_pt_id,
+                                &mouse_pos_world,
+                            );
                         }
                     } else {
                         // move the canvas if no object was selected
@@ -1032,14 +1026,12 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     }
                 }
                 "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
-                | "icon-square" => {
-                    if let Some(shape) = pa_ref.current_drawing_shape.as_mut() {
-                        shape.move_selection(&mouse_pos_world, &delta_pos_world);
-                        for shape in pa_ref.shapes.iter_mut() {
-                            // Set highlight if any
-                            shape.set_highlight_from_position(&mouse_pos_world);
-                        }
-                    }
+                | "icon-rectangle" => {
+                    let pt_selected = pa_ref.current_selected_point_id.unwrap();
+                    let shape_id = pa_ref.current_drawing_shape_id.unwrap();
+                    pa_ref
+                        .pool
+                        .move_point(pt_selected, &vec![shape_id], &mouse_pos_world);
                 }
                 _ => (),
             }
@@ -1073,66 +1065,54 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 }
 fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(_mouse_event) = event.clone().dyn_into::<MouseEvent>() {
-        let mut pa_ref = pa.borrow_mut();
-        pa_ref.mouse_state = MouseState::NoButton;
+        let mut pa_mut = pa.borrow_mut();
+        pa_mut.mouse_state = MouseState::NoButton;
 
-        match pa_ref.icon_selected {
+        match pa_mut.icon_selected {
             "icon-selection" => {
-                let selection_area = pa_ref.selection_area.clone();
+                let selection_area = pa_mut.selection_area.clone();
                 if let Some(sa_raw) = selection_area {
                     let mut bb_outer = sa_raw;
                     reorder_corners(&mut bb_outer);
-                    for shape in &mut pa_ref.shapes {
-                        let bb_inner: [WPoint; 2] = shape.get_bounding_box();
-                        if is_box_inside(&bb_outer, &bb_inner) {
-                            shape.set_selection(Some(Handle::All));
-                        } else {
-                            shape.set_selection(None);
-                        }
-                    }
+                    pa_mut.pool.select_shapes_bounded_by_rectangle(bb_outer);
                 }
-                pa_ref.selection_area = None;
+                pa_mut.selection_area = None;
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
-            | "icon-square" => {
+            | "icon-rectangle" => {
                 // Here we are drawing a new shape
-                let oshape = pa_ref.current_drawing_shape.clone();
-                if let Some(mut current_drawing_shape) = oshape {
-                    current_drawing_shape.init_done();
+                let oshape_id = pa_mut.current_drawing_shape_id;
+                if let Some(shape_id) = oshape_id {
+                    pa_mut.pool.get_shape_mut(shape_id).unwrap().init_done();
 
-                    let mut shapes = None;
-                    for shape_in_pool in &mut pa_ref.shapes {
-                        // Grouping if any
-                        if let Some(highlight) = shape_in_pool.get_highlight() {
-                            shapes = Some((
-                                (shape_in_pool.get_id(), highlight),
-                                (current_drawing_shape.get_id(), Handle::End),
-                            ));
+                    // let mut shapes = None;
+                    // for shape_in_pool in &mut pa_mut.shapes {
+                    //     // Grouping if any
+                    //     if let Some(highlight) = shape_in_pool.get_highlight() {
+                    //         shapes = Some((
+                    //             (shape_in_pool.get_id(), highlight),
+                    //             (current_drawing_shape.get_id(), usize::End),
+                    //         ));
 
-                            // reset highlighting
-                            shape_in_pool.remove_highlight();
+                    //         // reset highlighting
+                    //         shape_in_pool.remove_highlight();
 
-                            // only one group for two handles
-                            break;
-                        }
-                    }
+                    //         // only one group for two handles
+                    //         break;
+                    //     }
+                    // }
 
-                    if let Some((shape1, shape2)) = shapes {
-                        pa_ref.groups.add(shape1, shape2);
-                    };
-
-                    pa_ref.shapes.push(current_drawing_shape);
-                    pa_ref.current_drawing_shape = None;
-                    pa_ref.current_shape_mouse_selection = None;
+                    // if let Some((shape1, shape2)) = shapes {
+                    //     pa_mut.groups.add(shape1, shape2);
+                    // };
+                    pa_mut.current_selected_point_id = None;
+                    pa_mut.current_drawing_shape_id = None;
                 }
-            }
-            "icon-arrow" => {
-                // Here we are moving/modifying an existing shape
             }
             _ => (),
         }
-        go_to_arrow_tool(&mut pa_ref);
-        drop(pa_ref);
+        go_to_arrow_tool(&mut pa_mut);
+        drop(pa_mut);
         render(pa.clone());
     }
 }
@@ -1184,14 +1164,16 @@ fn on_mouse_leave(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
 }
 fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
-        console::log_1(&format!("{:?}", keyboard_event.key()).into());
+        //console::log_1(&format!("{:?}", keyboard_event.key()).into());
         let mut pa_ref = pa.borrow_mut();
-        if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            pa_ref.shapes.retain(|shape| !shape.has_selection())
-        }
-        if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
-            pa_ref.ctrl_or_meta_pressed = true;
-        }
+        // if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
+        //     pa_ref
+        //         .all_shapes
+        //         .retain(|shape| !shape.has_shape_or_point_selected())
+        // }
+        // if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
+        //     pa_ref.ctrl_or_meta_pressed = true;
+        // }
         // if keyboard_event.key() == "s" {
         //     if let ToolSelected::Arrow = pa_ref.icon_selected {
         //         pa_ref.icon_selected = ToolSelected::Selection;
@@ -1266,7 +1248,6 @@ fn on_context_menu(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 }
 fn on_context_menu_group_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     let pa_ref = pa.borrow_mut();
-    console::log_1(&"click group".into());
     if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
         if let Some(html_element) =
             wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
@@ -1604,25 +1585,27 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
 
 fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
-
+    //console::log_1(&"ddd".into());
     // Draw all shapes
-    for shape in pa_ref.shapes.iter() {
-        raw_draw(&pa_ref, &&shape.get_shape_construction());
-        raw_draw(&pa_ref, &&shape.get_handles_construction());
-        raw_draw(&pa_ref, &shape.get_highlight_construction());
-        raw_draw(&pa_ref, &shape.get_helpers_construction());
+    for shape_id in pa_ref.pool.get_all_shapes_ids().iter() {
+        let shape = pa_ref.pool.get_shape(*shape_id).unwrap();
+        raw_draw(&pa_ref, &shape.get_shape_construction(&pa_ref.pool));
+        // raw_draw(&pa_ref, &&shape.get_handles_construction());
+        // raw_draw(&pa_ref, &shape.get_highlight_construction());
+        // raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
     // Draw the current drawing shape
-    if let Some(shape) = pa_ref.current_drawing_shape.as_ref() {
-        raw_draw(&pa_ref, &&shape.get_shape_construction());
-        raw_draw(&pa_ref, &&shape.get_handles_construction());
-        raw_draw(&pa_ref, &shape.get_highlight_construction());
-        raw_draw(&pa_ref, &shape.get_helpers_construction());
+    if let Some(shape_id) = pa_ref.current_drawing_shape_id {
+        let shape = pa_ref.pool.get_shape(shape_id).unwrap();
+        raw_draw(&pa_ref, &shape.get_shape_construction(&pa_ref.pool));
+        // raw_draw(&pa_ref, &&shape.get_handles_construction());
+        // raw_draw(&pa_ref, &shape.get_highlight_construction());
+        // raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
-    // If using a selection area, draw it
-    // draw_selection(&pa_ref);
+    // // If using a selection area, draw it
+    // // draw_selection(&pa_ref);
 }
 
 fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {

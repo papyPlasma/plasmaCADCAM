@@ -1,11 +1,114 @@
-use crate::shapes::{ConstructionType, Handle, ShapeType};
+use crate::shapes::{ConstructionType, Shape, ShapeType};
+
 use std::{
+    collections::HashMap,
     f64::consts::PI,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 const EPSILON: f64 = 1e-5; // Some small value
 const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
+
+static COUNTER_POINTS: AtomicUsize = AtomicUsize::new(0);
+static COUNTER_SHAPES: AtomicUsize = AtomicUsize::new(0);
+pub struct DataPool {
+    pts_ids: HashMap<usize, WPoint>,
+    shs_ids: HashMap<usize, Shape>,
+}
+impl DataPool {
+    pub fn new() -> DataPool {
+        DataPool {
+            pts_ids: HashMap::new(),
+            shs_ids: HashMap::new(),
+        }
+    }
+
+    // Points
+    pub fn insert_point(&mut self, pt: WPoint) -> usize {
+        let pt_id = COUNTER_POINTS.fetch_add(1, Ordering::Relaxed);
+        self.pts_ids.insert(pt_id, pt);
+        pt_id
+    }
+    pub fn modify_point(&mut self, pt_id: usize, pt: WPoint) {
+        self.pts_ids.insert(pt_id, pt);
+    }
+    pub fn get_point(&self, pt_id: usize) -> Option<&WPoint> {
+        self.pts_ids.get(&pt_id)
+    }
+    pub fn get_point_id_from_position(
+        &self,
+        pos: &WPoint,
+        grab_handle_precision: f64,
+    ) -> Option<usize> {
+        for (pt_id, pt) in self.pts_ids.iter() {
+            if is_point_on_point(pos, pt, grab_handle_precision) {
+                return Some(*pt_id);
+            }
+        }
+        None
+    }
+    pub fn move_point(
+        &mut self,
+        pt_id: usize,
+        shapes_containing_pt_id: &Vec<usize>,
+        mouse_pos: &WPoint,
+    ) {
+        //
+    }
+    // Shapes
+    pub fn insert_shape(&mut self, shape: Shape) -> usize {
+        let shape_id = COUNTER_SHAPES.fetch_add(1, Ordering::Relaxed);
+        self.shs_ids.insert(shape_id, shape);
+        shape_id
+    }
+    pub fn modify_shape(&mut self, shape_id: usize, shape: Shape) {
+        self.shs_ids.insert(shape_id, shape);
+    }
+    pub fn select_shapes_bounded_by_rectangle(&mut self, bb: [WPoint; 2]) {
+        // for shape in &mut pa_ref.pool.get_pool_shapes().values() {
+        //     let bb_inner: [WPoint; 2] = shape.get_bounding_box();
+        //     if is_box_inside(&bb_outer, &bb_inner) {
+        //         shape.clear_any_shape_selection(Some(usize::All));
+        //     } else {
+        //         shape.clear_any_shape_selection(None);
+        //     }
+        // }
+    }
+    pub fn get_all_shapes_ids(&self) -> Vec<usize> {
+        self.shs_ids.keys().cloned().collect()
+    }
+    pub fn get_shape(&self, shape_id: usize) -> Option<&Shape> {
+        self.shs_ids.get(&shape_id)
+    }
+    pub fn get_shape_mut(&mut self, shape_id: usize) -> Option<&mut Shape> {
+        self.shs_ids.get_mut(&shape_id)
+    }
+    pub fn get_shapes_containing_pt_id(&mut self, pt_id: usize) -> Vec<&Shape> {
+        let mut v: Vec<&Shape> = vec![];
+        for shape in self.shs_ids.values() {
+            for point_id in shape.get_pts_ids().iter() {
+                if *point_id == pt_id {
+                    v.push(shape);
+                    break;
+                }
+            }
+        }
+        v
+    }
+    pub fn get_shapes_ids_containing_pt_id(&mut self, pt_id: usize) -> Vec<usize> {
+        let mut v: Vec<usize> = vec![];
+        for (shape_id, shape) in self.shs_ids.iter() {
+            for point_id in shape.get_pts_ids().iter() {
+                if *point_id == pt_id {
+                    v.push(*shape_id);
+                    break;
+                }
+            }
+        }
+        v
+    }
+}
 
 pub fn magnet_geometry(pt1: &WPoint, pt2: &mut WPoint, snap_distance: f64) -> bool {
     let dx = (pt2.wx - pt1.wx).abs();
@@ -218,35 +321,48 @@ pub fn snap_to_snap_grid_x(pos: &mut WPoint, grid_spacing: f64) {
 pub fn is_point_on_point(pt: &WPoint, pt1: &WPoint, precision: f64) -> bool {
     pt.dist(pt1) < precision
 }
-pub fn is_point_on_line(pt: &WPoint, shape: &ShapeType, precision: f64) -> bool {
-    if let ShapeType::Line(start, end) = shape {
-        let denominator =
-            ((end.1.wy - start.1.wy).powf(2.) + (end.1.wx - start.1.wx).powf(2.)).sqrt();
-        if denominator == 0. {
-            return is_point_on_point(pt, &start.1, precision);
-        }
-        let numerator = ((end.1.wy - start.1.wy) * pt.wx - (end.1.wx - start.1.wx) * pt.wy
-            + end.1.wx * start.1.wy
-            - end.1.wy * start.1.wx)
-            .abs();
+fn point_on_segment(pt1: &WPoint, pt2: &WPoint, pt: &WPoint, precision: f64) -> bool {
+    let denominator = ((pt2.wy - pt1.wy).powf(2.) + (pt2.wx - pt1.wx).powf(2.)).sqrt();
+    if denominator == 0. {
+        return is_point_on_point(pt, &pt1, precision);
+    }
+    let numerator = ((pt2.wy - pt1.wy) * pt.wx - (pt2.wx - pt1.wx) * pt.wy + pt2.wx * pt1.wy
+        - pt2.wy * pt1.wx)
+        .abs();
 
-        if numerator / denominator > precision {
-            return false;
-        }
-        is_between(pt, &start.1, &end.1)
+    if numerator / denominator > precision {
+        return false;
+    }
+    is_between(pt, &pt1, &pt2)
+}
+pub fn is_point_on_line(data_pool: &DataPool, pt: &WPoint, shape: &Shape, precision: f64) -> bool {
+    if let ShapeType::Line = shape.get_type() {
+        let pts = shape.get_pts_ids();
+        let start = data_pool.get_point(pts[0]).unwrap();
+        let end = data_pool.get_point(pts[1]).unwrap();
+        point_on_segment(&start, &end, &pt, precision)
     } else {
         false
     }
 }
-pub fn is_point_on_quadbezier(pt: &WPoint, shape: &ShapeType, precision: f64) -> bool {
-    if let ShapeType::QuadBezier(start, ctrl, end) = shape {
+pub fn is_point_on_quadbezier(
+    data_pool: &DataPool,
+    pt: &WPoint,
+    shape: &Shape,
+    precision: f64,
+) -> bool {
+    if let ShapeType::QuadBezier = shape.get_type() {
         let mut t_min = 0.;
         let mut t_max = 1.;
         let mut min_dist = f64::MAX;
+        let pts = shape.get_pts_ids();
+        let start = data_pool.get_point(pts[0]).unwrap();
+        let ctrl = data_pool.get_point(pts[1]).unwrap();
+        let end = data_pool.get_point(pts[2]).unwrap();
         for _i in 0..MAX_ITERATIONS {
             // max iterations can be adjusted
             let t_mid = (t_min + t_max) / 2.;
-            let bt = get_point_on_quad_bezier(t_mid, &start.1, &ctrl.1, &end.1);
+            let bt = get_point_on_quad_bezier(t_mid, &start, &ctrl, &end);
             let dist = bt.dist(pt);
             if dist < min_dist {
                 min_dist = dist;
@@ -255,8 +371,8 @@ pub fn is_point_on_quadbezier(pt: &WPoint, shape: &ShapeType, precision: f64) ->
                 return true; // We found a sufficiently close point
             }
             // Using gradient to decide the next tMid for the next iteration.
-            let gradient = (bt.wx - pt.wx) * (end.1.wx - start.1.wx)
-                + (bt.wy - pt.wy) * (end.1.wy - start.1.wy);
+            let gradient =
+                (bt.wx - pt.wx) * (end.wx - start.wx) + (bt.wy - pt.wy) * (end.wy - start.wy);
             if gradient > 0. {
                 t_max = t_mid;
             } else {
@@ -268,15 +384,24 @@ pub fn is_point_on_quadbezier(pt: &WPoint, shape: &ShapeType, precision: f64) ->
         false
     }
 }
-pub fn is_point_on_cubicbezier(pt: &WPoint, shape: &ShapeType, precision: f64) -> bool {
-    if let ShapeType::CubicBezier(start, ctrl1, ctrl2, end) = shape {
+pub fn is_point_on_cubicbezier(
+    data_pool: &DataPool,
+    pt: &WPoint,
+    shape: &Shape,
+    precision: f64,
+) -> bool {
+    if let ShapeType::CubicBezier = shape.get_type() {
         let mut t_min = 0.;
         let mut t_max = 1.;
         let mut min_dist = f64::MAX;
-
+        let pts = shape.get_pts_ids();
+        let start = data_pool.get_point(pts[0]).unwrap();
+        let ctrl1 = data_pool.get_point(pts[1]).unwrap();
+        let ctrl2 = data_pool.get_point(pts[2]).unwrap();
+        let end = data_pool.get_point(pts[3]).unwrap();
         for _i in 0..MAX_ITERATIONS {
             let t_mid = (t_min + t_max) / 2.;
-            let bt = get_point_on_cubic_bezier(t_mid, &start.1, &ctrl1.1, &ctrl2.1, &end.1);
+            let bt = get_point_on_cubic_bezier(t_mid, &start, &ctrl1, &ctrl2, &end);
             let dist = bt.dist(pt);
             if dist < min_dist {
                 min_dist = dist;
@@ -285,8 +410,8 @@ pub fn is_point_on_cubicbezier(pt: &WPoint, shape: &ShapeType, precision: f64) -
                 return true; // We found a sufficiently close point
             }
             // Using gradient to decide the next tMid for the next iteration.
-            let gradient = (bt.wx - pt.wx) * (end.1.wx - start.1.wx)
-                + (bt.wy - pt.wy) * (end.1.wy - start.1.wy);
+            let gradient =
+                (bt.wx - pt.wx) * (end.wx - start.wx) + (bt.wy - pt.wy) * (end.wy - start.wy);
             if gradient > 0. {
                 t_max = t_mid;
             } else {
@@ -298,45 +423,58 @@ pub fn is_point_on_cubicbezier(pt: &WPoint, shape: &ShapeType, precision: f64) -
         false
     }
 }
-// pub fn is_point_on_ellipse(
-//     pt: &WPoint,
-//     center: &WPoint,
-//     radius: &WPoint,
-//     mut precision: f64,
-// ) -> bool {
-//     precision /= radius.norm();
-//     precision *= 2.;
-//     let value = (pt.wx - center.wx).powf(2.) / (radius.wx * radius.wx)
-//         + (pt.wy - center.wy).powf(2.) / (radius.wy * radius.wy);
-//     value < 1. + precision && value > 1. - precision
-// }
-pub fn is_point_on_ellipse(pt: &WPoint, shape: &ShapeType, precision: f64) -> bool {
-    if let ShapeType::Ellipse(
-        center,
-        radius,
-        h_start_angle,
-        h_end_angle,
-        (rotation, start_angle, end_angle),
-    ) = shape
-    {
+pub fn is_point_on_rectangle(
+    data_pool: &DataPool,
+    pt: &WPoint,
+    shape: &Shape,
+    precision: f64,
+) -> bool {
+    if let ShapeType::Rectangle = shape.get_type() {
+        let pts = shape.get_pts_ids();
+        let bl = data_pool.get_point(pts[0]).unwrap();
+        let tl = data_pool.get_point(pts[1]).unwrap();
+        let tr = data_pool.get_point(pts[2]).unwrap();
+        let br = data_pool.get_point(pts[3]).unwrap();
+        return point_on_segment(&bl, &tl, &pt, precision)
+            || point_on_segment(&tl, &tr, &pt, precision)
+            || point_on_segment(&tr, &br, &pt, precision)
+            || point_on_segment(&br, &bl, &pt, precision);
+    } else {
+        false
+    }
+}
+pub fn is_point_on_ellipse(
+    data_pool: &DataPool,
+    pt: &WPoint,
+    shape: &Shape,
+    precision: f64,
+) -> bool {
+    if let ShapeType::Ellipse = shape.get_type() {
+        let pts = shape.get_pts_ids();
+        let center = data_pool.get_point(pts[0]).unwrap();
+        let radius = data_pool.get_point(pts[1]).unwrap();
+        let h_start_angle = data_pool.get_point(pts[2]).unwrap();
+        let h_end_angle = data_pool.get_point(pts[3]).unwrap();
         // Translate point
-        let translated_pt = *pt - center.1;
+        let translated_pt = *pt - *center;
         // Rotate the point
-        let cos_rotation = rotation.cos();
-        let sin_rotation = rotation.sin();
+        let cos_rotation = 1.;
+        let sin_rotation = 0.;
         let rotated_pt = WPoint {
-            wx: cos_rotation * translated_pt.wx + sin_rotation * translated_pt.wy,
-            wy: -sin_rotation * translated_pt.wx + cos_rotation * translated_pt.wy,
+            wx: translated_pt.wx,
+            wy: translated_pt.wy,
         };
         // Check if point is on the axis-aligned ellipse
-        let on_ellipse = (rotated_pt.wx * rotated_pt.wx) / (radius.1.wx * radius.1.wx)
-            + (rotated_pt.wy * rotated_pt.wy) / (radius.1.wy * radius.1.wy);
+        let on_ellipse = (rotated_pt.wx * rotated_pt.wx) / (radius.wx * radius.wx)
+            + (rotated_pt.wy * rotated_pt.wy) / (radius.wy * radius.wy);
         if (on_ellipse - 1.0).abs() > precision {
             return false;
         }
         // Check if point is within the angle range
+        let start_angle = get_angle_from_point(&h_start_angle, &center);
+        let end_angle = get_angle_from_point(&h_end_angle, &center);
         let angle = rotated_pt.wy.atan2(rotated_pt.wx);
-        angle >= *start_angle && angle <= *end_angle
+        angle >= start_angle && angle <= end_angle
     } else {
         false
     }
@@ -417,185 +555,193 @@ fn is_between(pt: &WPoint, pt1: &WPoint, pt2: &WPoint) -> bool {
     return true;
 }
 
-// Line spliting (1 pt)
-#[allow(dead_code)]
-pub fn split_line(pt: &WPoint, shape: &ShapeType) -> Option<(ShapeType, ShapeType)> {
-    if let ShapeType::Line(start, end) = shape {
-        if is_point_on_point(pt, &start.1, EPSILON) || is_point_on_point(pt, &end.1, EPSILON) {
-            return None;
-        };
-        if is_point_on_line(pt, shape, EPSILON) {
-            Some((
-                ShapeType::Line((Handle::Start, start.1.clone()), (Handle::End, pt.clone())),
-                ShapeType::Line((Handle::Start, pt.clone()), (Handle::End, end.1.clone())),
-            ))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-// Quad Bezier curve spliting (1 pt)
-#[allow(dead_code)]
-pub fn split_quad_bezier(pt: &WPoint, shape: &ShapeType) -> Option<(ShapeType, ShapeType)> {
-    if let ShapeType::QuadBezier(start, ctrl, end) = shape {
-        if let Some(t) = find_t_for_point_on_quad_bezier(pt, &start.1, &ctrl.1, &end.1) {
-            let ctrl1 = start.1.lerp(&ctrl.1, t);
-            let ctrl2 = ctrl.1.lerp(&end.1, t);
-            let split = ctrl1.lerp(&ctrl2, t);
-            Some((
-                ShapeType::QuadBezier(
-                    (Handle::Start, start.1.clone()),
-                    (Handle::Ctrl, ctrl1),
-                    (Handle::End, split),
-                ),
-                ShapeType::QuadBezier(
-                    (Handle::Start, split),
-                    (Handle::Ctrl, ctrl2),
-                    (Handle::End, end.1.clone()),
-                ),
-            ))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-// Cubic Bezier curve spliting (1 pt)
-#[allow(dead_code)]
-pub fn split_cubic_bezier(pt: &WPoint, shape: ShapeType) -> Option<(ShapeType, ShapeType)> {
-    if let ShapeType::CubicBezier(start, ctrl1, ctrl2, end) = shape {
-        if let Some(t) = find_t_for_point_on_cubic_bezier(pt, &start.1, &ctrl1.1, &ctrl2.1, &end.1)
-        {
-            let p0_prime = start.1.lerp(&ctrl1.1, t);
-            let p1_prime = ctrl1.1.lerp(&ctrl2.1, t);
-            let p2_prime = ctrl2.1.lerp(&end.1, t);
-            let q0 = p0_prime.lerp(&p1_prime, t);
-            let q1 = p1_prime.lerp(&p2_prime, t);
-            let r = q0.lerp(&q1, t);
-            Some((
-                ShapeType::CubicBezier(
-                    (Handle::Start, start.1.clone()),
-                    (Handle::Ctrl, p0_prime),
-                    (Handle::End, q0),
-                    (Handle::End, r.clone()),
-                ),
-                ShapeType::CubicBezier(
-                    (Handle::Start, r),
-                    (Handle::Ctrl, q1),
-                    (Handle::End, p2_prime),
-                    (Handle::End, end.1.clone()),
-                ),
-            ))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-// Rectangle spliting (2 pts)
-#[allow(dead_code)]
-pub fn split_rectangle(
-    pt1: &WPoint,
-    pt2: &WPoint,
-    shape: ShapeType,
-) -> Option<(ShapeType, ShapeType)> {
-    if pt1.dist(pt2) > EPSILON {
-        if let ShapeType::Rectangle(bl, tl, tr, br) = shape {
-            let lines = vec![
-                ShapeType::Line((Handle::Start, bl.1), (Handle::End, tl.1)),
-                ShapeType::Line((Handle::Start, tl.1), (Handle::End, tr.1)),
-                ShapeType::Line((Handle::Start, tr.1), (Handle::End, br.1)),
-                ShapeType::Line((Handle::Start, br.1), (Handle::End, bl.1)),
-            ];
-            let mut oidx1 = None;
-            let mut oidx2 = None;
-            for (idx, line) in lines.iter().enumerate() {
-                if let Some(v) = split_line(pt1, &line) {
-                    oidx1 = Some(idx);
-                    break;
-                }
-            }
-            for (idx, line) in lines.iter().enumerate() {
-                if let Some(v) = split_line(pt2, &line) {
-                    oidx2 = Some(idx);
-                    break;
-                }
-            }
-            if let Some(idx1) = oidx1 {
-                if let Some(idx2) = oidx2 {
-                    // TBD
-                    None
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-            //
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-// Ellipse curve splitting (2 pts)
-#[allow(dead_code)]
-pub fn split_ellipse(
-    pt1: &WPoint,
-    pt2: &WPoint,
-    shape: ShapeType,
-) -> Option<(ShapeType, ShapeType)> {
-    if let ShapeType::Ellipse(
-        center,
-        radius,
-        h_start_angle,
-        h_end_angle,
-        (rotation, start_angle, end_angle),
-    ) = shape
-    {
-        if pt1.dist(pt2) > EPSILON {
-            // Getting the angles for pt1 and pt2
-            let angle_pt1 = get_angle_from_point(pt1, &center.1, rotation);
-            let angle_pt2 = get_angle_from_point(pt2, &center.1, rotation);
-
-            // Ensuring angle_pt1 is smaller than angle_pt2
-            let (min_angle, max_angle) = if angle_pt1 < angle_pt2 {
-                (angle_pt1, angle_pt2)
-            } else {
-                (angle_pt2, angle_pt1)
-            };
-            let h_start_angle = get_point_from_angle(&center.1, &radius.1, rotation, -start_angle);
-            let h_min_angle = get_point_from_angle(&center.1, &radius.1, rotation, -min_angle);
-            let h_max_angle = get_point_from_angle(&center.1, &radius.1, rotation, -max_angle);
-            let h_end_angle = get_point_from_angle(&center.1, &radius.1, rotation, -end_angle);
-            Some((
-                ShapeType::Ellipse(
-                    (Handle::Center, center.1.clone()),
-                    (Handle::End, center.1.clone() + radius.1.clone()),
-                    (Handle::StartAngle, h_start_angle.addxy(center.1.wx, 0.)),
-                    (Handle::EndAngle, h_min_angle.addxy(center.1.wx, 0.)),
-                    (rotation, start_angle, min_angle),
-                ),
-                ShapeType::Ellipse(
-                    (Handle::Center, center.1.clone()),
-                    (Handle::End, center.1.clone() + radius.1.clone()),
-                    (Handle::StartAngle, h_max_angle.addxy(center.1.wx, 0.)),
-                    (Handle::EndAngle, h_end_angle.addxy(center.1.wx, 0.)),
-                    (rotation, max_angle, end_angle),
-                ),
-            ))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
+// // Line spliting (1 pt)
+// #[allow(dead_code)]
+// pub fn split_line(
+//     pt: &WPoint,
+//     shape: &SimpleShape,
+// ) -> Option<(SimpleShape, SimpleShape)> {
+//     if let SimpleShape::Line(start, end) = shape {
+//         if is_point_on_point(pt, &start.1, EPSILON) || is_point_on_point(pt, &end.1, EPSILON) {
+//             return None;
+//         };
+//         if is_point_on_line(pt, shape, EPSILON) {
+//             Some((
+//                 SimpleShape::Line((Handle::Start, start.1.clone()), (Handle::End, pt.clone())),
+//                 SimpleShape::Line((Handle::Start, pt.clone()), (Handle::End, end.1.clone())),
+//             ))
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
+// }
+// // Quad Bezier curve spliting (1 pt)
+// #[allow(dead_code)]
+// pub fn split_quad_bezier(
+//     pt: &WPoint,
+//     shape: &SimpleShape,
+// ) -> Option<(SimpleShape, SimpleShape)> {
+//     if let SimpleShape::QuadBezier(start, ctrl, end) = shape {
+//         if let Some(t) = find_t_for_point_on_quad_bezier(pt, &start.1, &ctrl.1, &end.1) {
+//             let ctrl1 = start.1.lerp(&ctrl.1, t);
+//             let ctrl2 = ctrl.1.lerp(&end.1, t);
+//             let split = ctrl1.lerp(&ctrl2, t);
+//             Some((
+//                 SimpleShape::QuadBezier(
+//                     (Handle::Start, start.1.clone()),
+//                     (Handle::Ctrl, ctrl1),
+//                     (Handle::End, split),
+//                 ),
+//                 SimpleShape::QuadBezier(
+//                     (Handle::Start, split),
+//                     (Handle::Ctrl, ctrl2),
+//                     (Handle::End, end.1.clone()),
+//                 ),
+//             ))
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
+// }
+// // Cubic Bezier curve spliting (1 pt)
+// #[allow(dead_code)]
+// pub fn split_cubic_bezier(
+//     pt: &WPoint,
+//     shape: SimpleShape,
+// ) -> Option<(SimpleShape, SimpleShape)> {
+//     if let SimpleShape::CubicBezier(start, ctrl1, ctrl2, end) = shape {
+//         if let Some(t) = find_t_for_point_on_cubic_bezier(pt, &start.1, &ctrl1.1, &ctrl2.1, &end.1)
+//         {
+//             let p0_prime = start.1.lerp(&ctrl1.1, t);
+//             let p1_prime = ctrl1.1.lerp(&ctrl2.1, t);
+//             let p2_prime = ctrl2.1.lerp(&end.1, t);
+//             let q0 = p0_prime.lerp(&p1_prime, t);
+//             let q1 = p1_prime.lerp(&p2_prime, t);
+//             let r = q0.lerp(&q1, t);
+//             Some((
+//                 SimpleShape::CubicBezier(
+//                     (Handle::Start, start.1.clone()),
+//                     (Handle::Ctrl, p0_prime),
+//                     (Handle::End, q0),
+//                     (Handle::End, r.clone()),
+//                 ),
+//                 SimpleShape::CubicBezier(
+//                     (Handle::Start, r),
+//                     (Handle::Ctrl, q1),
+//                     (Handle::End, p2_prime),
+//                     (Handle::End, end.1.clone()),
+//                 ),
+//             ))
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
+// }
+// // Rectangle spliting (2 pts)
+// #[allow(dead_code)]
+// pub fn split_rectangle(
+//     pt1: &WPoint,
+//     pt2: &WPoint,
+//     shape: SimpleShape,
+// ) -> Option<(SimpleShape, SimpleShape)> {
+//     if pt1.dist(pt2) > EPSILON {
+//         if let SimpleShape::Rectangle(bl, tl, tr, br) = shape {
+//             let lines = vec![
+//                 SimpleShape::Line((Handle::Start, bl.1), (Handle::End, tl.1)),
+//                 SimpleShape::Line((Handle::Start, tl.1), (Handle::End, tr.1)),
+//                 SimpleShape::Line((Handle::Start, tr.1), (Handle::End, br.1)),
+//                 SimpleShape::Line((Handle::Start, br.1), (Handle::End, bl.1)),
+//             ];
+//             let mut oidx1 = None;
+//             let mut oidx2 = None;
+//             for (idx, line) in lines.iter().enumerate() {
+//                 if let Some(v) = split_line(pt1, &line) {
+//                     oidx1 = Some(idx);
+//                     break;
+//                 }
+//             }
+//             for (idx, line) in lines.iter().enumerate() {
+//                 if let Some(v) = split_line(pt2, &line) {
+//                     oidx2 = Some(idx);
+//                     break;
+//                 }
+//             }
+//             if let Some(idx1) = oidx1 {
+//                 if let Some(idx2) = oidx2 {
+//                     // TBD
+//                     None
+//                 } else {
+//                     None
+//                 }
+//             } else {
+//                 None
+//             }
+//             //
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
+// }
+// // Ellipse curve splitting (2 pts)
+// #[allow(dead_code)]
+// pub fn split_ellipse(
+//     pt1: &WPoint,
+//     pt2: &WPoint,
+//     shape: SimpleShape,
+// ) -> Option<(SimpleShape, SimpleShape)> {
+//     if let SimpleShape::Ellipse(
+//         center,
+//         radius,
+//         h_start_angle,
+//         h_end_angle,
+//         (rotation, start_angle, end_angle),
+//     ) = shape
+//     {
+//         if pt1.dist(pt2) > EPSILON {
+//             // Getting the angles for pt1 and pt2
+//             let angle_pt1 = get_angle_from_point(pt1, &center.1, rotation);
+//             let angle_pt2 = get_angle_from_point(pt2, &center.1, rotation);
+//             // Ensuring angle_pt1 is smaller than angle_pt2
+//             let (min_angle, max_angle) = if angle_pt1 < angle_pt2 {
+//                 (angle_pt1, angle_pt2)
+//             } else {
+//                 (angle_pt2, angle_pt1)
+//             };
+//             let h_start_angle = get_point_from_angle(&center.1, &radius.1, rotation, -start_angle);
+//             let h_min_angle = get_point_from_angle(&center.1, &radius.1, rotation, -min_angle);
+//             let h_max_angle = get_point_from_angle(&center.1, &radius.1, rotation, -max_angle);
+//             let h_end_angle = get_point_from_angle(&center.1, &radius.1, rotation, -end_angle);
+//             Some((
+//                 SimpleShape::Ellipse(
+//                     (Handle::Center, center.1.clone()),
+//                     (Handle::End, center.1.clone() + radius.1.clone()),
+//                     (Handle::StartAngle, h_start_angle.addxy(center.1.wx, 0.)),
+//                     (Handle::EndAngle, h_min_angle.addxy(center.1.wx, 0.)),
+//                     (rotation, start_angle, min_angle),
+//                 ),
+//                 SimpleShape::Ellipse(
+//                     (Handle::Center, center.1.clone()),
+//                     (Handle::End, center.1.clone() + radius.1.clone()),
+//                     (Handle::StartAngle, h_max_angle.addxy(center.1.wx, 0.)),
+//                     (Handle::EndAngle, h_end_angle.addxy(center.1.wx, 0.)),
+//                     (rotation, max_angle, end_angle),
+//                 ),
+//             ))
+//         } else {
+//             None
+//         }
+//     } else {
+//         None
+//     }
+// }
 
 fn get_point_on_quad_bezier(t: f64, start: &WPoint, ctrl: &WPoint, end: &WPoint) -> WPoint {
     let u = 1.0 - t;
@@ -628,16 +774,12 @@ fn get_point_on_cubic_bezier(
 
     result
 }
-pub fn get_angle_from_point(point: &WPoint, center: &WPoint, rotation: f64) -> f64 {
-    // Computing the angle without rotation
-    let angle = (point.wy - center.wy).atan2(point.wx - center.wx);
-    // Factoring in the rotation
-    let adjusted_angle = angle - rotation;
-    adjusted_angle
+pub fn get_angle_from_point(point: &WPoint, center: &WPoint) -> f64 {
+    (point.wy - center.wy).atan2(point.wx - center.wx)
 }
-pub fn get_point_from_angle(center: &WPoint, radius: &WPoint, rotation: f64, angle: f64) -> WPoint {
-    let x = center.wx + (radius.wx.abs() - center.wx) * (angle + rotation).cos();
-    let y = center.wy + (radius.wy.abs() - center.wy) * (angle + rotation).sin();
+pub fn get_point_from_angle(center: &WPoint, radius: &WPoint, angle: f64) -> WPoint {
+    let x = center.wx + (radius.wx.abs() - center.wx) * angle.cos();
+    let y = center.wy + (radius.wy.abs() - center.wy) * angle.sin();
     WPoint { wx: x, wy: y }
 }
 

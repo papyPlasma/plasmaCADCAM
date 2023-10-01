@@ -11,7 +11,8 @@ crate-type = ["cdylib"]
 [dependencies]
 js-sys = "0.3.64"
 wasm-bindgen = "0.2.87"
-svg = "0.13.1"
+svg = "0.14"
+lazy_static = { version = "1.4", default-features = false }
 
 
 [dependencies.web-sys]
