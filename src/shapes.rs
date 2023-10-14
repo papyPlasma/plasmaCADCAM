@@ -2,37 +2,32 @@
 
 // use web_sys::console;
 
+use web_sys::console;
+
 use crate::math::*;
 use std::collections::{HashMap, HashSet};
-// use std::ops::{Deref, DerefMut};
+
 use std::{
     f64::consts::PI,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-// #[allow(dead_code)]
-// #[derive(Clone)]
-// pub struct AllShapes {
-//     shapes: HashMap<usize, Shape>,
-// }
-// impl AllShapes {
-//     pub fn new() -> AllShapes {
-//         AllShapes {
-//             shapes: HashMap::new(),
-//         }
-//     }
-// }
-// impl Deref for AllShapes {
-//     type Target = HashMap<usize, Shape>;
-//     fn deref(&self) -> &Self::Target {
-//         &self.shapes
-//     }
-// }
-// impl DerefMut for AllShapes {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.shapes
-//     }
-// }
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum HandleType {
+    Start,
+    End,
+    Center,
+    Radius,
+    StartAngle,
+    EndAngle,
+    BL,
+    TL,
+    TR,
+    BR,
+    Ctrl,
+    Ctrl1,
+    Ctrl2,
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
@@ -88,25 +83,35 @@ impl Line {
         end_point: &WPoint,
         parameters: &ShapeParameters,
         snap_distance: f64,
-    ) -> usize {
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
+        let coord = *start_point;
+        let start_point = *start_point - coord;
+        let end_point = *end_point - coord;
+
         let end_point = if start_point.wx == end_point.wx || start_point.wy == end_point.wy {
-            *start_point + snap_distance
+            start_point + snap_distance
         } else {
-            *end_point
+            end_point
         };
-        let start_id = data_pool.insert_point(*start_point);
-        let end_id = data_pool.insert_point(end_point);
+        let start_id = data_pool.insert_point(&start_point);
+        let end_id = data_pool.insert_point(&end_point);
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::Line,
-            pts_ids: vec![start_id, end_id],
+            handles_bundles: {
+                let mut pts_ids = HashMap::new();
+                pts_ids.insert(HandleType::Start, start_id);
+                pts_ids.insert(HandleType::End, end_id);
+                pts_ids
+            },
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord,
             init: true,
         };
-        data_pool.insert_shape(shape)
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, Some((HandleType::End, end_id)))
     }
 }
 #[derive(Copy, Clone)]
@@ -119,30 +124,42 @@ impl QuadBezier {
         end_point: &WPoint,
         parameters: &ShapeParameters,
         snap_distance: f64,
-    ) -> usize {
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
+        let coord = *start_point;
+        let start_point = *start_point - coord;
+        let ctrl_point = *ctrl_point - coord;
+        let end_point = *end_point - coord;
+
         let (end_point, ctrl_point) =
             if start_point.wx == end_point.wx || start_point.wy == end_point.wy {
                 (
-                    *start_point + 2. * snap_distance,
-                    *start_point + snap_distance,
+                    start_point + 2. * snap_distance,
+                    start_point + snap_distance,
                 )
             } else {
-                (*end_point, *ctrl_point)
+                (end_point, ctrl_point)
             };
-        let start_id = data_pool.insert_point(*start_point);
-        let ctrl_id = data_pool.insert_point(ctrl_point);
-        let end_id = data_pool.insert_point(end_point);
+        let start_id = data_pool.insert_point(&start_point);
+        let ctrl_id = data_pool.insert_point(&ctrl_point);
+        let end_id = data_pool.insert_point(&end_point);
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::QuadBezier,
-            pts_ids: vec![start_id, ctrl_id, end_id],
+            handles_bundles: {
+                let mut pts_ids = HashMap::new();
+                pts_ids.insert(HandleType::Start, start_id);
+                pts_ids.insert(HandleType::Ctrl, ctrl_id);
+                pts_ids.insert(HandleType::End, end_id);
+                pts_ids
+            },
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord,
             init: true,
         };
-        data_pool.insert_shape(shape)
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, Some((HandleType::End, end_id)))
     }
 }
 #[derive(Copy, Clone)]
@@ -156,32 +173,46 @@ impl CubicBezier {
         end_point: &WPoint,
         parameters: &ShapeParameters,
         snap_distance: f64,
-    ) -> usize {
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
+        let coord = *start_point;
+        let start_point = *start_point - coord;
+        let ctrl1_point = *ctrl1_point - coord;
+        let ctrl2_point = *ctrl2_point - coord;
+        let end_point = *end_point - coord;
+
         let (end_point, ctrl1_point, ctrl2_point) =
             if start_point.wx == end_point.wx || start_point.wy == end_point.wy {
                 (
-                    *start_point + 3. * snap_distance,
-                    *start_point + snap_distance,
-                    *start_point + 2. * snap_distance,
+                    start_point + 3. * snap_distance,
+                    start_point + snap_distance,
+                    start_point + 2. * snap_distance,
                 )
             } else {
-                (*end_point, *ctrl1_point, *ctrl2_point)
+                (end_point, ctrl1_point, ctrl2_point)
             };
-        let start_id = data_pool.insert_point(*start_point);
-        let ctrl1_id = data_pool.insert_point(ctrl1_point);
-        let ctrl2_id = data_pool.insert_point(ctrl2_point);
-        let end_id = data_pool.insert_point(end_point);
+        let start_id = data_pool.insert_point(&start_point);
+        let ctrl1_id = data_pool.insert_point(&ctrl1_point);
+        let ctrl2_id = data_pool.insert_point(&ctrl2_point);
+        let end_id = data_pool.insert_point(&end_point);
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::CubicBezier,
-            pts_ids: vec![start_id, ctrl1_id, ctrl2_id, end_id],
+            handles_bundles: {
+                let mut pts_ids = HashMap::new();
+                pts_ids.insert(HandleType::Start, start_id);
+                pts_ids.insert(HandleType::Ctrl1, ctrl1_id);
+                pts_ids.insert(HandleType::Ctrl2, ctrl2_id);
+                pts_ids.insert(HandleType::End, end_id);
+                pts_ids
+            },
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord,
             init: true,
         };
-        data_pool.insert_shape(shape)
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, Some((HandleType::End, end_id)))
     }
 }
 #[derive(Copy, Clone)]
@@ -194,27 +225,38 @@ impl Rectangle {
         h: f64,
         parameters: &ShapeParameters,
         snap_distance: f64,
-    ) -> usize {
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
+        let coord = *bl;
+        let bl = *bl - coord;
+
         let (w, h) = if w == 0. || h == 0. {
             (5. * snap_distance, 5. * snap_distance)
         } else {
             (w, h)
         };
-        let bl_id = data_pool.insert_point(*bl);
-        let tl_id = data_pool.insert_point(bl.addxy(0., h));
-        let tr_id = data_pool.insert_point(bl.addxy(w, 0.));
-        let br_id = data_pool.insert_point(bl.addxy(w, h));
+        let bl_id = data_pool.insert_point(&bl);
+        let tl_id = data_pool.insert_point(&WPoint::new(0., h));
+        let tr_id = data_pool.insert_point(&WPoint::new(w, h));
+        let br_id = data_pool.insert_point(&WPoint::new(w, 0.));
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::Rectangle,
-            pts_ids: vec![bl_id, tl_id, tr_id, br_id],
+            handles_bundles: {
+                let mut pts_ids = HashMap::new();
+                pts_ids.insert(HandleType::BL, bl_id);
+                pts_ids.insert(HandleType::TL, tl_id);
+                pts_ids.insert(HandleType::TR, tr_id);
+                pts_ids.insert(HandleType::BR, br_id);
+                pts_ids
+            },
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord,
             init: true,
         };
-        data_pool.insert_shape(shape)
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, Some((HandleType::End, tr_id)))
     }
 }
 #[derive(Copy, Clone)]
@@ -228,93 +270,102 @@ impl Ellipse {
         end_angle: f64,
         parameters: &ShapeParameters,
         snap_distance: f64,
-    ) -> usize {
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
+        let coord = *center;
+        let center = *center - coord;
+        let radius = *radius - coord;
         let radius = if radius.wx == 0. || radius.wy == 0. {
-            WPoint {
-                wx: 5. * snap_distance,
-                wy: -5. * snap_distance,
-            }
+            WPoint::new(5. * snap_distance, -5. * snap_distance)
         } else {
-            *radius
+            radius
         };
-        let center_id = data_pool.insert_point(*center);
-        let radius_id = data_pool.insert_point(radius);
-        let h_start_angle_id =
-            data_pool.insert_point(get_point_from_angle(&center, &radius, -start_angle));
-        let h_end_angle_id =
-            data_pool.insert_point(get_point_from_angle(&center, &radius, -end_angle));
+        let center_id = data_pool.insert_point(&center);
+        let radius_id = data_pool.insert_point(&(radius + center));
+        let h_start_angle = get_point_from_angle(&(radius + center), -start_angle);
+        let h_end_angle = get_point_from_angle(&(radius + center), -end_angle);
+        let h_start_angle_id = data_pool.insert_point(&h_start_angle);
+        let h_end_angle_id = data_pool.insert_point(&h_end_angle);
+
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::Ellipse,
-            pts_ids: vec![center_id, radius_id, h_start_angle_id, h_end_angle_id],
+            handles_bundles: {
+                let mut pts_ids = HashMap::new();
+                pts_ids.insert(HandleType::Center, center_id);
+                pts_ids.insert(HandleType::Radius, radius_id);
+                pts_ids.insert(HandleType::StartAngle, h_start_angle_id);
+                pts_ids.insert(HandleType::EndAngle, h_end_angle_id);
+                pts_ids
+            },
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord,
             init: true,
         };
-        data_pool.insert_shape(shape)
-    }
-    pub fn get_constraint(data_pool: &mut DataPool, shape: &mut Shape, pt_id: usize) {
-        let (center_id, radius_id, h_start_angle_id, h_end_angle_id) = (
-            shape.pts_ids[0],
-            shape.pts_ids[1],
-            shape.pts_ids[2],
-            shape.pts_ids[3],
-        );
-        if pt_id == h_start_angle_id {
-            //     let mut angle = get_angle_from_point(&p, &center.1, 0.);
-            //     h_start_angle.1 = get_point_from_angle(&center.1, &radius.1, *rotation, -angle);
-            //     magnet_geometry(&center.1, &mut h_start_angle.1, self.snap_distance);
-            //     angle = get_angle_from_point(&h_start_angle.1, &center.1, 0.);
-            //     *start_angle = angle;
-            //     if *start_angle > *end_angle {
-            //         *start_angle -= 2. * PI;
-            //     }
-            //     h_start_angle.1 = get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-        }
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, Some((HandleType::End, radius_id)))
     }
 }
 
-pub enum Constraint {
-    Path(fn(&mut DataPool, &mut Shape)),
-}
 #[derive(Copy, Clone)]
 pub struct Group;
 impl Group {
-    pub fn new(data_pool: &mut DataPool, parameters: &ShapeParameters) -> usize {
+    pub fn new(
+        data_pool: &mut DataPool,
+        parameters: &ShapeParameters,
+    ) -> (ShapeId, Option<(HandleType, PointId)>) {
         let shape = Shape {
             parent_shape_id: None,
             shape_type: ShapeType::Group,
-            pts_ids: vec![],
+            handles_bundles: HashMap::new(),
             childs_shapes: HashSet::new(),
             parameters: *parameters,
-            selected: false,
-            tmp: WPoint::default(),
+            // selected: false,
+            coord: WPoint::default(),
             init: true,
         };
-        data_pool.insert_shape(shape)
+        let shape_id = data_pool.insert_shape(shape);
+        (shape_id, None)
     }
 }
 
 #[derive(Clone)]
 pub struct Shape {
     shape_type: ShapeType,
-    pts_ids: Vec<usize>,
-
-    parent_shape_id: Option<usize>,
-    childs_shapes: HashSet<usize>,
-
+    handles_bundles: HashMap<HandleType, PointId>,
+    parent_shape_id: Option<ShapeId>,
+    childs_shapes: HashSet<ShapeId>,
     parameters: ShapeParameters,
-    selected: bool,
-    tmp: WPoint,
+    // selected: bool,
+    coord: WPoint,
     init: bool,
 }
 
 impl Shape {
-    pub fn add_child_shape_id(&mut self, shape_id: usize) -> bool {
+    pub fn is_init(&self) -> bool {
+        self.init
+    }
+    pub fn init_done(&mut self) {
+        self.init = false;
+    }
+    pub fn get_childs_shapes_mut(&mut self) -> &mut HashSet<ShapeId> {
+        &mut self.childs_shapes
+    }
+    pub fn get_childs_shapes(&self) -> &HashSet<ShapeId> {
+        &self.childs_shapes
+    }
+    pub fn add_child_shape_id(&mut self, shape_id: ShapeId) -> bool {
         if let ShapeType::Group = self.shape_type {
             self.childs_shapes.insert(shape_id);
+            true
+        } else {
+            false
+        }
+    }
+    pub fn remove_child_shape_id(&mut self, shape_id: ShapeId) -> bool {
+        if let ShapeType::Group = self.shape_type {
+            self.childs_shapes.remove(&shape_id);
             true
         } else {
             false
@@ -323,14 +374,69 @@ impl Shape {
     pub fn get_type(&self) -> ShapeType {
         self.shape_type
     }
-    pub fn get_pts_ids(&self) -> &Vec<usize> {
-        &self.pts_ids
+    pub fn get_handle_bundle_from_handle(
+        &self,
+        handle_type: &HandleType,
+    ) -> Option<(HandleType, PointId)> {
+        if let Some(point_id) = self.handles_bundles.get(handle_type) {
+            return Some((*handle_type, *point_id));
+        }
+        None
     }
-    pub fn is_selected(&self) -> bool {
-        self.selected
+    pub fn get_handle_bundle_from_point(
+        &self,
+        point_id: &PointId,
+    ) -> Option<(HandleType, PointId)> {
+        self.handles_bundles
+            .iter()
+            .find(|(_, &pt_id)| pt_id == *point_id)
+            .map(|(&k, &v)| (k, v))
     }
-    pub fn set_parent(&mut self, id: usize) {
-        self.parent_shape_id = Some(id);
+    pub fn move_shape(&mut self, pos: WPoint) {
+        // for pt_id in self.handles_bundles.values() {
+        //     let mut pt = pool.get_point(pt_id).unwrap().clone();
+        //     pt = pt - self.coord + pos;
+        //     pool.modify_point(pt_id, &pt);
+        // }
+        self.coord = pos;
+    }
+    pub fn get_coord(&self) -> &WPoint {
+        &self.coord
+    }
+    pub fn get_coord_mut(&mut self) -> &mut WPoint {
+        &mut self.coord
+    }
+    // pub fn get_handle_bundle_from_point_mut(
+    //     &mut self,
+    //     point_id: &PointId,
+    // ) -> Option<&mut (HandleType, PointId)> {
+    //     self.handles_bundles
+    //         .get_key_value(k)
+    //         .iter_mut()
+    //         .find(|(handle_type, pt_id)| *pt_id == *point_id)
+    //         .map(|(k, v)| &(k, v))
+    // }
+    pub fn get_handles_bundles(&self) -> &HashMap<HandleType, PointId> {
+        &self.handles_bundles
+    }
+    pub fn get_handles_bundles_mut(&mut self) -> &mut HashMap<HandleType, PointId> {
+        &mut self.handles_bundles
+    }
+    // pub fn select_handle(&mut self, point_id: &PointId) -> Option<(HandleType, PointId)> {
+    //     let mut selection_done = false;
+    //     for handle_bdl in self.handles_bundles.iter_mut() {
+    //         if handle_bdl.1 == *point_id {
+    //             handle_bdl.2 = true;
+    //             return Some(*handle_bdl);
+    //         }
+    //     }
+    //     None
+    // }
+    // pub fn is_selected(&self) -> bool {
+    //     self.selected
+    // }
+    pub fn set_parent(&mut self, shape_id: &ShapeId) {
+        self.parent_shape_id = Some(*shape_id);
     }
     // pub fn select_from_position(&mut self, pos: &WPoint) {
     //     use ShapeType::*;
@@ -343,9 +449,9 @@ impl Shape {
     //         Group => (),
     //     }
     // }
-    pub fn set_selected(&mut self) {
-        self.selected = true;
-    }
+    // pub fn set_selected(&mut self, selected: bool) {
+    //     self.selected = selected;
+    // }
     // fn get_all_points_ids(&self) -> Vec<usize> {
     //     use SimpleShape::*;
     //     let mut pts_ids: Vec<usize> = vec![];
@@ -398,387 +504,14 @@ impl Shape {
     //         None
     //     }
     // }
-
-    pub fn has_childs_shapes_selected(&self, data_pool: &DataPool) -> bool {
-        for shape_id in self.childs_shapes.iter() {
-            if data_pool.get_shape(*shape_id).unwrap().is_selected() {
-                return true;
-            }
-        }
-        false
-    }
-
-    // pub fn get_first_shape_selected_found(&self) -> Option<usize> {
-    //     for (simple_shape_id, (simple_shape, selected)) in self.childs_shapes.iter() {
-    //         if *selected {
-    //             return Some(*simple_shape_id);
+    // pub fn has_childs_shapes_selected(&self, data_pool: &DataPool) -> bool {
+    //     for shape_id in self.childs_shapes.iter() {
+    //         if data_pool.get_shape(shape_id).unwrap().is_selected() {
+    //             return true;
     //         }
     //     }
-    //     None
+    //     false
     // }
-    // pub fn get_first_point_selected_found(&self) -> Option<usize> {
-    //     for pt_id in get_points_selected().iter() {
-    //         return Some(*pt_id);
-    //     }
-    //     None
-    // }
-    // pub fn clear_any_shape_selection(&mut self) {
-    //     for (_, selected) in self.childs_shapes.values_mut() {
-    //         *selected = false;
-    //     }
-    // }
-    // pub fn clear_any_point_selection(&mut self) {
-    //     remove_all_points_selected();
-    // }
-    // pub fn select_all_shapes(&mut self) {
-    //     for (_, selected) in self.childs_shapes.values_mut() {
-    //         *selected = true;
-    //     }
-    // }
-    // pub fn get_first_point_id_from_position(
-    //     &mut self,
-    //     p: &WPoint,
-    //     precision: f64,
-    // ) -> Option<usize> {
-    //     for pt_id in self.get_all_points_ids().iter() {
-    //         if let Some(point) = get_point(*pt_id) {
-    //             if is_point_on_point(p, &point, precision) {
-    //                 return Some(*pt_id);
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
-    // pub fn get_first_simple_shape_id_found_from_position(
-    //     &mut self,
-    //     p: &WPoint,
-    //     precision: f64,
-    // ) -> Option<usize> {
-    //     use SimpleShape::*;
-    //     for (simple_shape_id, (simple_shape, _)) in self.childs_shapes.iter() {
-    //         match simple_shape {
-    //             Line(_, _) => {
-    //                 if is_point_on_line(&p, simple_shape, precision) {
-    //                     return Some(*simple_shape_id);
-    //                 }
-    //             }
-    //             QuadBezier(_, _, _) => {
-    //                 if is_point_on_quadbezier(&p, simple_shape, precision) {
-    //                     return Some(*simple_shape_id);
-    //                 }
-    //             }
-    //             CubicBezier(_, _, _, _) => {
-    //                 if is_point_on_cubicbezier(&p, simple_shape, precision) {
-    //                     return Some(*simple_shape_id);
-    //                 }
-    //             }
-    //             Rectangle(_, _, _, _) => {
-    //                 if is_point_on_rectangle(&p, simple_shape, precision) {
-    //                     return Some(*simple_shape_id);
-    //                 }
-    //             }
-    //             Ellipse(_, _, _, _) => {
-    //                 if is_point_on_ellipse(&p, simple_shape, precision) {
-    //                     return Some(*simple_shape_id);
-    //                 }
-    //             }
-    //         };
-    //     }
-    //     None
-    // }
-
-    // fn move_point(&self, shape_id: usize, point_selected_id: usize, p: &WPoint, dp: &WPoint) {
-    //     let mut p = *p;
-    //     match &mut self.childs_shapes.get(&shape_id).unwrap().0 {
-    //         SimpleShape::Line(start_id, end_id) => {
-    //             let mut point1 = get_point(*start_id).unwrap();
-    //             let mut point2 = get_point(*end_id).unwrap();
-    //             if point_selected_id == *start_id {
-
-    //             magnet_geometry(&point1, &mut point2, self.snap_distance);
-    //             snap_to_snap_grid(&mut p, self.snap_distance);
-    //             point2 = p;
-    //             // Avoid degenerescence
-    //             if point1 == point2 {
-    //                 point2 += self.snap_distance;
-    //             }
-    //         }else {
-    //             magnet_geometry(&point1, &mut point2, self.snap_distance);
-    //             snap_to_snap_grid(&mut p, self.snap_distance);
-    //             point2 = p;
-    //             // Avoid degenerescence
-    //             if point1 == point2 {
-    //                 point2 += self.snap_distance;
-    //             }
-    //         }
-    //             modify_point(*end_id, point2);
-    //         }
-    //         _=> ()
-    //         // SimpleShape::QuadBezier(start_id, ctrl_id, end_id) => {
-
-    //         //     Start => {
-    //         //         magnet_geometry(&end.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         start.1 = p;
-    //         //     }
-    //         //     Ctrl => {
-    //         //         if !magnet_geometry(&end.1, &mut p, self.snap_distance) {
-    //         //             magnet_geometry(&start.1, &mut p, self.snap_distance);
-    //         //         }
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         ctrl.1 = p;
-    //         //     }
-    //         //     End => {
-    //         //         magnet_geometry(&start.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         end.1 = p;
-    //         //         if self.init {
-    //         //             ctrl.1 = (start.1 + end.1) / 2.;
-    //         //         }
-    //         //     }
-    //         //     All => {
-    //         //         self.tmp += *dp;
-    //         //         if self.tmp.wx > self.snap_distance || self.tmp.wx < -self.snap_distance {
-    //         //             snap_to_snap_grid_x(&mut self.tmp, self.snap_distance);
-    //         //             start.1.wx += self.tmp.wx;
-    //         //             ctrl.1.wx += self.tmp.wx;
-    //         //             end.1.wx += self.tmp.wx;
-    //         //             self.tmp.wx = 0.;
-    //         //         }
-    //         //         if self.tmp.wy > self.snap_distance || self.tmp.wy < -self.snap_distance {
-    //         //             snap_to_snap_grid_y(&mut self.tmp, self.snap_distance);
-    //         //             start.1.wy += self.tmp.wy;
-    //         //             ctrl.1.wy += self.tmp.wy;
-    //         //             end.1.wy += self.tmp.wy;
-    //         //             self.tmp.wy = 0.;
-    //         //         }
-    //         //     }
-    //         //     _ => {}
-    //         // },
-    //         // SimpleShape::CubicBezier(start, ctrl1, ctrl2, end) => match selection {
-    //         //     Start => {
-    //         //         magnet_geometry(&end.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         start.1 = p;
-    //         //     }
-    //         //     Ctrl1 => {
-    //         //         if !magnet_geometry(&end.1, &mut p, self.snap_distance) {
-    //         //             if !magnet_geometry(&start.1, &mut p, self.snap_distance) {
-    //         //                 magnet_geometry(&ctrl2.1, &mut p, self.snap_distance);
-    //         //             }
-    //         //         }
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         ctrl1.1 = p;
-    //         //     }
-    //         //     Ctrl2 => {
-    //         //         if !magnet_geometry(&end.1, &mut p, self.snap_distance) {
-    //         //             if !magnet_geometry(&start.1, &mut p, self.snap_distance) {
-    //         //                 magnet_geometry(&ctrl1.1, &mut p, self.snap_distance);
-    //         //             }
-    //         //         }
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         ctrl2.1 = p;
-    //         //     }
-    //         //     End => {
-    //         //         magnet_geometry(&start.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         end.1 = p;
-    //         //         if self.init {
-    //         //             ctrl1.1 = start.1 + (end.1 - start.1) / 3.;
-    //         //             ctrl2.1 = start.1 + (end.1 - start.1) / 3. * 2.;
-    //         //         }
-    //         //     }
-    //         //     All => {
-    //         //         self.tmp += *dp;
-    //         //         if self.tmp.wx > self.snap_distance || self.tmp.wx < -self.snap_distance {
-    //         //             snap_to_snap_grid_x(&mut self.tmp, self.snap_distance);
-    //         //             start.1.wx += self.tmp.wx;
-    //         //             ctrl1.1.wx += self.tmp.wx;
-    //         //             ctrl2.1.wx += self.tmp.wx;
-    //         //             end.1.wx += self.tmp.wx;
-    //         //             self.tmp.wx = 0.;
-    //         //         }
-    //         //         if self.tmp.wy > self.snap_distance || self.tmp.wy < -self.snap_distance {
-    //         //             snap_to_snap_grid_y(&mut self.tmp, self.snap_distance);
-    //         //             start.1.wy += self.tmp.wy;
-    //         //             ctrl1.1.wy += self.tmp.wy;
-    //         //             ctrl2.1.wy += self.tmp.wy;
-    //         //             end.1.wy += self.tmp.wy;
-    //         //             self.tmp.wy = 0.;
-    //         //         }
-    //         //     }
-    //         //     _ => {}
-    //         // },
-    //         // SimpleShape::Rectangle(bl, tl, tr, br) => match selection {
-    //         //     BottomLeft => {
-    //         //         magnet_geometry(&tr.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         bl.1 = p;
-    //         //         if bl.1.wx >= tr.1.wx {
-    //         //             bl.1.wx = tr.1.wx - self.snap_distance;
-    //         //         }
-    //         //         if bl.1.wy <= tr.1.wy {
-    //         //             bl.1.wy = tr.1.wy + self.snap_distance;
-    //         //         }
-    //         //         tl.1.wx = bl.1.wx;
-    //         //         br.1.wy = bl.1.wy;
-    //         //     }
-    //         //     TopLeft => {
-    //         //         magnet_geometry(&br.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         tl.1 = p;
-    //         //         if tl.1.wx >= br.1.wx {
-    //         //             tl.1.wx = br.1.wx - self.snap_distance;
-    //         //         }
-    //         //         if tl.1.wy >= br.1.wy {
-    //         //             tl.1.wy = br.1.wy - self.snap_distance;
-    //         //         }
-    //         //         tr.1.wy = tl.1.wy;
-    //         //         bl.1.wx = tl.1.wx;
-    //         //     }
-    //         //     TopRight => {
-    //         //         magnet_geometry(&bl.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         tr.1 = p;
-    //         //         if tr.1.wx <= bl.1.wx {
-    //         //             tr.1.wx = bl.1.wx + self.snap_distance;
-    //         //         }
-    //         //         if tr.1.wy >= bl.1.wy {
-    //         //             tr.1.wy = bl.1.wy - self.snap_distance;
-    //         //         }
-    //         //         tl.1.wy = tr.1.wy;
-    //         //         br.1.wx = tr.1.wx;
-    //         //     }
-    //         //     BottomRight => {
-    //         //         magnet_geometry(&tl.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         br.1 = p;
-    //         //         if br.1.wx <= tl.1.wx {
-    //         //             br.1.wx = tl.1.wx + self.snap_distance;
-    //         //         }
-    //         //         if br.1.wy <= tl.1.wy {
-    //         //             br.1.wy = tl.1.wy + self.snap_distance;
-    //         //         }
-    //         //         tr.1.wx = br.1.wx;
-    //         //         bl.1.wy = br.1.wy;
-    //         //     }
-    //         //     All => {
-    //         //         self.tmp += *dp;
-    //         //         if self.tmp.wx > self.snap_distance || self.tmp.wx < -self.snap_distance {
-    //         //             snap_to_snap_grid_x(&mut self.tmp, self.snap_distance);
-    //         //             bl.1.wx += self.tmp.wx;
-    //         //             tl.1.wx += self.tmp.wx;
-    //         //             tr.1.wx += self.tmp.wx;
-    //         //             br.1.wx += self.tmp.wx;
-    //         //             self.tmp.wx = 0.;
-    //         //         }
-    //         //         if self.tmp.wy > self.snap_distance || self.tmp.wy < -self.snap_distance {
-    //         //             snap_to_snap_grid_y(&mut self.tmp, self.snap_distance);
-    //         //             bl.1.wy += self.tmp.wy;
-    //         //             tl.1.wy += self.tmp.wy;
-    //         //             tr.1.wy += self.tmp.wy;
-    //         //             br.1.wy += self.tmp.wy;
-    //         //             self.tmp.wy = 0.;
-    //         //         }
-    //         //     }
-    //         //     _ => {}
-    //         // },
-    //         // SimpleShape::Ellipse(
-    //         //     center,
-    //         //     radius,
-    //         //     h_start_angle,
-    //         //     h_end_angle,
-    //         //     (rotation, start_angle, end_angle),
-    //         // ) => match selection {
-    //         //     Center => {
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         let delta_pos = p - center.1;
-    //         //         center.1 = p;
-    //         //         radius.1 += delta_pos;
-    //         //         h_start_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-    //         //         h_end_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*end_angle);
-    //         //     }
-    //         //     Radius => {
-    //         //         magnet_geometry(&center.1, &mut p, self.snap_distance);
-    //         //         snap_to_snap_grid(&mut p, self.snap_distance);
-    //         //         radius.1 = p;
-    //         //         if radius.1.wx <= center.1.wx {
-    //         //             radius.1.wx = center.1.wx + self.snap_distance;
-    //         //         }
-    //         //         if radius.1.wy >= center.1.wy {
-    //         //             radius.1.wy = center.1.wy - self.snap_distance;
-    //         //         }
-    //         //         h_start_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-    //         //         h_end_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*end_angle);
-    //         //     }
-    //         //     StartAngle => {
-    //         //         let mut angle = get_angle_from_point(&p, &center.1, 0.);
-    //         //         h_start_angle.1 = get_point_from_angle(&center.1, &radius.1, *rotation, -angle);
-    //         //         magnet_geometry(&center.1, &mut h_start_angle.1, self.snap_distance);
-    //         //         angle = get_angle_from_point(&h_start_angle.1, &center.1, 0.);
-    //         //         *start_angle = angle;
-    //         //         if *start_angle > *end_angle {
-    //         //             *start_angle -= 2. * PI;
-    //         //         }
-    //         //         h_start_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-    //         //     }
-    //         //     EndAngle => {
-    //         //         let mut angle = get_angle_from_point(&p, &center.1, 0.);
-    //         //         h_end_angle.1 = get_point_from_angle(&center.1, &radius.1, *rotation, -angle);
-    //         //         magnet_geometry(&center.1, &mut h_end_angle.1, self.snap_distance);
-    //         //         angle = get_angle_from_point(&h_end_angle.1, &center.1, 0.);
-    //         //         *end_angle = angle;
-    //         //         if *end_angle < *start_angle {
-    //         //             *end_angle += 2. * PI;
-    //         //         }
-    //         //         h_end_angle.1 =
-    //         //             get_point_from_angle(&center.1, &radius.1, *rotation, -*end_angle);
-    //         //     }
-    //         //     All => {
-    //         //         self.tmp += *dp;
-    //         //         if self.tmp.wx > self.snap_distance || self.tmp.wx < -self.snap_distance {
-    //         //             snap_to_snap_grid_x(&mut self.tmp, self.snap_distance);
-    //         //             center.1.wx += self.tmp.wx;
-    //         //             radius.1.wx += self.tmp.wx;
-    //         //             h_start_angle.1 =
-    //         //                 get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-    //         //             h_end_angle.1 =
-    //         //                 get_point_from_angle(&center.1, &radius.1, *rotation, -*end_angle);
-    //         //             self.tmp.wx = 0.;
-    //         //         }
-    //         //         if self.tmp.wy > self.snap_distance || self.tmp.wy < -self.snap_distance {
-    //         //             snap_to_snap_grid_y(&mut self.tmp, self.snap_distance);
-    //         //             center.1.wy += self.tmp.wy;
-    //         //             radius.1.wy += self.tmp.wy;
-    //         //             h_start_angle.1 =
-    //         //                 get_point_from_angle(&center.1, &radius.1, *rotation, -*start_angle);
-    //         //             h_end_angle.1 =
-    //         //                 get_point_from_angle(&center.1, &radius.1, *rotation, -*end_angle);
-    //         //             self.tmp.wy = 0.;
-    //         //         }
-    //         //     }
-    //         //     _ => {}
-    //         // },
-    //     }
-    // }
-    // pub fn move_selection(&mut self, p: &WPoint, dp: &WPoint) {
-    //     let mut point_moved = false;
-    //     let mut shapes_containing_moving_point = vec![];
-    //     if let Some(point_selected_id) = self.get_first_point_selected_found() {
-    //         shapes_containing_moving_point =
-    //             self.get_all_shapes_ids_containing_point_id(point_selected_id);
-    //     }
-
-    //     if let Some(shape) = shapes_containing_moving_point.get(0) {
-    //         //
-    //     }
-    // }
-
     // pub fn get_highlightable_positions_ids(&self, p: &WPoint, precision: f64) -> Vec<usize> {
     //     let mut v = Vec::new();
     //     if let Some(pts_ids) = self.get_all_points_ids_from_position(p, precision) {
@@ -795,183 +528,132 @@ impl Shape {
     //             }
     //         }
     //     }
-
     //     v.push(handle_pairs[0].clone());
     //     v.push(handle_pairs[1].clone());
     //     v
     // }
-    pub fn get_shape_construction(&self, pool: &DataPool) -> Vec<ConstructionType> {
+    pub fn get_shape_construction(&self, pool: &DataPool, selected: bool) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        if !self.selected {
+        if !selected {
             cst.push(ConstructionType::Layer(LayerType::Worksheet));
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
         use ShapeType::*;
+        let coord = self.coord;
         match &self.shape_type {
             Line => {
+                let start_id = self.handles_bundles.get(&HandleType::Start).unwrap();
+                let end_id = self.handles_bundles.get(&HandleType::End).unwrap();
                 cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[0]).unwrap(),
+                    *pool.get_point(start_id).unwrap() + coord,
                 ));
-                cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[1]).unwrap(),
+                cst.push(ConstructionType::Line(
+                    *pool.get_point(end_id).unwrap() + coord,
                 ));
             }
             QuadBezier => {
+                let start_id = self.handles_bundles.get(&HandleType::Start).unwrap();
+                let ctrl_id = self.handles_bundles.get(&HandleType::Ctrl).unwrap();
+                let end_id = self.handles_bundles.get(&HandleType::End).unwrap();
                 cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[0]).unwrap(),
+                    *pool.get_point(start_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::QuadBezier(
-                    *pool.get_point(self.pts_ids[1]).unwrap(),
-                    *pool.get_point(self.pts_ids[2]).unwrap(),
+                    *pool.get_point(ctrl_id).unwrap() + coord,
+                    *pool.get_point(end_id).unwrap() + coord,
                 ));
             }
             CubicBezier => {
+                let start_id = self.handles_bundles.get(&HandleType::Start).unwrap();
+                let ctrl1_id = self.handles_bundles.get(&HandleType::Ctrl1).unwrap();
+                let ctrl2_id = self.handles_bundles.get(&HandleType::Ctrl2).unwrap();
+                let end_id = self.handles_bundles.get(&HandleType::End).unwrap();
                 cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[0]).unwrap(),
+                    *pool.get_point(start_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::CubicBezier(
-                    *pool.get_point(self.pts_ids[1]).unwrap(),
-                    *pool.get_point(self.pts_ids[2]).unwrap(),
-                    *pool.get_point(self.pts_ids[3]).unwrap(),
+                    *pool.get_point(ctrl1_id).unwrap() + coord,
+                    *pool.get_point(ctrl2_id).unwrap() + coord,
+                    *pool.get_point(end_id).unwrap() + coord,
                 ));
             }
             Rectangle => {
+                let bl_id = self.handles_bundles.get(&HandleType::BL).unwrap();
+                let tl_id = self.handles_bundles.get(&HandleType::TL).unwrap();
+                let tr_id = self.handles_bundles.get(&HandleType::TR).unwrap();
+                let br_id = self.handles_bundles.get(&HandleType::BR).unwrap();
                 cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[0]).unwrap(),
+                    *pool.get_point(bl_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::Line(
-                    *pool.get_point(self.pts_ids[1]).unwrap(),
+                    *pool.get_point(tl_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::Line(
-                    *pool.get_point(self.pts_ids[2]).unwrap(),
+                    *pool.get_point(tr_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::Line(
-                    *pool.get_point(self.pts_ids[3]).unwrap(),
+                    *pool.get_point(br_id).unwrap() + coord,
                 ));
                 cst.push(ConstructionType::Line(
-                    *pool.get_point(self.pts_ids[0]).unwrap(),
+                    *pool.get_point(bl_id).unwrap() + coord,
                 ));
             }
             Ellipse => {
-                cst.push(ConstructionType::Move(
-                    *pool.get_point(self.pts_ids[2]).unwrap(),
-                ));
-                let center = *pool.get_point(self.pts_ids[0]).unwrap();
-                let radius = *pool.get_point(self.pts_ids[1]).unwrap();
-                let start_angle =
-                    get_angle_from_point(pool.get_point(self.pts_ids[2]).unwrap(), &center);
-                let end_angle =
-                    get_angle_from_point(pool.get_point(self.pts_ids[3]).unwrap(), &center);
+                let center_id = self.handles_bundles.get(&HandleType::Center).unwrap();
+                let radius_id = self.handles_bundles.get(&HandleType::Radius).unwrap();
+                let h_start_angle_id = self.handles_bundles.get(&HandleType::StartAngle).unwrap();
+                let h_end_angle_id = self.handles_bundles.get(&HandleType::EndAngle).unwrap();
+
+                let center = *pool.get_point(center_id).unwrap();
+                let radius = *pool.get_point(radius_id).unwrap();
+                let h_start_angle = *pool.get_point(h_start_angle_id).unwrap();
+                let h_end_angle = *pool.get_point(h_end_angle_id).unwrap();
+
+                cst.push(ConstructionType::Move(coord + center + h_start_angle));
+
+                let start_angle = -center.angle_on_ellipse(&h_start_angle, &radius);
+                let end_angle = -center.angle_on_ellipse(&h_end_angle, &radius);
                 cst.push(ConstructionType::Ellipse(
-                    center,
-                    (radius - center).abs(),
+                    coord + center,
+                    radius.abs(),
                     0.,
                     start_angle,
                     end_angle,
                     false,
                 ));
             }
-            Group => cst = vec![], //self.get_shape_construction(pool),
+            Group => cst = vec![],
         };
         cst
     }
-    // pub fn get_handles_construction(&self) -> Vec<ConstructionType> {
-    //     let mut cst = Vec::new();
-    //     use Handle::*;
-    //     if let Some(selection) = self.selection {
-    //         use SimpleShapeType::*;
-    //         let handles_pairs = match &self.shape {
-    //             Line(pair1, pair2) => match selection {
-    //                 Start => vec![(pair1.1, true), (pair2.1, false)],
-    //                 End => vec![(pair1.1, false), (pair2.1, true)],
-    //                 _ => vec![(pair1.1, false), (pair2.1, false)],
-    //             },
-    //             QuadBezier(pair1, pair2, pair3) => match selection {
-    //                 Start => vec![(pair1.1, true), (pair2.1, false), (pair3.1, false)],
-    //                 Ctrl => vec![(pair1.1, false), (pair2.1, true), (pair3.1, false)],
-    //                 End => vec![(pair1.1, false), (pair2.1, false), (pair3.1, true)],
-    //                 _ => vec![(pair1.1, false), (pair2.1, false), (pair3.1, false)],
-    //             },
-
-    //             CubicBezier(pair1, pair2, pair3, pair4) => match selection {
-    //                 Start => vec![
-    //                     (pair1.1, true),
-    //                     (pair2.1, false),
-    //                     (pair3.1, false),
-    //                     (pair4.1, false),
-    //                 ],
-    //                 Ctrl1 => vec![
-    //                     (pair1.1, false),
-    //                     (pair2.1, true),
-    //                     (pair3.1, false),
-    //                     (pair4.1, false),
-    //                 ],
-    //                 Ctrl2 => vec![
-    //                     (pair1.1, false),
-    //                     (pair2.1, false),
-    //                     (pair3.1, true),
-    //                     (pair4.1, false),
-    //                 ],
-    //                 End => vec![
-    //                     (pair1.1, false),
-    //                     (pair2.1, false),
-    //                     (pair3.1, false),
-    //                     (pair4.1, true),
-    //                 ],
-    //                 _ => vec![
-    //                     (pair1.1, false),
-    //                     (pair2.1, false),
-    //                     (pair3.1, false),
-    //                     (pair4.1, false),
-    //                 ],
-    //             },
-    //             Rectangle(bl, tl, tr, br) => match selection {
-    //                 BottomLeft => vec![(bl.1, true), (tl.1, false), (tr.1, false), (br.1, false)],
-    //                 TopLeft => vec![(bl.1, false), (tl.1, true), (tr.1, false), (br.1, false)],
-    //                 TopRight => vec![(bl.1, false), (tl.1, false), (tr.1, true), (br.1, false)],
-    //                 BottomRight => vec![(bl.1, false), (tl.1, false), (tr.1, false), (br.1, true)],
-    //                 _ => vec![(bl.1, false), (tl.1, false), (tr.1, false), (br.1, false)],
-    //             },
-    //             Ellipse(center, radius, h_start_angle, h_end_angle, _) => match selection {
-    //                 Center => vec![
-    //                     (center.1, true),
-    //                     (radius.1, false),
-    //                     (h_start_angle.1, false),
-    //                     (h_end_angle.1, false),
-    //                 ],
-    //                 Radius => vec![
-    //                     (center.1, false),
-    //                     (radius.1, true),
-    //                     (h_start_angle.1, false),
-    //                     (h_end_angle.1, false),
-    //                 ],
-    //                 StartAngle => vec![
-    //                     (center.1, false),
-    //                     (radius.1, false),
-    //                     (h_start_angle.1, true),
-    //                     (h_end_angle.1, false),
-    //                 ],
-    //                 EndAngle => vec![
-    //                     (center.1, false),
-    //                     (radius.1, false),
-    //                     (h_start_angle.1, false),
-    //                     (h_end_angle.1, true),
-    //                 ],
-    //                 _ => vec![
-    //                     (center.1, false),
-    //                     (radius.1, false),
-    //                     (h_start_angle.1, false),
-    //                     (h_end_angle.1, false),
-    //                 ],
-    //             },
-    //         };
-    //         for (point, fill) in handles_pairs.iter() {
-    //             push_handle(&point, &self.handles_size, *fill, &mut cst);
-    //         }
-    //     }
-    //     cst
-    // }
+    pub fn get_handles_construction(
+        &self,
+        pool: &DataPool,
+        ohandle_selected: Option<(HandleType, PointId)>,
+    ) -> Vec<ConstructionType> {
+        let mut cst = Vec::new();
+        for (handle, point_id) in self.handles_bundles.iter() {
+            // Check selection
+            let selected = if let Some((handle_selected, _)) = ohandle_selected {
+                if handle_selected == *handle {
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            let pt = *pool.get_point(point_id).unwrap();
+            push_handle(
+                &(pt + self.coord),
+                self.parameters.handles_size,
+                selected,
+                &mut cst,
+            );
+        }
+        cst
+    }
     // pub fn get_highlight_construction(&self) -> Vec<ConstructionType> {
     //     let mut cst = Vec::new();
     //     // Get a list of all highlightable handle-point pairs in the current shape
@@ -1146,7 +828,4 @@ impl Shape {
     //     };
     //     cst
     // }
-    pub fn init_done(&mut self) {
-        self.init = false;
-    }
 }
