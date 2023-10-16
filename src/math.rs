@@ -1,7 +1,5 @@
-use crate::{
-    canvas::PlayingArea,
-    shapes::{ConstructionType, Ellipse, HandleType, Line, Rectangle, Shape, ShapeType},
-};
+use crate::canvas::PlayingArea;
+use crate::shapes::shapes::{ConstructionType, HandleType, Shape, ShapeType};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::{cell::RefMut, convert::TryInto};
@@ -313,16 +311,13 @@ impl DataPool {
                 return false;
             }
 
+            if h_start_angle.dist(h_end_angle) < 1. {
+                return true;
+            }
             let start_angle = -center.angle_on_ellipse(&h_start_angle, &radius);
             let end_angle = -center.angle_on_ellipse(&h_end_angle, &radius);
             let angle = -center.angle_on_ellipse(&pt, &radius);
-            console::log_1(
-                &format!(
-                    "start_angle:{:?} end_angle:{:?} angle:{:?}",
-                    start_angle, end_angle, angle
-                )
-                .into(),
-            );
+
             if end_angle > start_angle {
                 angle >= start_angle && angle <= end_angle
             } else {
@@ -724,6 +719,14 @@ pub fn reorder_corners(bb: &mut [WPoint; 2]) {
     }
 }
 
+pub fn move_in_cubic_bezier(
+    pa_mut: &mut RefMut<'_, PlayingArea>,
+    shape_id: ShapeId,
+    current_selected_point_id: &PointId,
+    pick_pt: &WPoint,
+    snap_distance: f64,
+) {
+}
 pub fn move_in_rectangle(
     pa_mut: &mut RefMut<'_, PlayingArea>,
     shape_id: ShapeId,

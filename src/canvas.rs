@@ -1,8 +1,18 @@
+// pub mod shapes {
+//     pub mod line;
+//     pub mod shapes;
+// }
 use crate::math::*;
-use crate::shapes::{
-    ConstructionType, CubicBezier, Ellipse, Group, HandleType, LayerType, Line, QuadBezier,
-    Rectangle, ShapeParameters, ShapeType,
+use crate::shapes::cubicbezier::CubicBezier;
+use crate::shapes::ellipse::Ellipse;
+use crate::shapes::line::Line;
+use crate::shapes::quadbezier::QuadBezier;
+use crate::shapes::rectangle::Rectangle;
+use crate::shapes::shapes::{
+    ConstructionType, Group, HandleType, LayerType, Shape, ShapeParameters, ShapeType,
+    ShapesOperations,
 };
+
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -50,6 +60,7 @@ pub struct PlayingArea {
     apply_settings_button: HtmlElement,
     settings_width_input: HtmlInputElement,
     settings_height_input: HtmlInputElement,
+
     // Mouse position on worksheet
     mouse_worksheet_position: HtmlElement,
     _viewgrid_element: HtmlElement,
@@ -58,6 +69,8 @@ pub struct PlayingArea {
     cur_sel_items: HashMap<ShapeId, Option<(HandleType, PointId)>>,
     delta_coord_shape_mouse: WPoint,
     cur_draw_item: Option<ShapeId>,
+    pick_point: WPoint,
+    show_pick_point: bool,
 
     icon_selected: &'static str,
     selection_area: Option<[WPoint; 2]>,
@@ -93,6 +106,7 @@ pub struct PlayingArea {
     shape_parameters: ShapeParameters,
 }
 
+///////////////
 // Initialization
 pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, JsValue> {
     let document = window.document().expect("should have a document on window");
@@ -231,6 +245,8 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         cur_sel_items: HashMap::new(),
         delta_coord_shape_mouse: WPoint::default(),
         cur_draw_item: None,
+        pick_point: WPoint::default(),
+        show_pick_point: false,
 
         icon_selected: "icon-arrow",
         selection_area: None,
@@ -833,40 +849,37 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
 
             pa_mut.mouse_state = MouseState::LeftDown;
 
+            let scale = pa_mut.global_scale;
+            let offset = pa_mut.canvas_offset;
+            let snap_distance = pa_mut.working_area_snap_grid;
+            let shape_parameters = pa_mut.shape_parameters;
             // Get mouse position relative to the canvas
             let rect = pa_mut.canvas.get_bounding_client_rect();
             let mouse_pos_canvas = CXY {
                 cx: mouse_event.client_x() as f64 - rect.left(),
                 cy: mouse_event.client_y() as f64 - rect.top(),
             };
+            let mouse_pos_world = mouse_pos_canvas.to_world(scale, offset);
 
-            let scale = pa_mut.global_scale;
-            let offset = pa_mut.canvas_offset;
-            let snap_distance = pa_mut.working_area_snap_grid;
-            let shape_parameters = pa_mut.shape_parameters;
-
-            let mut pick_point = mouse_pos_canvas.to_world(scale, offset);
+            pa_mut.mouse_previous_pos_word = mouse_pos_world;
+            pa_mut.mouse_down_world_coord = mouse_pos_world;
+            let mut pick_point = mouse_pos_world;
             snap_to_snap_grid(&mut pick_point, snap_distance);
-
-            pa_mut.mouse_previous_pos_word = pick_point;
-            pa_mut.mouse_down_world_coord = pick_point;
+            pa_mut.pick_point = pick_point;
 
             match pa_mut.icon_selected {
                 "icon-arrow" => {
                     let mut new_sel_item = HashMap::new();
-
                     // Check if a shape is under the pick point
                     let oshape_picked_id = pa_mut.pool.get_shape_id_from_pick_point(
                         &pick_point,
                         shape_parameters.grab_handle_precision,
                     );
-
                     // Check if a shape handle is under the pick point
                     let opoint_picked_id = pa_mut.pool.get_point_id_from_position(
                         &pick_point,
                         shape_parameters.grab_handle_precision,
                     );
-
                     // Check if one shape is already selected, it that case it has priority of point selection
                     let mut prior_selection_done = false;
                     if let Some((&shape_selected_id, _)) = pa_mut.cur_sel_items.iter().next() {
@@ -1157,8 +1170,6 @@ fn move_shape_point(
                     }
                 }
                 ShapeType::Rectangle => {
-                    let pt = pa_mut.pool.get_point(&current_selected_point_id.1).unwrap();
-                    magnet_geometry(pt, &mut mouse_pos_world, snap_distance);
                     snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
                     move_in_rectangle(
                         pa_mut,
@@ -1169,8 +1180,6 @@ fn move_shape_point(
                     );
                 }
                 ShapeType::Ellipse => {
-                    let pt = pa_mut.pool.get_point(&current_selected_point_id.1).unwrap();
-                    magnet_geometry(pt, &mut mouse_pos_world, snap_distance);
                     snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
                     move_in_ellipse(
                         pa_mut,
@@ -1200,10 +1209,14 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         };
 
         let scale = pa_mut.global_scale;
-        let world_offset = pa_mut.canvas_offset;
+        let offset = pa_mut.canvas_offset;
+        let snap_distance = pa_mut.working_area_snap_grid;
 
         let mouse_delta_canvas = mouse_pos_canvas - pa_mut.mouse_previous_pos_canvas;
-        let mouse_pos_world = mouse_pos_canvas.to_world(scale, world_offset);
+        let mouse_pos_world = mouse_pos_canvas.to_world(scale, offset);
+        let mut pick_point = mouse_pos_world;
+        snap_to_snap_grid(&mut pick_point, snap_distance);
+        pa_mut.pick_point = pick_point;
 
         if let MouseState::LeftDown = mouse_state {
             match pa_mut.icon_selected {
@@ -1315,6 +1328,7 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         .init_done();
                 }
                 pa_mut.cur_draw_item = None;
+                pa_mut.show_pick_point = false;
             }
             _ => (),
         }
@@ -1371,16 +1385,34 @@ fn on_mouse_leave(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
 }
 fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
-        let mut pa_ref = pa.borrow_mut();
-
+        let mut pa_mut = pa.borrow_mut();
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            let cur_sel_items = pa_ref.cur_sel_items.clone();
+            let cur_sel_items = pa_mut.cur_sel_items.clone();
             for (shape_selected_id, _) in cur_sel_items.iter() {
-                pa_ref.pool.delete_shape(shape_selected_id);
+                pa_mut.pool.delete_shape(shape_selected_id);
                 // For the moment we don't delete the shape points just
                 // for the case if the point belong to another shape too
             }
-            pa_ref.cur_sel_items.clear();
+            pa_mut.cur_sel_items.clear();
+        }
+        if keyboard_event.key() == "Escape" {
+            console::log_1(&"ddd".into());
+            if pa_mut.icon_selected == "icon-line"
+                || pa_mut.icon_selected == "icon-quadbezier"
+                || pa_mut.icon_selected == "icon-cubicbezier"
+                || pa_mut.icon_selected == "icon-rectangle"
+                || pa_mut.icon_selected == "icon-ellipse"
+            {
+                console::log_1(&"eee".into());
+                if let Some(shape_id) = pa_mut.cur_draw_item {
+                    pa_mut.pool.delete_shape(&shape_id);
+                }
+                deselect_icons(&pa_mut);
+                select_icon(&pa_mut, &"icon-arrow");
+                pa_mut.icon_selected = "icon-arrow";
+                pa_mut.show_pick_point = false;
+            }
+            pa_mut.cur_sel_items.clear();
         }
         // if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
         //     pa_ref.ctrl_or_meta_pressed = true;
@@ -1416,7 +1448,7 @@ fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         //         this.goToselectionMode();
         //     }
         // }
-        drop(pa_ref);
+        drop(pa_mut);
         render(pa.clone());
     }
 }
@@ -1470,6 +1502,7 @@ fn on_context_menu_group_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
         }
     }
 }
+
 ///////////////
 /// Settings panel events
 fn on_apply_settings_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
@@ -1518,6 +1551,7 @@ fn on_modal_backdrop_click(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
         .settings_height_input
         .set_value(&pa_ref.working_area.wy.to_string());
 }
+
 ///////////////
 // Window events
 fn resize_area(pa: Rc<RefCell<PlayingArea>>) {
@@ -1600,29 +1634,35 @@ fn on_window_click(_pa: Rc<RefCell<PlayingArea>>, _event: Event) {
     //     }
     // }
 }
+
 ///////////////
 // Icons events
 fn on_icon_click(pa: Rc<RefCell<PlayingArea>>, event: Event) {
-    let mut pa_ref = pa.borrow_mut();
+    let mut pa_mut = pa.borrow_mut();
     if let Some(target) = event.target() {
         if let Some(element) = wasm_bindgen::JsCast::dyn_ref::<Element>(&target) {
             if let Some(id) = element.get_attribute("id") {
-                if let Some(key) = pa_ref.user_icons.keys().find(|&&k| k == id) {
+                if let Some(key) = pa_mut.user_icons.keys().find(|&&k| k == id) {
                     if key == &"icon-cog" {
-                        pa_ref
+                        pa_mut
                             .settings_panel
                             .style()
                             .set_property("display", "block")
                             .unwrap();
-                        pa_ref
+                        pa_mut
                             .modal_backdrop
                             .style()
                             .set_property("display", "block")
                             .unwrap();
                     } else {
-                        pa_ref.icon_selected = key;
-                        deselect_icons(&pa_ref);
-                        select_icon(&pa_ref, &id);
+                        pa_mut.icon_selected = key;
+                        deselect_icons(&pa_mut);
+                        select_icon(&pa_mut, &id);
+                    }
+                    match pa_mut.icon_selected {
+                        "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
+                        | "icon-rectangle" => pa_mut.show_pick_point = true,
+                        _ => pa_mut.show_pick_point = false,
                     }
                 }
             }
@@ -1664,6 +1704,7 @@ fn on_icon_mouseout(pa: Rc<RefCell<PlayingArea>>, _event: Event) {
         .expect("Failed to set display property");
 }
 
+///////////////
 // Helpers
 fn go_to_arrow_tool(pa_ref: &mut RefMut<'_, PlayingArea>) {
     pa_ref.icon_selected = "icon-arrow";
@@ -1700,6 +1741,7 @@ fn get_element(document: &Document, element_id: &str) -> Result<Element, JsValue
     Ok(element)
 }
 
+///////////////
 // Rendering
 fn render(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
@@ -1711,14 +1753,12 @@ fn render(pa: Rc<RefCell<PlayingArea>>) {
     // Then draw all
     draw_all(pa.clone());
 }
-
 fn draw_all(pa: Rc<RefCell<PlayingArea>>) {
     draw_grid(pa.clone());
     draw_working_area(pa.clone());
     draw_content(pa.clone());
     draw_selection(pa.clone());
 }
-
 fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
     use ConstructionType::*;
     let pa_ref = pa.borrow();
@@ -1762,7 +1802,6 @@ fn draw_working_area(pa: Rc<RefCell<PlayingArea>>) {
 
     raw_draw(&pa_ref, &cst);
 }
-
 fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
     use ConstructionType::*;
     let pa_ref = pa.borrow();
@@ -1792,7 +1831,6 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
         wy += w_grid_spacing;
     }
 }
-
 fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
     // Draw all shapes
@@ -1806,22 +1844,29 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
             };
         raw_draw(
             &pa_ref,
-            &shape.get_shape_construction(&pa_ref.pool, shape_is_selected),
+            &Shape::get_shape_construction(&pa_ref.pool, shape, shape_is_selected),
         );
         if shape_is_selected {
             raw_draw(
                 &pa_ref,
-                &shape.get_handles_construction(&pa_ref.pool, handle_selected),
+                &shape.get_handles_construction(&pa_ref.pool, &handle_selected),
+            );
+            raw_draw(
+                &pa_ref,
+                &Shape::get_helpers_construction(&pa_ref.pool, shape, &handle_selected),
             );
         }
         // raw_draw(&pa_ref, &shape.get_highlight_construction());
-        // raw_draw(&pa_ref, &shape.get_helpers_construction());
     }
 
-    // // If using a selection area, draw it
-    // // draw_selection(&pa_ref);
+    // Show pick point if requested
+    if pa_ref.show_pick_point {
+        let mut cst = vec![];
+        cst.push(ConstructionType::Layer(LayerType::Worksheet));
+        push_handle(&pa_ref.pick_point, 5., false, &mut cst);
+        raw_draw(&pa_ref, &cst);
+    }
 }
-
 fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
     use ConstructionType::*;
     let pa_ref = pa.borrow();
@@ -1856,12 +1901,10 @@ fn draw_selection(pa: Rc<RefCell<PlayingArea>>) {
         }
     }
 }
-
 fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     let p = Path2d::new().unwrap();
     let scale = pa_ref.global_scale;
     let offset = pa_ref.canvas_offset;
-
     for prim in cst.iter() {
         use ConstructionType::*;
         match prim {
@@ -1998,7 +2041,6 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     pa_ref.ctx.begin_path(); // Begin a new path
     pa_ref.ctx.stroke_with_path(&p);
 }
-
 fn raw_draw_clear_canvas(pa_ref: &Ref<'_, PlayingArea>) {
     pa_ref.ctx.set_stroke_style(&"#F00".into());
     let background_color = &pa_ref.background_color;

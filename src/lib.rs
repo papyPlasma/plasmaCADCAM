@@ -1,6 +1,13 @@
 mod canvas;
 mod math;
-mod shapes;
+pub mod shapes {
+    pub mod cubicbezier;
+    pub mod ellipse;
+    pub mod line;
+    pub mod quadbezier;
+    pub mod rectangle;
+    pub mod shapes;
+}
 
 use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
