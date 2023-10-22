@@ -1,4 +1,5 @@
 mod canvas;
+mod datapool;
 mod math;
 pub mod shapes {
     pub mod cubicbezier;
@@ -22,6 +23,5 @@ pub fn add(a: u32, b: u32) -> u32 {
 fn start() -> Result<(), JsValue> {
     let window = window().expect("no global `window` exists");
     create_playing_area(window)?;
-
     Ok(())
 }

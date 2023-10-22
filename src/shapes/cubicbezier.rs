@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::math::*;
+use crate::{
+    datapool::{DataPool, PointId, ShapeId},
+    math::*,
+};
 
 use super::shapes::{
     ConstructionType, HandleType, LayerType, Shape, ShapeParameters, ShapeType, ShapesOperations,
@@ -72,10 +75,10 @@ impl ShapesOperations for CubicBezier {
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
-        let start_id = shape.handles_bundles.get(&HandleType::Start).unwrap();
-        let ctrl1_id = shape.handles_bundles.get(&HandleType::Ctrl1).unwrap();
-        let ctrl2_id = shape.handles_bundles.get(&HandleType::Ctrl2).unwrap();
-        let end_id = shape.handles_bundles.get(&HandleType::End).unwrap();
+        let start_id = *shape.handles_bundles.get(&HandleType::Start).unwrap();
+        let ctrl1_id = *shape.handles_bundles.get(&HandleType::Ctrl1).unwrap();
+        let ctrl2_id = *shape.handles_bundles.get(&HandleType::Ctrl2).unwrap();
+        let end_id = *shape.handles_bundles.get(&HandleType::End).unwrap();
         cst.push(ConstructionType::Move(
             *pool.get_point(start_id).unwrap() + shape.coord,
         ));
@@ -94,19 +97,19 @@ impl ShapesOperations for CubicBezier {
     ) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
         let start = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Start).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Start).unwrap())
             .unwrap()
             + shape.coord;
         let ctrl1 = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Ctrl1).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Ctrl1).unwrap())
             .unwrap()
             + shape.coord;
         let ctrl2 = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Ctrl2).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Ctrl2).unwrap())
             .unwrap()
             + shape.coord;
         let end = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::End).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::End).unwrap())
             .unwrap()
             + shape.coord;
         // if let Some((selection, _pt_id)) = ohandle_selected {

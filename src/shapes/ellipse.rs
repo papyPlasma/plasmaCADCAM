@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::math::*;
+use crate::{
+    datapool::{DataPool, PointId, ShapeId},
+    math::*,
+};
 
 use super::shapes::{
     ConstructionType, HandleType, LayerType, Shape, ShapeParameters, ShapeType, ShapesOperations,
@@ -66,10 +69,10 @@ impl ShapesOperations for Ellipse {
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
-        let center_id = shape.handles_bundles.get(&HandleType::Center).unwrap();
-        let radius_id = shape.handles_bundles.get(&HandleType::Radius).unwrap();
-        let h_start_angle_id = shape.handles_bundles.get(&HandleType::StartAngle).unwrap();
-        let h_end_angle_id = shape.handles_bundles.get(&HandleType::EndAngle).unwrap();
+        let center_id = *shape.handles_bundles.get(&HandleType::Center).unwrap();
+        let radius_id = *shape.handles_bundles.get(&HandleType::Radius).unwrap();
+        let h_start_angle_id = *shape.handles_bundles.get(&HandleType::StartAngle).unwrap();
+        let h_end_angle_id = *shape.handles_bundles.get(&HandleType::EndAngle).unwrap();
 
         let center = *pool.get_point(center_id).unwrap();
         let radius = *pool.get_point(radius_id).unwrap();
@@ -98,19 +101,19 @@ impl ShapesOperations for Ellipse {
     ) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
         let center = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Center).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Center).unwrap())
             .unwrap()
             + shape.coord;
         let radius = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Radius).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Radius).unwrap())
             .unwrap()
             + shape.coord;
         let h_sa = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::StartAngle).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::StartAngle).unwrap())
             .unwrap()
             + shape.coord;
         let h_ea = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::EndAngle).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::EndAngle).unwrap())
             .unwrap()
             + shape.coord;
         // if let Some((selection, _pt_id)) = ohandle_selected {

@@ -1,3 +1,4 @@
+use crate::datapool::{DataPool, PointId, ShapeId};
 // pub mod shapes {
 //     pub mod line;
 //     pub mod shapes;
@@ -9,20 +10,18 @@ use crate::shapes::line::Line;
 use crate::shapes::quadbezier::QuadBezier;
 use crate::shapes::rectangle::Rectangle;
 use crate::shapes::shapes::{
-    ConstructionType, Group, HandleType, LayerType, Shape, ShapeParameters, ShapeType,
-    ShapesOperations,
+    ConstructionType, Group, LayerType, Shape, ShapeParameters, ShapesOperations,
 };
 
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    console, CanvasRenderingContext2d, Document, Element, Event, FileList, FileReader,
-    HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent, Path2d,
-    WheelEvent, Window,
+    CanvasRenderingContext2d, Document, Element, Event, FileList, FileReader, HtmlCanvasElement,
+    HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent, Path2d, WheelEvent, Window,
 };
 
 //console::log_1(&format!("{:?}", xxx).into());
@@ -66,9 +65,9 @@ pub struct PlayingArea {
     _viewgrid_element: HtmlElement,
     _snapgrid_element: HtmlElement,
 
-    cur_sel_items: HashMap<ShapeId, Option<(HandleType, PointId)>>,
-    delta_coord_shape_mouse: WPoint,
-    cur_draw_item: Option<ShapeId>,
+    cur_sel_shapes_ids: HashMap<ShapeId, WPoint>,
+    ocur_sel_point_id: Option<(PointId, ShapeId)>,
+
     pick_point: WPoint,
     show_pick_point: bool,
 
@@ -79,7 +78,7 @@ pub struct PlayingArea {
     mouse_state: MouseState,
     mouse_previous_pos_canvas: CXY,
     mouse_previous_pos_word: WPoint,
-    mouse_down_world_coord: WPoint,
+    mouse_down_pick_point: WPoint,
 
     working_area: WPoint,
     global_scale: f64,
@@ -242,9 +241,9 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         _viewgrid_element: viewgrid_element,
         _snapgrid_element: snapgrid_element,
 
-        cur_sel_items: HashMap::new(),
-        delta_coord_shape_mouse: WPoint::default(),
-        cur_draw_item: None,
+        cur_sel_shapes_ids: HashMap::new(),
+        ocur_sel_point_id: None,
+
         pick_point: WPoint::default(),
         show_pick_point: false,
 
@@ -254,7 +253,7 @@ pub fn create_playing_area(window: Window) -> Result<Rc<RefCell<PlayingArea>>, J
         mouse_state: MouseState::NoButton,
         mouse_previous_pos_canvas: CXY::default(),
         mouse_previous_pos_word: WPoint::default(),
-        mouse_down_world_coord: WPoint::default(),
+        mouse_down_pick_point: WPoint::default(),
 
         // Real word dimensions
         working_area,
@@ -540,7 +539,6 @@ fn set_callback(
 
     Ok(())
 }
-
 fn convert_svg_to_shapes(pa: Rc<RefCell<PlayingArea>>, svg_data: String) {
     let mut pa_mut = pa.borrow_mut();
     let snap_distance = pa_mut.working_area_snap_grid;
@@ -862,108 +860,45 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             let mouse_pos_world = mouse_pos_canvas.to_world(scale, offset);
 
             pa_mut.mouse_previous_pos_word = mouse_pos_world;
-            pa_mut.mouse_down_world_coord = mouse_pos_world;
             let mut pick_point = mouse_pos_world;
             snap_to_snap_grid(&mut pick_point, snap_distance);
+            pa_mut.mouse_down_pick_point = pick_point;
             pa_mut.pick_point = pick_point;
 
             match pa_mut.icon_selected {
                 "icon-arrow" => {
-                    let mut new_sel_item = HashMap::new();
-                    // Check if a shape is under the pick point
-                    let oshape_picked_id = pa_mut.pool.get_shape_id_from_pick_point(
-                        &pick_point,
-                        shape_parameters.grab_handle_precision,
-                    );
                     // Check if a shape handle is under the pick point
-                    let opoint_picked_id = pa_mut.pool.get_point_id_from_position(
-                        &pick_point,
-                        shape_parameters.grab_handle_precision,
-                    );
-                    // Check if one shape is already selected, it that case it has priority of point selection
-                    let mut prior_selection_done = false;
-                    if let Some((&shape_selected_id, _)) = pa_mut.cur_sel_items.iter().next() {
-                        let shape = pa_mut.pool.get_shape_mut(&shape_selected_id).unwrap();
-                        match (oshape_picked_id, opoint_picked_id) {
-                            (Some(_), Some(point_picked_id)) => {
-                                // Check if the point belong to the shape
-                                if let Some((handle, pt_id)) =
-                                    shape.get_handle_bundle_from_point(&point_picked_id)
-                                {
-                                    // Yes add point to selected item (shape was already in)
-                                    new_sel_item.insert(shape_selected_id, Some((handle, pt_id)));
-                                    prior_selection_done = true;
-                                }
-                            }
-                            (None, Some(point_picked_id)) => {
-                                // Check if the point belong to the shape
-                                if let Some((handle, pt_id)) =
-                                    shape.get_handle_bundle_from_point(&point_picked_id)
-                                {
-                                    // Yes add point to selected item (shape was already in)
-                                    new_sel_item.insert(shape_selected_id, Some((handle, pt_id)));
-                                    prior_selection_done = true;
-                                }
-                            }
-                            _ => (),
+                    pa_mut.ocur_sel_point_id = if let Some(point_id) =
+                        pa_mut.pool.get_point_id_from_position(
+                            &pick_point,
+                            shape_parameters.grab_handle_precision,
+                        ) {
+                        Some((point_id, pa_mut.pool.get_shape_id_from_point_id(point_id)))
+                    } else {
+                        None
+                    };
+
+                    if let Some((_point_id, shape_id)) = pa_mut.ocur_sel_point_id {
+                        // A shape point is under the pick point, deselect all shape but
+                        // the one that contains the point
+                        pa_mut.cur_sel_shapes_ids.clear();
+                        let init_coord = *pa_mut.pool.get_shape(&shape_id).unwrap().get_coord();
+                        pa_mut.cur_sel_shapes_ids.insert(shape_id, init_coord);
+                    } else {
+                        // No point under the pick_point, hence check if there is a shape under the pick point
+                        if let Some(shape_id) = pa_mut.pool.get_shape_id_from_mouse_pos_world(
+                            &mouse_pos_world,
+                            pa_mut.shape_parameters.grab_handle_precision,
+                        ) {
+                            // Yes, deselect all shapes if any and select this one
+                            pa_mut.cur_sel_shapes_ids.clear();
+                            let init_coord = *pa_mut.pool.get_shape(&shape_id).unwrap().get_coord();
+                            pa_mut.cur_sel_shapes_ids.insert(shape_id, init_coord);
+                        } else {
+                            // No, deselect all shapes if any
+                            pa_mut.cur_sel_shapes_ids.clear();
                         }
                     }
-                    if !prior_selection_done {
-                        match (oshape_picked_id, opoint_picked_id) {
-                            (Some(shape_picked_id), Some(point_picked_id)) => {
-                                let shape = pa_mut.pool.get_shape(&shape_picked_id).unwrap();
-                                // If shape selected
-                                if pa_mut.cur_sel_items.contains_key(&shape_picked_id) {
-                                    // Check if the point belong to the shape
-                                    if let Some((handle, pt_id)) =
-                                        shape.get_handle_bundle_from_point(&point_picked_id)
-                                    {
-                                        // Yes add shape and point to selected item
-                                        new_sel_item.insert(shape_picked_id, Some((handle, pt_id)));
-                                    } else {
-                                        // No, let the shape selected
-                                        new_sel_item.insert(shape_picked_id, None);
-                                        // Prepare shape to move
-                                        pa_mut.delta_coord_shape_mouse =
-                                            pick_point - *shape.get_coord();
-                                    }
-                                } else {
-                                    // Shape isn't selected, select it and don't select the point
-                                    new_sel_item.insert(shape_picked_id, None);
-                                    // Prepare shape to move
-                                    pa_mut.delta_coord_shape_mouse =
-                                        pick_point - *shape.get_coord();
-                                }
-                            }
-                            (Some(shape_picked_id), None) => {
-                                let shape = pa_mut.pool.get_shape(&shape_picked_id).unwrap();
-                                // Select the shape
-                                new_sel_item.insert(shape_picked_id, None);
-                                // Prepare shape to move
-                                pa_mut.delta_coord_shape_mouse = pick_point - *shape.get_coord();
-                            }
-                            (None, Some(point_picked_id)) => {
-                                if let Some((&shape_selected_id, _)) =
-                                    pa_mut.cur_sel_items.iter().next()
-                                {
-                                    let shape =
-                                        pa_mut.pool.get_shape_mut(&shape_selected_id).unwrap();
-                                    // Check if the point belong to the shape
-                                    if let Some((handle, pt_id)) =
-                                        shape.get_handle_bundle_from_point(&point_picked_id)
-                                    {
-                                        // Yes add shape and point to selected item
-                                        new_sel_item
-                                            .insert(shape_selected_id, Some((handle, pt_id)));
-                                    } else {
-                                        // No, then deselect the shape (nothing to do)
-                                    }
-                                };
-                            }
-                            (None, None) => (),
-                        }
-                    };
-                    pa_mut.cur_sel_items = new_sel_item;
                 }
                 "icon-selection" => pa_mut.selection_area = Some([pick_point, pick_point]),
                 "icon-line" => {
@@ -974,8 +909,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         &shape_parameters,
                         snap_distance,
                     );
-                    pa_mut.cur_sel_items.clear();
-                    pa_mut.cur_sel_items.insert(shape_id, ohandle_bdle);
+                    pa_mut.cur_sel_shapes_ids.clear();
+                    pa_mut.cur_sel_shapes_ids.insert(shape_id, pick_point);
+                    pa_mut.ocur_sel_point_id = Some((ohandle_bdle.unwrap().1, shape_id));
                 }
                 "icon-quadbezier" => {
                     let (shape_id, ohandle_bdle) = QuadBezier::new(
@@ -986,8 +922,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         &shape_parameters,
                         snap_distance,
                     );
-                    pa_mut.cur_sel_items.clear();
-                    pa_mut.cur_sel_items.insert(shape_id, ohandle_bdle);
+                    pa_mut.cur_sel_shapes_ids.clear();
+                    pa_mut.cur_sel_shapes_ids.insert(shape_id, pick_point);
+                    pa_mut.ocur_sel_point_id = Some((ohandle_bdle.unwrap().1, shape_id));
                 }
                 "icon-cubicbezier" => {
                     let (shape_id, ohandle_bdle) = CubicBezier::new(
@@ -999,8 +936,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         &shape_parameters,
                         snap_distance,
                     );
-                    pa_mut.cur_sel_items.clear();
-                    pa_mut.cur_sel_items.insert(shape_id, ohandle_bdle);
+                    pa_mut.cur_sel_shapes_ids.clear();
+                    pa_mut.cur_sel_shapes_ids.insert(shape_id, pick_point);
+                    pa_mut.ocur_sel_point_id = Some((ohandle_bdle.unwrap().1, shape_id));
                 }
                 "icon-rectangle" => {
                     let (shape_id, ohandle_bdle) = Rectangle::new(
@@ -1011,8 +949,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         &shape_parameters,
                         snap_distance,
                     );
-                    pa_mut.cur_sel_items.clear();
-                    pa_mut.cur_sel_items.insert(shape_id, ohandle_bdle);
+                    pa_mut.cur_sel_shapes_ids.clear();
+                    pa_mut.cur_sel_shapes_ids.insert(shape_id, pick_point);
+                    pa_mut.ocur_sel_point_id = Some((ohandle_bdle.unwrap().1, shape_id));
                 }
                 "icon-ellipse" => {
                     let (shape_id, ohandle_bdle) = Ellipse::new(
@@ -1024,8 +963,9 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                         &shape_parameters,
                         snap_distance,
                     );
-                    pa_mut.cur_sel_items.clear();
-                    pa_mut.cur_sel_items.insert(shape_id, ohandle_bdle);
+                    pa_mut.cur_sel_shapes_ids.clear();
+                    pa_mut.cur_sel_shapes_ids.insert(shape_id, pick_point);
+                    pa_mut.ocur_sel_point_id = Some((ohandle_bdle.unwrap().1, shape_id));
                 }
                 _ => (),
             }
@@ -1036,163 +976,12 @@ fn on_mouse_down(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                     "( {:?} , {:?} ) - ( {:?} , {:?} )",
                     pick_point.wx.round() as i32,
                     pick_point.wy.round() as i32,
-                    (pick_point.wx - pa_mut.mouse_down_world_coord.wx).round() as i32,
-                    (pick_point.wy - pa_mut.mouse_down_world_coord.wy).round() as i32
+                    (pick_point.wx - pa_mut.mouse_down_pick_point.wx).round() as i32,
+                    (pick_point.wy - pa_mut.mouse_down_pick_point.wy).round() as i32
                 )));
 
             drop(pa_mut);
             render(pa.clone());
-        }
-    }
-}
-fn move_shape(
-    pa_mut: &mut RefMut<'_, PlayingArea>,
-    current_selected_shape_id: &ShapeId,
-    mouse_pos_world: &WPoint,
-) {
-    let snap_distance = pa_mut.working_area_snap_grid;
-    let mut mouse_pos_world = *mouse_pos_world;
-    let delta_coord_shape_mouse = pa_mut.delta_coord_shape_mouse;
-    let shape = pa_mut
-        .pool
-        .get_shape_mut(current_selected_shape_id)
-        .unwrap();
-
-    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-    shape.move_shape(mouse_pos_world - delta_coord_shape_mouse);
-}
-fn move_shape_point(
-    pa_mut: &mut RefMut<'_, PlayingArea>,
-    current_selected_point_id: &(HandleType, PointId),
-    mouse_pos_world: &WPoint,
-) {
-    let snap_distance = pa_mut.working_area_snap_grid;
-    let mut mouse_pos_world = *mouse_pos_world;
-
-    // Get all the shapes that contains current_selected_point_id
-    let mut v: Vec<(ShapeId, (HandleType, PointId))> = vec![];
-    for (shape_id, shape) in pa_mut.pool.get_shapes_mut().iter_mut() {
-        for (handle_type, point_id) in shape.get_handles_bundles_mut() {
-            if *point_id == current_selected_point_id.1 {
-                v.push((shape_id.clone(), (handle_type.clone(), point_id.clone())));
-            }
-        }
-    }
-    if v.len() == 2 {
-        let shape1 = pa_mut.pool.get_shape(&v[0].0).unwrap();
-        let shape2 = pa_mut.pool.get_shape(&v[1].0).unwrap();
-        let coord = *shape1.get_coord();
-        match (shape1.get_type(), shape2.get_type()) {
-            (ShapeType::Line, ShapeType::Line)
-            | (ShapeType::QuadBezier, ShapeType::QuadBezier)
-            | (ShapeType::CubicBezier, ShapeType::CubicBezier)
-            | (ShapeType::Line, ShapeType::QuadBezier)
-            | (ShapeType::QuadBezier, ShapeType::Line)
-            | (ShapeType::Line, ShapeType::CubicBezier)
-            | (ShapeType::CubicBezier, ShapeType::Line)
-            | (ShapeType::QuadBezier, ShapeType::CubicBezier)
-            | (ShapeType::CubicBezier, ShapeType::QuadBezier) => {
-                let pt = pa_mut.pool.get_point(&current_selected_point_id.1).unwrap();
-                magnet_geometry(pt, &mut mouse_pos_world, snap_distance);
-                snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                pa_mut
-                    .pool
-                    .modify_point(&current_selected_point_id.1, &(mouse_pos_world - coord))
-            }
-            _ => (),
-        }
-    } else {
-        if v.len() == 1 {
-            let shape = pa_mut.pool.get_shape(&v[0].0).unwrap();
-            let coord = *shape.get_coord();
-            match shape.get_type() {
-                ShapeType::Line => {
-                    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                    pa_mut
-                        .pool
-                        .modify_point(&current_selected_point_id.1, &(mouse_pos_world - coord));
-                }
-                ShapeType::QuadBezier => {
-                    let init = shape.is_init();
-                    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                    let handles_bdls = shape.get_handles_bundles().clone();
-                    pa_mut
-                        .pool
-                        .modify_point(&current_selected_point_id.1, &(mouse_pos_world - coord));
-                    if init {
-                        let start_pt = handles_bdls
-                            .iter()
-                            .find(|&h_bdl| *h_bdl.0 == HandleType::Start)
-                            .unwrap()
-                            .1;
-                        let ctrl_pt = handles_bdls
-                            .iter()
-                            .find(|&h_bdl| *h_bdl.0 == HandleType::Ctrl)
-                            .unwrap()
-                            .1;
-                        // If on init, then the selected point is the end point
-                        // Set the control point to half the distance start-end
-                        let start = pa_mut.pool.get_point(&start_pt).unwrap();
-                        let ctrl_pos = ((mouse_pos_world - coord) + *start) / 2.;
-                        pa_mut.pool.modify_point(&ctrl_pt, &ctrl_pos);
-                    }
-                }
-                ShapeType::CubicBezier => {
-                    let init = shape.is_init();
-                    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                    let handles_bdls = shape.get_handles_bundles().clone();
-                    pa_mut
-                        .pool
-                        .modify_point(&current_selected_point_id.1, &(mouse_pos_world - coord));
-                    if init {
-                        let start_pt = handles_bdls
-                            .iter()
-                            .find(|&h_bdl| *h_bdl.0 == HandleType::Start)
-                            .unwrap()
-                            .1;
-                        let ctrl1_pt = handles_bdls
-                            .iter()
-                            .find(|&h_bdl| *h_bdl.0 == HandleType::Ctrl1)
-                            .unwrap()
-                            .1;
-                        let ctrl2_pt = handles_bdls
-                            .iter()
-                            .find(|&h_bdl| *h_bdl.0 == HandleType::Ctrl2)
-                            .unwrap()
-                            .1;
-                        // If on init, then the selected point is the end point
-                        // Set the ctrl 1 and ctrl 2 points to 1/3 2/3 the distance start-end
-                        let start = pa_mut.pool.get_point(&start_pt).unwrap();
-                        let ctrl1_pos = ((mouse_pos_world - coord) + *start) / 3.;
-                        let ctrl2_pos = ((mouse_pos_world - coord) + *start) / 3. * 2.;
-                        pa_mut.pool.modify_point(&ctrl1_pt, &ctrl1_pos);
-                        pa_mut.pool.modify_point(&ctrl2_pt, &ctrl2_pos);
-                    }
-                }
-                ShapeType::Rectangle => {
-                    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                    move_in_rectangle(
-                        pa_mut,
-                        v[0].0,
-                        &current_selected_point_id.1,
-                        &(mouse_pos_world - coord),
-                        snap_distance,
-                    );
-                }
-                ShapeType::Ellipse => {
-                    snap_to_snap_grid(&mut mouse_pos_world, snap_distance);
-                    move_in_ellipse(
-                        pa_mut,
-                        v[0].0,
-                        &current_selected_point_id.1,
-                        &(mouse_pos_world - coord),
-                        snap_distance,
-                    );
-                }
-                ShapeType::Group => (),
-            }
-        } else {
-            !unreachable!()
         }
     }
 }
@@ -1213,61 +1002,53 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
         let snap_distance = pa_mut.working_area_snap_grid;
 
         let mouse_delta_canvas = mouse_pos_canvas - pa_mut.mouse_previous_pos_canvas;
-        let mouse_pos_world = mouse_pos_canvas.to_world(scale, offset);
-        let mut pick_point = mouse_pos_world;
+        let mut pick_point = mouse_pos_canvas.to_world(scale, offset);
         snap_to_snap_grid(&mut pick_point, snap_distance);
         pa_mut.pick_point = pick_point;
 
         if let MouseState::LeftDown = mouse_state {
             match pa_mut.icon_selected {
                 "icon-arrow" => {
-                    let mut shape_or_point_moved = false;
-                    if pa_mut.cur_sel_items.len() == 1 {
-                        if let Some((&shape_selected_id, &opoint_selected_id)) =
-                            pa_mut.cur_sel_items.iter().next()
-                        {
-                            // Check if a handle is selected
-                            if let Some(point_selected) = opoint_selected_id {
-                                // Yes, move the point
-                                move_shape_point(&mut pa_mut, &point_selected, &mouse_pos_world);
-                            } else {
-                                // No, move the entire shape
-                                move_shape(&mut pa_mut, &shape_selected_id, &mouse_pos_world);
-                            }
-                            shape_or_point_moved = true;
-                        }
+                    // Is a point selected?
+                    if let Some((point_id, shape_id)) = pa_mut.ocur_sel_point_id {
+                        // Yes, move the point
+                        pa_mut.pool.move_shape_point(
+                            point_id,
+                            shape_id,
+                            &pick_point,
+                            snap_distance,
+                        );
                     } else {
-                        if pa_mut.cur_sel_items.len() > 1 {
-                            // Several items are selected, move only the selected shapes whatever the points selection
-                            let cur_sel_items = pa_mut.cur_sel_items.clone();
-                            for (shape_selected_id, _) in cur_sel_items.iter() {
-                                move_shape(&mut pa_mut, &shape_selected_id, &mouse_pos_world);
-                            }
-                            shape_or_point_moved = true;
+                        // No, check if there is at least one shape selected, take the first one if any
+                        if let Some((shape_selected_id, init_coord)) =
+                            pa_mut.cur_sel_shapes_ids.iter().next()
+                        {
+                            let shape_id = *shape_selected_id;
+                            let pos_move = *init_coord + pick_point - pa_mut.mouse_down_pick_point;
+                            pa_mut.pool.move_shape(shape_id, &pos_move);
+                        } else {
+                            // move the canvas if no point or shape was selected
+                            pa_mut.canvas_offset += mouse_delta_canvas;
                         }
-                    }
-                    // move the canvas if no item was selected
-                    if !shape_or_point_moved {
-                        pa_mut.canvas_offset += mouse_delta_canvas;
                     }
                 }
                 "icon-selection" => {
                     if let Some(sa) = pa_mut.selection_area.as_mut() {
-                        sa[1] = mouse_pos_world
+                        sa[1] = pick_point
                     }
                 }
                 "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
                 | "icon-rectangle" => {
-                    if pa_mut.cur_sel_items.len() == 1 {
-                        if let Some((s, &opoint_selected_id)) = pa_mut.cur_sel_items.iter().next() {
-                            // Check if a handle is selected
-                            if let Some(point_selected) = opoint_selected_id {
-                                // Yes, move the point
-                                move_shape_point(&mut pa_mut, &point_selected, &mouse_pos_world);
-                            }
-                        }
+                    if let Some((point_id, shape_id)) = pa_mut.ocur_sel_point_id {
+                        pa_mut.pool.move_shape_point(
+                            point_id,
+                            shape_id,
+                            &pick_point,
+                            snap_distance,
+                        );
                     }
                 }
+
                 _ => (),
             }
             // Update display mouse world position
@@ -1275,23 +1056,23 @@ fn on_mouse_move(pa: Rc<RefCell<PlayingArea>>, event: Event) {
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                    mouse_pos_world.wx.round() as i32,
-                    mouse_pos_world.wy.round() as i32,
-                    (mouse_pos_world.wx - pa_mut.mouse_down_world_coord.wx).round() as i32,
-                    (mouse_pos_world.wy - pa_mut.mouse_down_world_coord.wy).round() as i32
+                    pick_point.wx.round() as i32,
+                    pick_point.wy.round() as i32,
+                    (pick_point.wx - pa_mut.mouse_down_pick_point.wx).round() as i32,
+                    (pick_point.wy - pa_mut.mouse_down_pick_point.wy).round() as i32
                 )));
         } else {
             pa_mut
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} )",
-                    mouse_pos_world.wx.round() as i32,
-                    mouse_pos_world.wy.round() as i32
+                    pick_point.wx.round() as i32,
+                    pick_point.wy.round() as i32
                 )));
         }
 
         pa_mut.mouse_previous_pos_canvas = mouse_pos_canvas;
-        pa_mut.mouse_previous_pos_word = mouse_pos_world;
+        pa_mut.mouse_previous_pos_word = pick_point;
 
         drop(pa_mut);
         render(pa.clone());
@@ -1313,21 +1094,10 @@ fn on_mouse_up(pa: Rc<RefCell<PlayingArea>>, event: Event) {
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
             | "icon-rectangle" => {
-                // We no more drawing a shape
-                let oshape_selected_id =
-                    if let Some((shape_selected_id, _)) = pa_mut.cur_sel_items.iter().next() {
-                        Some(shape_selected_id.clone())
-                    } else {
-                        None
-                    };
-                if let Some(shape_selected_id) = oshape_selected_id {
-                    pa_mut
-                        .pool
-                        .get_shape_mut(&shape_selected_id)
-                        .unwrap()
-                        .init_done();
+                // If was drawing a shape, set its init_done
+                if let Some((_point_id, shape_id)) = pa_mut.ocur_sel_point_id {
+                    pa_mut.pool.get_shape_mut(&shape_id).unwrap().init_done();
                 }
-                pa_mut.cur_draw_item = None;
                 pa_mut.show_pick_point = false;
             }
             _ => (),
@@ -1387,33 +1157,33 @@ fn on_keydown(pa: Rc<RefCell<PlayingArea>>, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
         let mut pa_mut = pa.borrow_mut();
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            let cur_sel_items = pa_mut.cur_sel_items.clone();
-            for (shape_selected_id, _) in cur_sel_items.iter() {
-                pa_mut.pool.delete_shape(shape_selected_id);
+            let cur_sel_shapes_ids = pa_mut.cur_sel_shapes_ids.clone();
+            for (shape_id, _) in cur_sel_shapes_ids.iter() {
+                pa_mut.pool.delete_shape(shape_id);
                 // For the moment we don't delete the shape points just
                 // for the case if the point belong to another shape too
             }
-            pa_mut.cur_sel_items.clear();
+            pa_mut.cur_sel_shapes_ids.clear();
         }
-        if keyboard_event.key() == "Escape" {
-            console::log_1(&"ddd".into());
-            if pa_mut.icon_selected == "icon-line"
-                || pa_mut.icon_selected == "icon-quadbezier"
-                || pa_mut.icon_selected == "icon-cubicbezier"
-                || pa_mut.icon_selected == "icon-rectangle"
-                || pa_mut.icon_selected == "icon-ellipse"
-            {
-                console::log_1(&"eee".into());
-                if let Some(shape_id) = pa_mut.cur_draw_item {
-                    pa_mut.pool.delete_shape(&shape_id);
-                }
-                deselect_icons(&pa_mut);
-                select_icon(&pa_mut, &"icon-arrow");
-                pa_mut.icon_selected = "icon-arrow";
-                pa_mut.show_pick_point = false;
-            }
-            pa_mut.cur_sel_items.clear();
-        }
+        // if keyboard_event.key() == "Escape" {
+        //     console::log_1(&"ddd".into());
+        //     if pa_mut.icon_selected == "icon-line"
+        //         || pa_mut.icon_selected == "icon-quadbezier"
+        //         || pa_mut.icon_selected == "icon-cubicbezier"
+        //         || pa_mut.icon_selected == "icon-rectangle"
+        //         || pa_mut.icon_selected == "icon-ellipse"
+        //     {
+        //         console::log_1(&"eee".into());
+        //         if let Some(shape_id) = pa_mut.cur_draw_item {
+        //             pa_mut.pool.delete_shape(&shape_id);
+        //         }
+        //         deselect_icons(&pa_mut);
+        //         select_icon(&pa_mut, &"icon-arrow");
+        //         pa_mut.icon_selected = "icon-arrow";
+        //         pa_mut.show_pick_point = false;
+        //     }
+        //     pa_mut.cur_sel_shapes_ids.clear();
+        // }
         // if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
         //     pa_ref.ctrl_or_meta_pressed = true;
         // }
@@ -1833,15 +1603,24 @@ fn draw_grid(pa: Rc<RefCell<PlayingArea>>) {
 }
 fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
     let pa_ref = pa.borrow();
+    // Check for point (handle) selection
+    let ohandle_selected = if let Some((point_id, shape_id)) = pa_ref.ocur_sel_point_id {
+        pa_ref
+            .pool
+            .get_shape(&shape_id)
+            .unwrap()
+            .get_handle_bundle_from_point(point_id)
+    } else {
+        None
+    };
     // Draw all shapes
     for shape_id in pa_ref.pool.get_all_shapes_ids().iter() {
         let shape = pa_ref.pool.get_shape(shape_id).unwrap();
-        let (shape_is_selected, handle_selected) =
-            if let Some(handle_bdle) = pa_ref.cur_sel_items.get(shape_id) {
-                (true, *handle_bdle)
-            } else {
-                (false, None)
-            };
+        let shape_is_selected = if pa_ref.cur_sel_shapes_ids.contains_key(shape_id) {
+            true
+        } else {
+            false
+        };
         raw_draw(
             &pa_ref,
             &Shape::get_shape_construction(&pa_ref.pool, shape, shape_is_selected),
@@ -1849,11 +1628,11 @@ fn draw_content(pa: Rc<RefCell<PlayingArea>>) {
         if shape_is_selected {
             raw_draw(
                 &pa_ref,
-                &shape.get_handles_construction(&pa_ref.pool, &handle_selected),
+                &shape.get_handles_construction(&pa_ref.pool, &ohandle_selected),
             );
             raw_draw(
                 &pa_ref,
-                &Shape::get_helpers_construction(&pa_ref.pool, shape, &handle_selected),
+                &Shape::get_helpers_construction(&pa_ref.pool, shape, &ohandle_selected),
             );
         }
         // raw_draw(&pa_ref, &shape.get_highlight_construction());

@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::math::*;
+use crate::{
+    datapool::{DataPool, PointId, ShapeId},
+    math::*,
+};
 
 use super::shapes::{
     ConstructionType, HandleType, LayerType, Shape, ShapeParameters, ShapeType, ShapesOperations,
@@ -52,8 +55,8 @@ impl ShapesOperations for Line {
         selected: bool,
     ) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
-        let start_id = shape.handles_bundles.get(&HandleType::Start).unwrap();
-        let end_id = shape.handles_bundles.get(&HandleType::End).unwrap();
+        let start_id = *shape.handles_bundles.get(&HandleType::Start).unwrap();
+        let end_id = *shape.handles_bundles.get(&HandleType::End).unwrap();
         if !selected {
             cst.push(ConstructionType::Layer(LayerType::Worksheet));
         } else {
@@ -74,11 +77,11 @@ impl ShapesOperations for Line {
     ) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
         let start = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::Start).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::Start).unwrap())
             .unwrap()
             + shape.coord;
         let end = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::End).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::End).unwrap())
             .unwrap()
             + shape.coord;
         cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));

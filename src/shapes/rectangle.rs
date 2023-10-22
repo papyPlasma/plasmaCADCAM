@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::math::*;
+use crate::{
+    datapool::{DataPool, PointId, ShapeId},
+    math::*,
+};
 
 use super::shapes::{
     ConstructionType, HandleType, LayerType, Shape, ShapeParameters, ShapeType, ShapesOperations,
@@ -62,10 +65,10 @@ impl ShapesOperations for Rectangle {
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
-        let bl_id = shape.handles_bundles.get(&HandleType::BL).unwrap();
-        let tl_id = shape.handles_bundles.get(&HandleType::TL).unwrap();
-        let tr_id = shape.handles_bundles.get(&HandleType::TR).unwrap();
-        let br_id = shape.handles_bundles.get(&HandleType::BR).unwrap();
+        let bl_id = *shape.handles_bundles.get(&HandleType::BL).unwrap();
+        let tl_id = *shape.handles_bundles.get(&HandleType::TL).unwrap();
+        let tr_id = *shape.handles_bundles.get(&HandleType::TR).unwrap();
+        let br_id = *shape.handles_bundles.get(&HandleType::BR).unwrap();
         cst.push(ConstructionType::Move(
             *pool.get_point(bl_id).unwrap() + shape.coord,
         ));
@@ -91,19 +94,19 @@ impl ShapesOperations for Rectangle {
     ) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
         let bl = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::BL).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::BL).unwrap())
             .unwrap()
             + shape.coord;
         let tl = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::TL).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::TL).unwrap())
             .unwrap()
             + shape.coord;
         let tr = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::TR).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::TR).unwrap())
             .unwrap()
             + shape.coord;
         let br = *pool
-            .get_point(shape.handles_bundles.get(&HandleType::BR).unwrap())
+            .get_point(*shape.handles_bundles.get(&HandleType::BR).unwrap())
             .unwrap()
             + shape.coord;
         // if let Some((selection, _pt_id)) = ohandle_selected {

@@ -1,17 +1,9 @@
-// use web_sys::console;
-
-// use web_sys::console;
-
+use crate::datapool::DataPool;
+use crate::datapool::PointId;
+use crate::datapool::ShapeId;
 use crate::math::*;
 use crate::shapes::*;
 use std::collections::{HashMap, HashSet};
-use web_sys::console;
-
-use std::{
-    f64::consts::PI,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-
 pub trait ShapesOperations {
     fn get_shape_construction(
         pool: &DataPool,
@@ -160,17 +152,14 @@ impl Shape {
         }
         None
     }
-    pub fn get_handle_bundle_from_point(
-        &self,
-        point_id: &PointId,
-    ) -> Option<(HandleType, PointId)> {
+    pub fn get_handle_bundle_from_point(&self, point_id: PointId) -> Option<(HandleType, PointId)> {
         self.handles_bundles
             .iter()
-            .find(|(_, &pt_id)| pt_id == *point_id)
+            .find(|(_, &pt_id)| pt_id == point_id)
             .map(|(&k, &v)| (k, v))
     }
-    pub fn move_shape(&mut self, pos: WPoint) {
-        self.coord = pos;
+    pub fn move_shape(&mut self, pos: &WPoint) {
+        self.coord = *pos;
     }
     pub fn get_coord(&self) -> &WPoint {
         &self.coord
@@ -180,7 +169,7 @@ impl Shape {
     }
     // pub fn get_handle_bundle_from_point_mut(
     //     &mut self,
-    //     point_id: &PointId,
+    //     point_id: PointId,
     // ) -> Option<&mut (HandleType, PointId)> {
     //     self.handles_bundles
     //         .get_key_value(k)
@@ -194,7 +183,7 @@ impl Shape {
     pub fn get_handles_bundles_mut(&mut self) -> &mut HashMap<HandleType, PointId> {
         &mut self.handles_bundles
     }
-    // pub fn select_handle(&mut self, point_id: &PointId) -> Option<(HandleType, PointId)> {
+    // pub fn select_handle(&mut self, point_id: PointId) -> Option<(HandleType, PointId)> {
     //     let mut selection_done = false;
     //     for handle_bdl in self.handles_bundles.iter_mut() {
     //         if handle_bdl.1 == *point_id {
@@ -274,7 +263,7 @@ impl Shape {
         ohandle_selected: &Option<(HandleType, PointId)>,
     ) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        for (handle, point_id) in self.handles_bundles.iter() {
+        for (handle, &point_id) in self.handles_bundles.iter() {
             // Check selection
             let selected = if let Some((handle_selected, _)) = ohandle_selected {
                 if handle_selected == handle {
@@ -330,17 +319,11 @@ impl ShapesOperations for Shape {
     ) -> Vec<ConstructionType> {
         use ShapeType::*;
         match shape.shape_type {
-            Line => shapes::line::Line::get_shape_construction(pool, shape, selected),
-            QuadBezier => {
-                shapes::quadbezier::QuadBezier::get_shape_construction(pool, shape, selected)
-            }
-            CubicBezier => {
-                shapes::cubicbezier::CubicBezier::get_shape_construction(pool, shape, selected)
-            }
-            Rectangle => {
-                shapes::rectangle::Rectangle::get_shape_construction(pool, shape, selected)
-            }
-            Ellipse => shapes::ellipse::Ellipse::get_shape_construction(pool, shape, selected),
+            Line => line::Line::get_shape_construction(pool, shape, selected),
+            QuadBezier => quadbezier::QuadBezier::get_shape_construction(pool, shape, selected),
+            CubicBezier => cubicbezier::CubicBezier::get_shape_construction(pool, shape, selected),
+            Rectangle => rectangle::Rectangle::get_shape_construction(pool, shape, selected),
+            Ellipse => ellipse::Ellipse::get_shape_construction(pool, shape, selected),
             Group => vec![],
         }
     }
@@ -351,25 +334,17 @@ impl ShapesOperations for Shape {
     ) -> Vec<ConstructionType> {
         use ShapeType::*;
         match shape.shape_type {
-            Line => shapes::line::Line::get_helpers_construction(pool, shape, ohandle_selected),
-            QuadBezier => shapes::quadbezier::QuadBezier::get_helpers_construction(
-                pool,
-                shape,
-                ohandle_selected,
-            ),
-            CubicBezier => shapes::cubicbezier::CubicBezier::get_helpers_construction(
-                pool,
-                shape,
-                ohandle_selected,
-            ),
-            Rectangle => shapes::rectangle::Rectangle::get_helpers_construction(
-                pool,
-                shape,
-                ohandle_selected,
-            ),
-            Ellipse => {
-                shapes::ellipse::Ellipse::get_helpers_construction(pool, shape, ohandle_selected)
+            Line => line::Line::get_helpers_construction(pool, shape, ohandle_selected),
+            QuadBezier => {
+                quadbezier::QuadBezier::get_helpers_construction(pool, shape, ohandle_selected)
             }
+            CubicBezier => {
+                cubicbezier::CubicBezier::get_helpers_construction(pool, shape, ohandle_selected)
+            }
+            Rectangle => {
+                rectangle::Rectangle::get_helpers_construction(pool, shape, ohandle_selected)
+            }
+            Ellipse => ellipse::Ellipse::get_helpers_construction(pool, shape, ohandle_selected),
             Group => vec![],
         }
     }
