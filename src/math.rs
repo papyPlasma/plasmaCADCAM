@@ -1,4 +1,7 @@
-use crate::shapes::shapes::ConstructionType;
+use crate::{
+    datapool::PointId,
+    shapes::shapes::{ConstructionType, WPoint},
+};
 use std::{
     f64::consts::PI,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
@@ -7,13 +10,67 @@ use std::{
 pub const EPSILON: f64 = 1e-5; // Some small value
 pub const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
 
-fn is_vert(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn is_aligned_vert(pt1: &WPoint, pt2: &WPoint) -> bool {
     (pt1.wx - pt2.wx).abs() < 0.001
 }
-fn is_hori(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn helper_vertical(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionType::*;
+    if full {
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: pt1.wx,
+            wy: 2. * pt1.wy - pt2.wy,
+        }));
+        cst.push(Move(*pt1));
+        cst.push(Line(*pt2));
+        cst.push(Line(WPoint {
+            wx: pt1.wx,
+            wy: 2. * pt2.wy - pt1.wy,
+        }));
+    } else {
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: pt1.wx,
+            wy: 2. * pt1.wy - pt2.wy,
+        }));
+        cst.push(Move(*pt2));
+        cst.push(Line(WPoint {
+            wx: pt1.wx,
+            wy: 2. * pt2.wy - pt1.wy,
+        }));
+    }
+}
+pub fn is_aligned_hori(pt1: &WPoint, pt2: &WPoint) -> bool {
     (pt1.wy - pt2.wy).abs() < 0.001
 }
-fn is_45_135(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn helper_horizontal(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionType::*;
+    if full {
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: 2. * pt1.wx - pt2.wx,
+            wy: pt1.wy,
+        }));
+        cst.push(Move(*pt1));
+        cst.push(Line(*pt2));
+        cst.push(Line(WPoint {
+            wx: 2. * pt2.wx - pt1.wx,
+            wy: pt1.wy,
+        }));
+    } else {
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: 2. * pt1.wx - pt2.wx,
+            wy: pt1.wy,
+        }));
+        cst.push(Move(*pt2));
+        cst.push(Line(WPoint {
+            wx: 2. * pt2.wx - pt1.wx,
+            wy: pt1.wy,
+        }));
+    }
+}
+pub fn is_aligned_45_or_135(pt1: &WPoint, pt2: &WPoint) -> bool {
     let dy = pt2.wy - pt1.wy;
     let dx = pt2.wx - pt1.wx;
     if dx != 0. {
@@ -22,193 +79,34 @@ fn is_45_135(pt1: &WPoint, pt2: &WPoint) -> bool {
         false
     }
 }
-
-pub fn push_45_135(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
-    if is_45_135(pt1, pt2) {
-        if full {
-            use ConstructionType::*;
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: 2. * pt1.wx - pt2.wx,
-                wy: 2. * pt1.wy - pt2.wy,
-            }));
-            cst.push(Move(*pt1));
-            cst.push(Line(*pt2));
-            cst.push(Line(WPoint {
-                wx: 2. * pt2.wx - pt1.wx,
-                wy: 2. * pt2.wy - pt1.wy,
-            }));
-        } else {
-            use ConstructionType::*;
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: 2. * pt1.wx - pt2.wx,
-                wy: 2. * pt1.wy - pt2.wy,
-            }));
-            cst.push(Move(*pt2));
-            cst.push(Line(WPoint {
-                wx: 2. * pt2.wx - pt1.wx,
-                wy: 2. * pt2.wy - pt1.wy,
-            }));
-        }
-    }
-}
-pub fn push_vertical(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
-    use ConstructionType::*;
-    if is_vert(pt1, pt2) {
-        if full {
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: pt1.wx,
-                wy: 2. * pt1.wy - pt2.wy,
-            }));
-            cst.push(Move(*pt1));
-            cst.push(Line(*pt2));
-            cst.push(Line(WPoint {
-                wx: pt1.wx,
-                wy: 2. * pt2.wy - pt1.wy,
-            }));
-        } else {
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: pt1.wx,
-                wy: 2. * pt1.wy - pt2.wy,
-            }));
-            cst.push(Move(*pt2));
-            cst.push(Line(WPoint {
-                wx: pt1.wx,
-                wy: 2. * pt2.wy - pt1.wy,
-            }));
-        }
-    }
-}
-pub fn push_horizontal(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
-    use ConstructionType::*;
-    if is_hori(pt1, pt2) {
-        if full {
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: 2. * pt1.wx - pt2.wx,
-                wy: pt1.wy,
-            }));
-            cst.push(Move(*pt1));
-            cst.push(Line(*pt2));
-            cst.push(Line(WPoint {
-                wx: 2. * pt2.wx - pt1.wx,
-                wy: pt1.wy,
-            }));
-        } else {
-            cst.push(Move(*pt1));
-            cst.push(Line(WPoint {
-                wx: 2. * pt1.wx - pt2.wx,
-                wy: pt1.wy,
-            }));
-            cst.push(Move(*pt2));
-            cst.push(Line(WPoint {
-                wx: 2. * pt2.wx - pt1.wx,
-                wy: pt1.wy,
-            }));
-        }
-    }
-}
-pub fn push_handle(pt: &WPoint, size_handle: f64, fill: bool, cst: &mut Vec<ConstructionType>) {
-    let radius = WPoint::default() + size_handle / 2.;
-    use ConstructionType::*;
-    cst.push(Move(
-        *pt + WPoint {
-            wx: radius.wx,
-            wy: 0.,
-        },
-    ));
-    cst.push(Ellipse(*pt, radius, 0., 0., 2. * PI, fill));
-}
-
-pub fn magnet_geometry(pt1: &WPoint, pt2: &mut WPoint, snap_distance: f64) -> bool {
-    let dx = (pt2.wx - pt1.wx).abs();
-    let dy = (pt2.wy - pt1.wy).abs();
-
-    let snap_distance = 2. * snap_distance;
-
-    if dy < snap_distance {
-        *pt2 = *pt1;
-        true
+pub fn helper_45_135(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+    if full {
+        use ConstructionType::*;
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: 2. * pt1.wx - pt2.wx,
+            wy: 2. * pt1.wy - pt2.wy,
+        }));
+        cst.push(Move(*pt1));
+        cst.push(Line(*pt2));
+        cst.push(Line(WPoint {
+            wx: 2. * pt2.wx - pt1.wx,
+            wy: 2. * pt2.wy - pt1.wy,
+        }));
     } else {
-        if dx < snap_distance {
-            *pt2 = *pt1;
-            true
-        } else {
-            let x1 = pt1.wx;
-            let y1 = pt1.wy;
-            let x2 = pt2.wx;
-            let y2 = pt2.wy;
-            // Projection of p on (pt1, m=1)
-            let p_proj = WPoint {
-                wx: (x1 + x2 + y2 - y1) / 2.,
-                wy: (-x1 + x2 + y2 + y1) / 2.,
-            };
-            if p_proj.dist(pt2) < snap_distance {
-                *pt2 = p_proj;
-                true
-            } else {
-                // Projection of p on (pt1, m=-1)
-                let p_proj = WPoint {
-                    wx: (x1 + x2 - y2 + y1) / 2.,
-                    wy: (x1 - x2 + y2 + y1) / 2.,
-                };
-
-                if p_proj.dist(pt2) < snap_distance {
-                    *pt2 = p_proj;
-                    true
-                } else {
-                    false
-                }
-            }
-        }
+        use ConstructionType::*;
+        cst.push(Move(*pt1));
+        cst.push(Line(WPoint {
+            wx: 2. * pt1.wx - pt2.wx,
+            wy: 2. * pt1.wy - pt2.wy,
+        }));
+        cst.push(Move(*pt2));
+        cst.push(Line(WPoint {
+            wx: 2. * pt2.wx - pt1.wx,
+            wy: 2. * pt2.wy - pt1.wy,
+        }));
     }
 }
-pub fn snap_to_snap_grid(pos: &mut WPoint, snap_distance: f64) {
-    *pos = (*pos / snap_distance).round() * snap_distance;
-}
-pub fn snap_to_snap_grid_y(pos: &mut WPoint, grid_spacing: f64) {
-    pos.wy = (pos.wy / grid_spacing).round() * grid_spacing;
-}
-pub fn snap_to_snap_grid_x(pos: &mut WPoint, grid_spacing: f64) {
-    pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
-}
-
-// pub fn snap_equidistant(handles: &mut Vec<WXY>, idx: &usize, idxs: &[usize; 2], snap_val: f64) {
-//     let pt = handles[*idx];
-//     let pt1 = handles[idxs[0]];
-//     let pt2 = handles[idxs[1]];
-//     let mid = (pt1 + pt2) / 2.0;
-//     let dx = pt2.wx - pt1.wx;
-//     let dy = pt2.wy - pt1.wy;
-//     if dx == 0. && dy == 0. {
-//         return;
-//     }
-//     let proj = if dx == 0. {
-//         WXY {
-//             wx: pt.wx,
-//             wy: (pt2.wy + pt1.wy) / 2.,
-//         }
-//     } else {
-//         if dy == 0. {
-//             WXY {
-//                 wx: (pt2.wx + pt1.wx) / 2.,
-//                 wy: pt.wy,
-//             }
-//         } else {
-//             let slope = dy / dx;
-//             let perp_slope = -1. / slope;
-//             let x_p = (perp_slope * mid.wx - slope * pt.wx + pt.wy - mid.wy) / (perp_slope - slope);
-//             let y_p = perp_slope * (x_p - mid.wx) + mid.wy;
-//             WXY { wx: x_p, wy: y_p }
-//         }
-//     };
-//     if pt.dist(&proj) < snap_val {
-//         handles[*idx] = proj;
-//     }
-// }
 
 pub fn is_point_on_point(pt: &WPoint, pt1: &WPoint, precision: f64) -> bool {
     pt.dist(pt1) < precision
@@ -239,7 +137,7 @@ pub fn point_on_segment(pt1: &WPoint, pt2: &WPoint, pt: &WPoint, precision: f64)
     is_between(pt, &pt1, &pt2)
 }
 
-pub fn is_box_inside(box_outer: &[WPoint; 2], box_inner: &[WPoint; 2]) -> bool {
+pub fn _is_box_inside(box_outer: &[WPoint; 2], box_inner: &[WPoint; 2]) -> bool {
     let bl_outer = box_outer[0];
     let tr_outer = box_outer[1];
     let bl_inner = box_inner[0];
@@ -303,6 +201,45 @@ pub fn reorder_corners(bb: &mut [WPoint; 2]) {
     }
 }
 
+pub fn snap_to_snap_grid(pos: &mut WPoint, snap_distance: f64) {
+    *pos = (*pos / snap_distance).round() * snap_distance;
+}
+pub fn _snap_to_snap_grid_y(pos: &mut WPoint, grid_spacing: f64) {
+    pos.wy = (pos.wy / grid_spacing).round() * grid_spacing;
+}
+pub fn _snap_to_snap_grid_x(pos: &mut WPoint, grid_spacing: f64) {
+    pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
+}
+
+pub fn push_handles(
+    cst: &mut Vec<ConstructionType>,
+    hdles: &Vec<(PointId, WPoint)>,
+    opt_sel_id: &Option<PointId>,
+    size_handle: f64,
+) {
+    for (pt_id, point) in hdles.iter() {
+        let fill = matched_point(pt_id, opt_sel_id);
+        push_handle(cst, &point, fill, size_handle);
+    }
+}
+pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &WPoint, fill: bool, size_handle: f64) {
+    let radius = WPoint::default() + size_handle / 2.;
+    use ConstructionType::*;
+    cst.push(Move(*pt + WPoint::default().addxy(size_handle / 2., 0.)));
+    cst.push(Ellipse(*pt, radius, 0., 0., 2. * PI, fill));
+}
+
+fn matched_point(pt_id: &PointId, opt_sel_id: &Option<PointId>) -> bool {
+    if let Some(pt_sel_id) = opt_sel_id {
+        if *pt_sel_id == *pt_id {
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
 //     magnet_geometry(&br, &mut p, self.snap_distance);
 //     snap_to_snap_grid(&mut p, self.snap_distance);
 //     tl = p;
@@ -630,285 +567,3 @@ fn find_t_for_point_on_cubic_bezier(
 
     None
 }
-
-#[derive(Copy, Clone, Debug)]
-pub struct WPoint {
-    pub wx: f64,
-    pub wy: f64,
-}
-impl WPoint {
-    pub fn new(wx: f64, wy: f64) -> Self {
-        WPoint { wx, wy }
-    }
-    pub fn to_canvas(&self, scale: f64, offset: CXY) -> CXY {
-        let canvas_x = (self.wx * scale) + offset.cx;
-        let canvas_y = (self.wy * scale) + offset.cy;
-        CXY {
-            cx: canvas_x,
-            cy: canvas_y,
-        }
-    }
-    #[allow(dead_code)]
-    pub fn round(&self) -> WPoint {
-        WPoint {
-            wx: self.wx.round(),
-            wy: self.wy.round(),
-        }
-    }
-    #[allow(dead_code)]
-    pub fn addxy(&self, wx: f64, wy: f64) -> WPoint {
-        WPoint {
-            wx: self.wx + wx,
-            wy: self.wy + wy,
-        }
-    }
-    pub fn abs(&self) -> WPoint {
-        WPoint {
-            wx: self.wx.abs(),
-            wy: self.wy.abs(),
-        }
-    }
-    pub fn dist(&self, other: &WPoint) -> f64 {
-        let dpt = *self - *other;
-        (dpt.wx * dpt.wx + dpt.wy * dpt.wy).sqrt()
-    }
-    #[allow(dead_code)]
-    pub fn norm(&self) -> f64 {
-        (self.wx * self.wx + self.wy * self.wy).sqrt()
-    }
-    pub fn lerp(&self, other: &WPoint, t: f64) -> WPoint {
-        WPoint {
-            wx: self.wx + t * (other.wx - self.wx),
-            wy: self.wy + t * (other.wy - self.wy),
-        }
-    }
-    pub fn angle_on_ellipse(&self, point: &WPoint, radius: &WPoint) -> f64 {
-        f64::atan2(
-            (point.wy - self.wy) / radius.wy,
-            (point.wx - self.wx) / radius.wx,
-        )
-    }
-}
-impl Default for WPoint {
-    fn default() -> Self {
-        WPoint { wx: 0.0, wy: 0.0 }
-    }
-}
-impl Neg for WPoint {
-    type Output = WPoint;
-
-    fn neg(self) -> WPoint {
-        WPoint {
-            wx: -self.wx,
-            wy: -self.wy,
-        }
-    }
-}
-impl Add for WPoint {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        Self {
-            wx: self.wx + other.wx,
-            wy: self.wy + other.wy,
-        }
-    }
-}
-impl Add<f64> for WPoint {
-    type Output = WPoint;
-    fn add(self, scalar: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx + scalar,
-            wy: self.wy + scalar,
-        }
-    }
-}
-impl AddAssign for WPoint {
-    fn add_assign(&mut self, other: WPoint) {
-        self.wx += other.wx;
-        self.wy += other.wy;
-    }
-}
-impl AddAssign<f64> for WPoint {
-    fn add_assign(&mut self, scalar: f64) {
-        self.wx += scalar;
-        self.wy += scalar;
-    }
-}
-impl Sub for WPoint {
-    type Output = WPoint;
-    fn sub(self, other: WPoint) -> WPoint {
-        WPoint {
-            wx: self.wx - other.wx,
-            wy: self.wy - other.wy,
-        }
-    }
-}
-impl Sub<f64> for WPoint {
-    type Output = WPoint;
-    fn sub(self, scalar: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx - scalar,
-            wy: self.wy - scalar,
-        }
-    }
-}
-impl SubAssign for WPoint {
-    fn sub_assign(&mut self, other: WPoint) {
-        self.wx -= other.wx;
-        self.wy -= other.wy;
-    }
-}
-impl Div<f64> for WPoint {
-    type Output = WPoint;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        if rhs == 0.0 {
-            panic!("Division by zero");
-        }
-        WPoint {
-            wx: self.wx / rhs,
-            wy: self.wy / rhs,
-        }
-    }
-}
-impl DivAssign<f64> for WPoint {
-    fn div_assign(&mut self, rhs: f64) {
-        if rhs == 0.0 {
-            panic!("Division by zero");
-        }
-        self.wx /= rhs;
-        self.wy /= rhs;
-    }
-}
-impl Mul<f64> for WPoint {
-    type Output = WPoint;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx * rhs,
-            wy: self.wy * rhs,
-        }
-    }
-}
-impl MulAssign<f64> for WPoint {
-    fn mul_assign(&mut self, rhs: f64) {
-        self.wx *= rhs;
-        self.wy *= rhs;
-    }
-}
-impl PartialEq for WPoint {
-    fn eq(&self, other: &Self) -> bool {
-        self.wx == other.wx && self.wy == other.wy
-    }
-}
-impl Eq for WPoint {}
-
-#[derive(Copy, Clone, Debug)]
-pub struct CXY {
-    pub cx: f64,
-    pub cy: f64,
-}
-impl CXY {
-    pub fn to_world(&self, scale: f64, offset: CXY) -> WPoint {
-        let world_x = (self.cx - offset.cx) / scale;
-        let world_y = (self.cy - offset.cy) / scale;
-        WPoint {
-            wx: world_x,
-            wy: world_y,
-        }
-    }
-}
-impl Default for CXY {
-    fn default() -> Self {
-        CXY { cx: 0., cy: 0. }
-    }
-}
-impl Add for CXY {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        Self {
-            cx: self.cx + other.cx,
-            cy: self.cy + other.cy,
-        }
-    }
-}
-impl Add<f64> for CXY {
-    type Output = CXY;
-    fn add(self, scalar: f64) -> Self::Output {
-        CXY {
-            cx: self.cx + scalar,
-            cy: self.cy + scalar,
-        }
-    }
-}
-impl AddAssign for CXY {
-    fn add_assign(&mut self, other: CXY) {
-        self.cx += other.cx;
-        self.cy += other.cy;
-    }
-}
-impl AddAssign<f64> for CXY {
-    fn add_assign(&mut self, scalar: f64) {
-        self.cx += scalar;
-        self.cy += scalar;
-    }
-}
-impl Sub for CXY {
-    type Output = CXY;
-    fn sub(self, other: CXY) -> CXY {
-        CXY {
-            cx: self.cx - other.cx,
-            cy: self.cy - other.cy,
-        }
-    }
-}
-impl SubAssign for CXY {
-    fn sub_assign(&mut self, other: CXY) {
-        self.cx -= other.cx;
-        self.cy -= other.cy;
-    }
-}
-impl Div<f64> for CXY {
-    type Output = CXY;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        if rhs == 0. {
-            panic!("Division by zero");
-        }
-        CXY {
-            cx: self.cx / rhs,
-            cy: self.cy / rhs,
-        }
-    }
-}
-impl DivAssign<f64> for CXY {
-    fn div_assign(&mut self, rhs: f64) {
-        if rhs == 0. {
-            panic!("Division by zero");
-        }
-        self.cx /= rhs;
-        self.cy /= rhs;
-    }
-}
-impl Mul<f64> for CXY {
-    type Output = CXY;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        CXY {
-            cx: self.cx * rhs,
-            cy: self.cy * rhs,
-        }
-    }
-}
-impl MulAssign<f64> for CXY {
-    fn mul_assign(&mut self, rhs: f64) {
-        self.cx *= rhs;
-        self.cy *= rhs;
-    }
-}
-impl PartialEq for CXY {
-    fn eq(&self, other: &Self) -> bool {
-        self.cx == other.cx && self.cy == other.cy
-    }
-}
-impl Eq for CXY {}

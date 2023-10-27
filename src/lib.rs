@@ -4,6 +4,7 @@ mod math;
 pub mod shapes {
     pub mod cubicbezier;
     pub mod ellipse;
+    pub mod group;
     pub mod line;
     pub mod quadbezier;
     pub mod rectangle;
