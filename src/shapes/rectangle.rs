@@ -3,15 +3,15 @@
 use std::collections::HashMap;
 
 use crate::{
-    datapool::{DataPools, PointId, PointType, ShapeId, ShapePool},
+    datapool::{DataPools, PointId, PointProperty, PointType, ShapeId, ShapePool, WPoint},
     math::*,
 };
 
-use super::shapes::{ConstructionType, LayerType, Shape, WPoint};
+use super::shapes::{ConstructionType, LayerType, PtIdProp, Shape};
 
 #[derive(Clone)]
 pub struct Rectangle {
-    pts_ids: HashMap<PointType, PointId>,
+    pts_ids: PtIdProp,
     init: bool,
 }
 impl Rectangle {
@@ -21,7 +21,7 @@ impl Rectangle {
         w: f64,
         h: f64,
         snap_distance: f64,
-    ) -> (ShapeId, PointId) {
+    ) -> (ShapeId, (PointId, PointProperty)) {
         let position = *bl_point;
         let bl = *bl_point - position;
 
@@ -37,11 +37,15 @@ impl Rectangle {
         let br_id = data_pools.points_pool.insert(&WPoint::new(w, 0.));
 
         let mut pts_ids = HashMap::new();
-        pts_ids.insert(PointType::Position, pos_id);
-        pts_ids.insert(PointType::BL, bl_id);
-        pts_ids.insert(PointType::TL, tl_id);
-        pts_ids.insert(PointType::TR, tr_id);
-        pts_ids.insert(PointType::BR, br_id);
+        pts_ids.insert(
+            PointType::Position,
+            (pos_id, PointProperty::new(false, false)),
+        );
+        pts_ids.insert(PointType::BL, (bl_id, PointProperty::new(true, true)));
+        pts_ids.insert(PointType::TL, (tl_id, PointProperty::new(true, true)));
+        let pt_tr_id_prop = (tr_id, PointProperty::new(true, true));
+        pts_ids.insert(PointType::TR, pt_tr_id_prop);
+        pts_ids.insert(PointType::BR, (br_id, PointProperty::new(true, true)));
 
         let rectangle = Rectangle {
             pts_ids,
@@ -53,20 +57,20 @@ impl Rectangle {
         data_pools.pts_to_shs_pool.insert(tl_id, sh_id);
         data_pools.pts_to_shs_pool.insert(tr_id, sh_id);
         data_pools.pts_to_shs_pool.insert(br_id, sh_id);
-        (sh_id, tr_id)
+        (sh_id, pt_tr_id_prop)
     }
 }
 impl Shape for Rectangle {
     fn is_init(&self) -> bool {
         self.init
     }
-    fn get_pos_id(&self) -> PointId {
+    fn get_pos_id(&self) -> (PointId, PointProperty) {
         *self.pts_ids.get(&PointType::Position).unwrap()
     }
     fn init_done(&mut self) {
         self.init = false;
     }
-    fn get_points_ids(&self) -> HashMap<PointType, PointId> {
+    fn get_points_ids(&self) -> PtIdProp {
         self.pts_ids.clone()
     }
     fn is_point_on_shape(
@@ -175,7 +179,7 @@ impl Shape for Rectangle {
     fn get_handles_construction(
         &self,
         pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        opt_sel_id: &Option<PointId>,
+        opt_sel_id_prop: &Option<(PointId, PointProperty)>,
         size_handle: f64,
     ) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
@@ -190,7 +194,7 @@ impl Shape for Rectangle {
         hdles.push((*tl_id, position + tl_pos));
         hdles.push((*tr_id, position + tr_pos));
         hdles.push((*br_id, position + br_pos));
-        push_handles(&mut cst, &hdles, opt_sel_id, size_handle);
+        push_handles(&mut cst, &hdles, opt_sel_id_prop, size_handle);
         cst
     }
     fn get_helpers_construction(

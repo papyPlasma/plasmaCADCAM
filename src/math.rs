@@ -1,11 +1,8 @@
 use crate::{
-    datapool::PointId,
-    shapes::shapes::{ConstructionType, WPoint},
+    datapool::{PointId, PointProperty, WPoint},
+    shapes::shapes::ConstructionType,
 };
-use std::{
-    f64::consts::PI,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
+use std::f64::consts::PI;
 
 pub const EPSILON: f64 = 1e-5; // Some small value
 pub const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
@@ -214,11 +211,11 @@ pub fn _snap_to_snap_grid_x(pos: &mut WPoint, grid_spacing: f64) {
 pub fn push_handles(
     cst: &mut Vec<ConstructionType>,
     hdles: &Vec<(PointId, WPoint)>,
-    opt_sel_id: &Option<PointId>,
+    opt_sel_id_prop: &Option<(PointId, PointProperty)>,
     size_handle: f64,
 ) {
     for (pt_id, point) in hdles.iter() {
-        let fill = matched_point(pt_id, opt_sel_id);
+        let fill = matched_point(pt_id, opt_sel_id_prop);
         push_handle(cst, &point, fill, size_handle);
     }
 }
@@ -229,9 +226,9 @@ pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &WPoint, fill: bool, siz
     cst.push(Ellipse(*pt, radius, 0., 0., 2. * PI, fill));
 }
 
-fn matched_point(pt_id: &PointId, opt_sel_id: &Option<PointId>) -> bool {
-    if let Some(pt_sel_id) = opt_sel_id {
-        if *pt_sel_id == *pt_id {
+fn matched_point(pt_id: &PointId, opt_sel_id_prop: &Option<(PointId, PointProperty)>) -> bool {
+    if let Some(pt_sel_id_prop) = opt_sel_id_prop {
+        if pt_sel_id_prop.0 == *pt_id {
             true
         } else {
             false

@@ -1,4 +1,7 @@
-use crate::datapool::{DataPools, PointId, PointsPool, PointsToShapesPool, ShapeId, ShapesPool};
+use crate::datapool::{
+    DataPools, PointId, PointProperty, PointsPool, PointsToShapesPool, ShapeId, ShapesPool, WPoint,
+    CXY,
+};
 // pub mod shapes {
 //     pub mod line;
 //     pub mod shapes;
@@ -10,7 +13,7 @@ use crate::shapes::group::Group;
 use crate::shapes::line::Line;
 use crate::shapes::quadbezier::QuadBezier;
 use crate::shapes::rectangle::Rectangle;
-use crate::shapes::shapes::{ConstructionType, LayerType, WPoint, CXY};
+use crate::shapes::shapes::{ConstructionType, LayerType};
 
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
@@ -65,7 +68,7 @@ pub struct PlayingArea {
     _viewgrid_element: HtmlElement,
     _snapgrid_element: HtmlElement,
 
-    current_selection: HashMap<ShapeId, (WPoint, Option<PointId>)>,
+    current_selection: HashMap<ShapeId, (WPoint, Option<(PointId, PointProperty)>)>,
     pick_point: WPoint,
     show_pick_point: bool,
     magnet_distance: f64,
@@ -478,7 +481,7 @@ fn init_menu(pa: RefArea) -> Result<(), JsValue> {
                     let file_reader: FileReader = target.dyn_into().unwrap();
                     let result = file_reader.result().unwrap();
                     if let Some(content) = result.as_string() {
-                        convert_svg_to_shapes(pa_clone.clone(), content.clone());
+                        convert_svg_to_shapes(pa_clone.clone(), content);
                         drop(pa_clone.borrow_mut());
                         render(pa_clone.clone());
                     }
@@ -870,31 +873,33 @@ fn on_mouse_down(pa: RefArea, event: Event) {
             match pa_mut.icon_selected {
                 "icon-arrow" => {
                     // 1. Determine selection
-                    let (pt_sel_id, sh_sel_id) = if let Some(pt_sel_id) = pa_mut
-                        .data_pools
-                        .get_id_from_position(&pick_pt, pa_mut.grab_handle_precision)
-                    {
-                        (
-                            Some(pt_sel_id),
-                            pa_mut.data_pools.pts_to_shs_pool.get(&pt_sel_id).cloned(),
-                        )
-                    } else {
-                        let mut sh_id = None;
-                        for (&id, _) in pa_mut.data_pools.shapes_pool.iter() {
-                            if pa_mut.data_pools.is_point_on_shape(
-                                &id,
-                                &pick_pt,
-                                pa_mut.grab_handle_precision,
-                            ) {
-                                sh_id = Some(id);
-                                break;
+                    let (opt_sel_id_prop, sh_sel_id) = {
+                        if let Some((pt_sel_id, pt_prop)) = pa_mut
+                            .data_pools
+                            .get_id_from_position(&pick_pt, pa_mut.grab_handle_precision)
+                        {
+                            (
+                                Some((pt_sel_id, pt_prop)),
+                                pa_mut.data_pools.pts_to_shs_pool.get(&pt_sel_id).cloned(),
+                            )
+                        } else {
+                            let mut sh_id = None;
+                            for (&id, _) in pa_mut.data_pools.shapes_pool.iter() {
+                                if pa_mut.data_pools.is_point_on_shape(
+                                    &id,
+                                    &pick_pt,
+                                    pa_mut.grab_handle_precision,
+                                ) {
+                                    sh_id = Some(id);
+                                    break;
+                                }
                             }
+                            (None, sh_id)
                         }
-                        (None, sh_id)
                     };
 
                     // 2. Set pa_mut.current_selection
-                    match (pt_sel_id, sh_sel_id) {
+                    match (opt_sel_id_prop, sh_sel_id) {
                         (None, None) => {
                             // Nothing under the pick_point, deselect all shapes if any
                             pa_mut.current_selection.clear();
@@ -912,20 +917,20 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                                 .current_selection
                                 .insert(sh_id, (init_coord, Some(pt_id)));
                         }
-                        (Some(_pt_id), None) => unreachable!(),
+                        (Some(_), None) => unreachable!(),
                     }
                 }
                 "icon-selection" => pa_mut.selection_area = Some([pick_pt, pick_pt]),
                 "icon-line" => {
-                    let (sh_id, pt_id) =
+                    let (sh_id, pt_id_prop) =
                         Line::new(&mut pa_mut.data_pools, &pick_pt, &pick_pt, snap_grid);
                     pa_mut.current_selection.clear();
                     pa_mut
                         .current_selection
-                        .insert(sh_id, (pick_pt, Some(pt_id)));
+                        .insert(sh_id, (pick_pt, Some(pt_id_prop)));
                 }
                 "icon-quadbezier" => {
-                    let (sh_id, pt_id) = QuadBezier::new(
+                    let (sh_id, pt_id_prop) = QuadBezier::new(
                         &mut pa_mut.data_pools,
                         &pick_pt,
                         &pick_pt,
@@ -935,10 +940,10 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                     pa_mut.current_selection.clear();
                     pa_mut
                         .current_selection
-                        .insert(sh_id, (pick_pt, Some(pt_id)));
+                        .insert(sh_id, (pick_pt, Some(pt_id_prop)));
                 }
                 "icon-cubicbezier" => {
-                    let (sh_id, pt_id) = CubicBezier::new(
+                    let (sh_id, pt_id_prop) = CubicBezier::new(
                         &mut pa_mut.data_pools,
                         &pick_pt,
                         &pick_pt,
@@ -949,18 +954,18 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                     pa_mut.current_selection.clear();
                     pa_mut
                         .current_selection
-                        .insert(sh_id, (pick_pt, Some(pt_id)));
+                        .insert(sh_id, (pick_pt, Some(pt_id_prop)));
                 }
                 "icon-rectangle" => {
-                    let (sh_id, pt_id) =
+                    let (sh_id, pt_id_prop) =
                         Rectangle::new(&mut pa_mut.data_pools, &pick_pt, 0., 0., snap_grid);
                     pa_mut.current_selection.clear();
                     pa_mut
                         .current_selection
-                        .insert(sh_id, (pick_pt, Some(pt_id)));
+                        .insert(sh_id, (pick_pt, Some(pt_id_prop)));
                 }
                 "icon-ellipse" => {
-                    let (sh_id, pt_id) = Ellipse::new(
+                    let (sh_id, pt_id_prop) = Ellipse::new(
                         &mut pa_mut.data_pools,
                         &pick_pt,
                         &pick_pt,
@@ -971,7 +976,7 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                     pa_mut.current_selection.clear();
                     pa_mut
                         .current_selection
-                        .insert(sh_id, (pick_pt, Some(pt_id)));
+                        .insert(sh_id, (pick_pt, Some(pt_id_prop)));
                 }
                 _ => (),
             }
@@ -1023,20 +1028,27 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                     } else {
                         // Move point or shape if only one shape is selected
                         if pa_mut.current_selection.len() == 1 {
-                            let (sh_sel_id, (down_pos, opt_id)) =
+                            let (sh_sel_id, (init_shape_pos, opt_id)) =
                                 pa_mut.current_selection.iter().next().unwrap();
-                            let (sh_sel_id, (down_pos, opt_id)) =
-                                (*sh_sel_id, (*down_pos, *opt_id));
-                            if let Some(pt_id) = opt_id {
+                            let (sh_sel_id, (init_shape_pos, opt_id)) =
+                                (*sh_sel_id, (*init_shape_pos, *opt_id));
+                            if let Some(pt_id_prop) = opt_id {
+                                pa_mut.data_pools.move_shape_point(
+                                    &sh_sel_id,
+                                    &pt_id_prop,
+                                    &pick_pt,
+                                    snap_grid,
+                                    magnet_distance,
+                                );
+                            } else {
+                                let rel_pos =
+                                    init_shape_pos + pick_pt - pa_mut.mouse_down_pick_point;
                                 pa_mut
                                     .data_pools
-                                    .move_shape_point(&sh_sel_id, &pt_id, &pick_pt, snap_grid);
-                            } else {
-                                let pos_move = down_pos + pick_pt - pa_mut.mouse_down_pick_point;
-                                pa_mut.data_pools.move_shape(&sh_sel_id, &pos_move);
+                                    .move_shape(&sh_sel_id, &rel_pos, magnet_distance);
                             }
                         } else {
-                            // More than one shape is selected, TBD
+                            // TODO More than one shape is selected,
                         }
                     }
                 }
@@ -1048,12 +1060,13 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                 "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
                 | "icon-rectangle" => {
                     let (sh_sel_id, (_, opt_id)) = pa_mut.current_selection.iter().next().unwrap();
-                    let (sh_sel_id, opt_id) = (*sh_sel_id, *opt_id);
+                    let (sh_sel_id, opt_id_prop) = (*sh_sel_id, *opt_id);
                     pa_mut.data_pools.move_shape_point(
                         &sh_sel_id,
-                        &opt_id.unwrap(),
+                        &opt_id_prop.unwrap(),
                         &pick_pt,
                         snap_grid,
+                        magnet_distance,
                     );
                 }
 
@@ -1072,7 +1085,7 @@ fn on_mouse_move(pa: RefArea, event: Event) {
         } else {
             pa_mut
                 .data_pools
-                .magnet_to_point(&mut pick_pt, magnet_distance);
+                .magnet_to_point(&mut pick_pt, None, magnet_distance);
             pa_mut.pick_point = pick_pt;
 
             pa_mut

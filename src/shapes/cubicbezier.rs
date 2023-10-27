@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use super::shapes::{ConstructionType, LayerType, Shape, WPoint};
+use super::shapes::{ConstructionType, LayerType, PtIdProp, Shape};
 use crate::{
-    datapool::{DataPools, PointId, PointType, ShapeId, ShapePool},
+    datapool::{DataPools, PointId, PointProperty, PointType, ShapeId, ShapePool, WPoint},
     math::*,
 };
 
 #[derive(Clone)]
 pub struct CubicBezier {
-    pts_ids: HashMap<PointType, PointId>,
+    pts_ids: PtIdProp,
     init: bool,
 }
 impl CubicBezier {
@@ -19,7 +19,7 @@ impl CubicBezier {
         ctrl2_point: &WPoint,
         end_point: &WPoint,
         snap_distance: f64,
-    ) -> (ShapeId, PointId) {
+    ) -> (ShapeId, (PointId, PointProperty)) {
         let position = *start_point;
         let start = *start_point - position;
         let ctrl1 = *ctrl1_point - position;
@@ -42,11 +42,15 @@ impl CubicBezier {
         let e_id = data_pools.points_pool.insert(&end);
 
         let mut pts_ids = HashMap::new();
-        pts_ids.insert(PointType::Position, pos_id);
-        pts_ids.insert(PointType::Start, s_id);
-        pts_ids.insert(PointType::Ctrl1, c1_id);
-        pts_ids.insert(PointType::Ctrl2, c2_id);
-        pts_ids.insert(PointType::End, e_id);
+        pts_ids.insert(
+            PointType::Position,
+            (pos_id, PointProperty::new(false, false)),
+        );
+        pts_ids.insert(PointType::Start, (s_id, PointProperty::new(true, true)));
+        pts_ids.insert(PointType::Ctrl1, (c1_id, PointProperty::new(false, true)));
+        pts_ids.insert(PointType::Ctrl2, (c2_id, PointProperty::new(false, true)));
+        let pt_end_id_prop = (e_id, PointProperty::new(true, true));
+        pts_ids.insert(PointType::End, pt_end_id_prop);
 
         let quadbezier = CubicBezier {
             pts_ids,
@@ -58,20 +62,20 @@ impl CubicBezier {
         data_pools.pts_to_shs_pool.insert(c1_id, sh_id);
         data_pools.pts_to_shs_pool.insert(c2_id, sh_id);
         data_pools.pts_to_shs_pool.insert(e_id, sh_id);
-        (sh_id, e_id)
+        (sh_id, pt_end_id_prop)
     }
 }
 impl Shape for CubicBezier {
     fn is_init(&self) -> bool {
         self.init
     }
-    fn get_pos_id(&self) -> PointId {
+    fn get_pos_id(&self) -> (PointId, PointProperty) {
         *self.pts_ids.get(&PointType::Position).unwrap()
     }
     fn init_done(&mut self) {
         self.init = false;
     }
-    fn get_points_ids(&self) -> HashMap<PointType, PointId> {
+    fn get_points_ids(&self) -> PtIdProp {
         self.pts_ids.clone()
     }
     fn is_point_on_shape(
@@ -196,7 +200,7 @@ impl Shape for CubicBezier {
     fn get_handles_construction(
         &self,
         pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        opt_sel_id: &Option<PointId>,
+        opt_sel_id_prop: &Option<(PointId, PointProperty)>,
         size_handle: f64,
     ) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
@@ -212,7 +216,7 @@ impl Shape for CubicBezier {
         hdles.push((*ctrl1_id, position + ctrl1_pos));
         hdles.push((*ctrl2_id, position + ctrl2_pos));
         hdles.push((*end_id, position + end_pos));
-        push_handles(&mut cst, &hdles, opt_sel_id, size_handle);
+        push_handles(&mut cst, &hdles, opt_sel_id_prop, size_handle);
         cst
     }
     fn get_helpers_construction(

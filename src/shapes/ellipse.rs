@@ -1,14 +1,14 @@
 use std::{collections::HashMap, f64::consts::PI};
 
-use super::shapes::{ConstructionType, LayerType, Shape, WPoint};
+use super::shapes::{ConstructionType, LayerType, PtIdProp, Shape};
 use crate::{
-    datapool::{DataPools, PointId, PointType, ShapeId, ShapePool},
+    datapool::{DataPools, PointId, PointProperty, PointType, ShapeId, ShapePool, WPoint},
     math::*,
 };
 
 #[derive(Clone)]
 pub struct Ellipse {
-    pts_ids: HashMap<PointType, PointId>,
+    pts_ids: PtIdProp,
     init: bool,
 }
 impl Ellipse {
@@ -19,7 +19,7 @@ impl Ellipse {
         start_angle: f64,
         end_angle: f64,
         snap_distance: f64,
-    ) -> (ShapeId, PointId) {
+    ) -> (ShapeId, (PointId, PointProperty)) {
         let position = *center_point;
         let center = *center_point - position;
         let radius = *radius_point - position;
@@ -39,11 +39,21 @@ impl Ellipse {
         let ea_id = data_pools.points_pool.insert(&e_angle);
 
         let mut pts_ids = HashMap::new();
-        pts_ids.insert(PointType::Position, pos_id);
-        pts_ids.insert(PointType::Center, center_id);
-        pts_ids.insert(PointType::Radius, radius_id);
-        pts_ids.insert(PointType::StartAngle, sa_id);
-        pts_ids.insert(PointType::EndAngle, ea_id);
+        pts_ids.insert(
+            PointType::Position,
+            (pos_id, PointProperty::new(false, false)),
+        );
+        pts_ids.insert(
+            PointType::Center,
+            (center_id, PointProperty::new(false, true)),
+        );
+        let pt_radius_id_prop = (radius_id, PointProperty::new(false, true));
+        pts_ids.insert(PointType::Radius, pt_radius_id_prop);
+        pts_ids.insert(
+            PointType::StartAngle,
+            (sa_id, PointProperty::new(true, true)),
+        );
+        pts_ids.insert(PointType::EndAngle, (ea_id, PointProperty::new(true, true)));
 
         let ellipse = Ellipse {
             pts_ids,
@@ -55,7 +65,7 @@ impl Ellipse {
         data_pools.pts_to_shs_pool.insert(radius_id, sh_id);
         data_pools.pts_to_shs_pool.insert(sa_id, sh_id);
         data_pools.pts_to_shs_pool.insert(ea_id, sh_id);
-        (sh_id, radius_id)
+        (sh_id, pt_radius_id_prop)
     }
     fn ellipse_line_intersection(&self, center: &WPoint, radius: &WPoint, pt: &WPoint) -> WPoint {
         let m = (pt.wy - center.wy) / (pt.wx - center.wx);
@@ -136,13 +146,13 @@ impl Shape for Ellipse {
     fn is_init(&self) -> bool {
         self.init
     }
-    fn get_pos_id(&self) -> PointId {
+    fn get_pos_id(&self) -> (PointId, PointProperty) {
         *self.pts_ids.get(&PointType::Position).unwrap()
     }
     fn init_done(&mut self) {
         self.init = false;
     }
-    fn get_points_ids(&self) -> HashMap<PointType, PointId> {
+    fn get_points_ids(&self) -> PtIdProp {
         self.pts_ids.clone()
     }
     fn is_point_on_shape(
@@ -254,7 +264,7 @@ impl Shape for Ellipse {
     fn get_handles_construction(
         &self,
         pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        opt_sel_id: &Option<PointId>,
+        opt_sel_id_prop: &Option<(PointId, PointProperty)>,
         size_handle: f64,
     ) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
@@ -270,7 +280,7 @@ impl Shape for Ellipse {
         hdles.push((*radius_id, position + radius));
         hdles.push((*sa_id, position + s_angle));
         hdles.push((*ea_id, position + e_angle));
-        push_handles(&mut cst, &hdles, opt_sel_id, size_handle);
+        push_handles(&mut cst, &hdles, opt_sel_id_prop, size_handle);
         cst
     }
     fn get_helpers_construction(
