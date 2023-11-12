@@ -1,78 +1,71 @@
-use std::{collections::HashMap, f64::consts::PI};
+use web_sys::console;
 
-use super::shapes::{ConstructionType, LayerType, PtIdProp, Shape};
-use crate::{
-    datapool::{DataPools, PointId, PointProperty, PointType, ShapeId, ShapePool, WPoint},
-    math::*,
-};
+use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
+use crate::{datapool::ShapePool, math::*};
+use std::f64::consts::PI;
 
 #[derive(Clone)]
 pub struct Ellipse {
-    pts_ids: PtIdProp,
+    center_point: Point,
+    radius_point: Point,
+    sa_point: Point,
+    ea_point: Point,
+    position: WPos,
+    saved_position: WPos,
+    selected: bool,
     init: bool,
 }
 impl Ellipse {
     pub fn new(
-        data_pools: &mut DataPools,
-        center_point: &WPoint,
-        radius_point: &WPoint,
+        center_pos: &WPos,
+        radius_pos: &WPos,
         start_angle: f64,
         end_angle: f64,
         snap_distance: f64,
-    ) -> (ShapeId, (PointId, PointProperty)) {
-        let position = *center_point;
-        let center = *center_point - position;
-        let radius = *radius_point - position;
+    ) -> Ellipse {
+        let position = *center_pos;
+        let mut center_pos = WPos::zero();
+        let mut radius_pos = *radius_pos - position;
 
-        let radius = if radius.wx == 0. || radius.wy == 0. {
-            WPoint::new(5. * snap_distance, -5. * snap_distance)
-        } else {
-            radius
-        };
-        let s_angle = get_point_from_angle(&radius, -start_angle);
-        let e_angle = get_point_from_angle(&radius, -end_angle);
+        center_pos = snap_to_snap_grid(&center_pos, snap_distance);
+        radius_pos = snap_to_snap_grid(&radius_pos, snap_distance);
 
-        let pos_id = data_pools.points_pool.insert(&position);
-        let center_id = data_pools.points_pool.insert(&center);
-        let radius_id = data_pools.points_pool.insert(&radius);
-        let sa_id = data_pools.points_pool.insert(&s_angle);
-        let ea_id = data_pools.points_pool.insert(&e_angle);
+        if radius_pos.wx == center_pos.wx {
+            radius_pos.wx += snap_distance;
+        }
+        if radius_pos.wy == center_pos.wy {
+            radius_pos.wy += snap_distance;
+        }
 
-        let mut pts_ids = HashMap::new();
-        pts_ids.insert(
-            PointType::Position,
-            (pos_id, PointProperty::new(false, false)),
-        );
-        pts_ids.insert(
-            PointType::Center,
-            (center_id, PointProperty::new(false, true)),
-        );
-        let pt_radius_id_prop = (radius_id, PointProperty::new(false, true));
-        pts_ids.insert(PointType::Radius, pt_radius_id_prop);
-        pts_ids.insert(
-            PointType::StartAngle,
-            (sa_id, PointProperty::new(true, true)),
-        );
-        pts_ids.insert(PointType::EndAngle, (ea_id, PointProperty::new(true, true)));
+        let sa_pos = get_point_from_angle(&radius_pos, start_angle);
+        let ea_pos = get_point_from_angle(&radius_pos, end_angle);
 
-        let ellipse = Ellipse {
-            pts_ids,
+        let center_point = Point::new(&(center_pos), true, true, false);
+        let radius_point = Point::new(&(radius_pos), true, true, false);
+        let sa_point = Point::new(&(sa_pos), true, true, false);
+        let ea_point = Point::new(&(ea_pos), true, true, false);
+
+        Ellipse {
+            center_point,
+            radius_point,
+            sa_point,
+            ea_point,
+            position,
+            saved_position: position,
+            selected: false,
             init: true,
-        };
-        let sh_id = data_pools.shapes_pool.insert(ellipse);
-        data_pools.pts_to_shs_pool.insert(pos_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(center_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(radius_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(sa_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(ea_id, sh_id);
-        (sh_id, pt_radius_id_prop)
+        }
     }
-    fn ellipse_line_intersection(&self, center: &WPoint, radius: &WPoint, pt: &WPoint) -> WPoint {
-        let m = (pt.wy - center.wy) / (pt.wx - center.wx);
-        let h = center.wx;
-        let k = center.wy;
-        let a = radius.wx;
-        let b = radius.wy;
+    fn ellipse_line_intersection(&self, pt: &WPos) -> WPos {
+        let center_pos = self.center_point.wpos;
+        let mut radius_pos = self.radius_point.wpos;
+        radius_pos.wy = -radius_pos.wy;
+
+        let m = (pt.wy - center_pos.wy) / (pt.wx - center_pos.wx);
+        let h = center_pos.wx;
+        let k = center_pos.wy;
+        let a = radius_pos.wx;
+        let b = radius_pos.wy;
         // Calculating y-intercept using the center of the ellipse
         let c = k - m * h;
         let a_coef = m.powi(2) / b.powi(2) + 1.0 / a.powi(2);
@@ -81,179 +74,262 @@ impl Ellipse {
         let discriminant = b_coef.powi(2) - 4.0 * a_coef * c_coef;
         let x1 = (-b_coef + discriminant.sqrt()) / (2.0 * a_coef);
         let y1 = m * x1 + c;
-        let pt1 = WPoint::new(x1, y1);
+        let pt1 = WPos::new(x1, y1);
         let x2 = (-b_coef - discriminant.sqrt()) / (2.0 * a_coef);
         let y2 = m * x2 + c;
-        let pt2 = WPoint::new(x2, y2);
+        let pt2 = WPos::new(x2, y2);
         if pt.dist(&pt1) < pt.dist(&pt2) {
             pt1
         } else {
             pt2
         }
     }
-    fn ellipse_angle_intersection(&self, center: &WPoint, radius: &WPoint, angle: f64) -> WPoint {
-        if angle == -PI / 2. {
-            return WPoint {
-                wx: 0.,
-                wy: radius.wy,
-            };
-        }
-        if angle == PI / 2. {
-            return WPoint {
-                wx: 0.,
-                wy: -radius.wy,
-            };
-        }
-        let m = angle.tan();
-        let h = center.wx;
-        let k = center.wy;
-        let a = radius.wx;
-        let b = radius.wy;
-        // Calculating y-intercept using the center of the ellipse
-        let c = k - m * h;
-        let a_coef = m.powi(2) / b.powi(2) + 1.0 / a.powi(2);
-        let b_coef = 2.0 * m * (c - k) / b.powi(2) - 2.0 * h / a.powi(2);
-        let c_coef = h.powi(2) / a.powi(2) + (c - k).powi(2) / b.powi(2) - 1.0;
-        let discriminant = b_coef.powi(2) - 4.0 * a_coef * c_coef;
-        let x1 = (-b_coef + discriminant.sqrt()) / (2.0 * a_coef);
-        let y1 = m * x1 + c;
-        let pt1 = WPoint::new(x1, y1);
-        let x2 = (-b_coef - discriminant.sqrt()) / (2.0 * a_coef);
-        let y2 = m * x2 + c;
-        let pt2 = WPoint::new(x2, y2);
-        if angle >= 0. {
-            if m >= 0. {
-                pt1
-            } else {
-                pt2
-            }
-        } else {
-            if m >= 0. {
-                pt2
-            } else {
-                pt1
-            }
-        }
-    }
-    pub fn angle_on_ellipse(&self, center: &WPoint, point: &WPoint, radius: &WPoint) -> f64 {
+    fn angle_on_ellipse(&self, pos: &WPos) -> f64 {
+        let center_pos = self.center_point.wpos;
+        let radius_pos = self.radius_point.wpos;
         f64::atan2(
-            (point.wy - center.wy) / radius.wy,
-            (point.wx - center.wx) / radius.wx,
+            (pos.wy - center_pos.wy) / radius_pos.wy,
+            (pos.wx - center_pos.wx) / radius_pos.wx,
         )
     }
-}
-impl Shape for Ellipse {
-    fn is_init(&self) -> bool {
-        self.init
+    fn angle_on_ellipse_abs(&self, pos: &WPos) -> f64 {
+        let center_pos = self.center_point.wpos;
+        let radius_pos = self.radius_point.wpos.abs();
+        f64::atan2(
+            (pos.wy - center_pos.wy) / radius_pos.wy,
+            (pos.wx - center_pos.wx) / radius_pos.wx,
+        )
     }
-    fn get_pos_id(&self) -> (PointId, PointProperty) {
-        *self.pts_ids.get(&PointType::Position).unwrap()
+    fn get_point_from_angle(&self, angle: f64) -> WPos {
+        let x = self.radius_point.wpos.wx * angle.cos();
+        let y = self.radius_point.wpos.wy * angle.sin();
+        WPos { wx: x, wy: y }
     }
-    fn init_done(&mut self) {
-        self.init = false;
-    }
-    fn get_points_ids(&self) -> PtIdProp {
-        self.pts_ids.clone()
-    }
-    fn is_point_on_shape(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        pt: &WPoint,
-        precision: f64,
-    ) -> bool {
-        let position = pts_pos.get(&PointType::Position).unwrap().1;
-        let center = pts_pos.get(&PointType::Center).unwrap().1;
-        let radius = pts_pos.get(&PointType::Radius).unwrap().1;
-        let sa = pts_pos.get(&PointType::StartAngle).unwrap().1;
-        let ea = pts_pos.get(&PointType::EndAngle).unwrap().1;
-        let pt = *pt - position;
-        let pt_int = self.ellipse_line_intersection(&center, &radius, &pt);
-        if pt_int.dist(&pt) > precision {
+    fn is_point_on_ellipse(&self, pos: &WPos, precision: f64) -> bool {
+        let pt_int = self.ellipse_line_intersection(&pos);
+        if pt_int.dist(&pos) > precision {
             return false;
         }
-        if sa.dist(&ea) < 1. {
+        if self.sa_point.wpos.dist(&self.ea_point.wpos) < 1. {
             return true;
         }
-        let start_angle = -self.angle_on_ellipse(&center, &sa, &radius);
-        let end_angle = -self.angle_on_ellipse(&center, &ea, &radius);
-        let angle = -self.angle_on_ellipse(&center, &pt, &radius);
+        let start_angle = self.angle_on_ellipse(&self.sa_point.wpos);
+        let end_angle = self.angle_on_ellipse(&self.ea_point.wpos);
+        let angle = self.angle_on_ellipse_abs(&pos);
+
         if end_angle > start_angle {
             angle >= start_angle && angle <= end_angle
         } else {
             !(angle >= end_angle && angle <= start_angle)
         }
     }
-    fn update_points_pos(
-        &self,
-        pts_pos: &mut HashMap<PointType, (PointId, WPoint)>,
-        pt_id: &PointId,
-        pick_pt: &WPoint,
-        snap_distance: f64,
-    ) {
-        let (position_id, mut position) = pts_pos.get(&PointType::Position).cloned().unwrap();
-        let rel_pick_point = *pick_pt - position;
-
-        let (center_id, center) = pts_pos.get(&PointType::Center).cloned().unwrap();
-        let (radius_id, mut radius) = pts_pos.get(&PointType::Radius).cloned().unwrap();
-        let (sa_id, mut s_angle) = pts_pos.get(&PointType::StartAngle).cloned().unwrap();
-        let (ea_id, mut e_angle) = pts_pos.get(&PointType::EndAngle).cloned().unwrap();
-
-        let start_angle = get_atan2(&(s_angle - center));
-        let end_angle = get_atan2(&(e_angle - center));
-
-        if *pt_id == center_id {
-            position = position + rel_pick_point;
-        }
-
-        if *pt_id == radius_id {
-            radius = rel_pick_point;
-            if radius.wx <= center.wx {
-                radius.wx = center.wx + snap_distance;
-            }
-            if radius.wy >= center.wy {
-                radius.wy = center.wy - snap_distance;
-            }
-            s_angle = self.ellipse_angle_intersection(&center, &radius, start_angle);
-            e_angle = self.ellipse_angle_intersection(&center, &radius, end_angle);
-        }
-        if *pt_id == sa_id {
-            let angle = get_atan2(&(rel_pick_point - center));
-            s_angle = get_point_from_angle(&radius, angle);
-        }
-        if *pt_id == ea_id {
-            let angle = get_atan2(&(rel_pick_point - center));
-            e_angle = get_point_from_angle(&radius, angle);
-        }
-
-        pts_pos.insert(PointType::Center, (position_id, position));
-        pts_pos.insert(PointType::Radius, (radius_id, radius));
-        pts_pos.insert(PointType::StartAngle, (sa_id, s_angle));
-        pts_pos.insert(PointType::EndAngle, (ea_id, e_angle));
+}
+impl Shape for Ellipse {
+    fn is_init(&self) -> bool {
+        self.init
     }
-    fn get_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        selected: bool,
-    ) -> Vec<ConstructionType> {
+    fn init_done(&mut self) {
+        self.init = false;
+    }
+    fn get_pos(&self) -> WPos {
+        self.position
+    }
+    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+        let pick_pos = *pick_pos - self.position;
+        self.is_point_on_ellipse(&pick_pos, grab_handle_precision / 2.)
+    }
+    fn get_shape_point_under_pick_pos(
+        &mut self,
+        pick_pos: &WPos,
+        grab_handle_precision: f64,
+    ) -> Option<PointType> {
+        let radius = self.radius_point.wpos;
+        // The first point found is returned
+        let pick_pos = *pick_pos - self.position;
+        if is_point_on_point(&pick_pos, &self.center_point.wpos, grab_handle_precision) {
+            return Some(PointType::Center);
+        }
+        if is_point_on_point(&pick_pos, &radius, grab_handle_precision) {
+            return Some(PointType::Radius);
+        }
+        let (sa_wpos, ea_wpos) = match (
+            self.radius_point.wpos.wx < 0.,
+            self.radius_point.wpos.wy < 0.,
+        ) {
+            (false, false) => (self.sa_point.wpos, self.ea_point.wpos),
+            (false, true) => (
+                WPos::new(self.sa_point.wpos.wx, -self.sa_point.wpos.wy),
+                WPos::new(self.ea_point.wpos.wx, -self.ea_point.wpos.wy),
+            ),
+            (true, false) => (
+                WPos::new(-self.sa_point.wpos.wx, self.sa_point.wpos.wy),
+                WPos::new(-self.ea_point.wpos.wx, self.ea_point.wpos.wy),
+            ),
+            (true, true) => (
+                WPos::new(-self.sa_point.wpos.wx, -self.sa_point.wpos.wy),
+                WPos::new(-self.ea_point.wpos.wx, -self.ea_point.wpos.wy),
+            ),
+        };
+        if is_point_on_point(&pick_pos, &sa_wpos, grab_handle_precision) {
+            return Some(PointType::StartAngle);
+        }
+        if is_point_on_point(&pick_pos, &ea_wpos, grab_handle_precision) {
+            return Some(PointType::EndAngle);
+        }
+        None
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected = false
+    }
+    fn set_selected(&mut self, selected: bool) {
+        self.selected = selected;
+    }
+    fn deselect_all_points(&mut self) {
+        self.center_point.selected = false;
+        self.radius_point.selected = false;
+        self.sa_point.selected = false;
+        self.ea_point.selected = false;
+    }
+    fn is_selected(&self) -> bool {
+        self.selected
+    }
+    fn move_selection(
+        &mut self,
+        pick_pos: &WPos,
+        pick_pos_ms_dwn: &WPos,
+        snap_distance: f64,
+        _magnet_distance: f64,
+    ) {
+        let rel_pick_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
+
+        if self.init {
+            self.center_point.selected = false;
+            self.radius_point.selected = true;
+            self.sa_point.selected = false;
+            self.ea_point.selected = false;
+        }
+        if self.selected {
+            match (
+                self.center_point.selected,
+                self.radius_point.selected,
+                self.sa_point.selected,
+                self.ea_point.selected,
+            ) {
+                (true, false, false, false) => {
+                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                }
+                (false, true, false, false) => {
+                    self.radius_point.wpos = rel_pick_pos;
+                    if self.radius_point.wpos.wx == self.center_point.wpos.wx {
+                        self.radius_point.wpos.wx += snap_distance;
+                    }
+                    if self.radius_point.wpos.wy == self.center_point.wpos.wy {
+                        self.radius_point.wpos.wy += snap_distance;
+                    }
+
+                    let start_angle = self.angle_on_ellipse(&self.sa_point.wpos);
+                    self.sa_point.wpos = self.get_point_from_angle(start_angle);
+
+                    let end_angle = self.angle_on_ellipse(&self.ea_point.wpos);
+                    self.ea_point.wpos = self.get_point_from_angle(end_angle);
+                }
+                (false, false, true, false) => {
+                    let pos = rel_pick_pos - self.center_point.wpos;
+                    let angle = match (
+                        self.radius_point.wpos.wx < 0.,
+                        self.radius_point.wpos.wy < 0.,
+                    ) {
+                        (false, false) => get_atan2(&pos),
+                        (false, true) => get_atan2(&WPos::new(pos.wx, -pos.wy)),
+                        (true, false) => get_atan2(&WPos::new(-pos.wx, pos.wy)),
+                        (true, true) => get_atan2(&WPos::new(-pos.wx, -pos.wy)),
+                    };
+                    self.sa_point.wpos = get_point_from_angle(&self.radius_point.wpos, angle);
+                }
+                (false, false, false, true) => {
+                    let pos = rel_pick_pos - self.center_point.wpos;
+                    let angle = match (
+                        self.radius_point.wpos.wx < 0.,
+                        self.radius_point.wpos.wy < 0.,
+                    ) {
+                        (false, false) => get_atan2(&pos),
+                        (false, true) => get_atan2(&WPos::new(pos.wx, -pos.wy)),
+                        (true, false) => get_atan2(&WPos::new(-pos.wx, pos.wy)),
+                        (true, true) => get_atan2(&WPos::new(-pos.wx, -pos.wy)),
+                    };
+                    self.ea_point.wpos = get_point_from_angle(&self.radius_point.wpos, angle);
+                }
+                (false, false, false, false) => {
+                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                }
+                _ => (),
+            }
+        }
+    }
+    fn select_point(&mut self, point_type: &PointType) {
+        (
+            self.center_point.selected,
+            self.radius_point.selected,
+            self.sa_point.selected,
+            self.ea_point.selected,
+        ) = match point_type {
+            PointType::Center => (true, false, false, false),
+            PointType::Radius => (false, true, false, false),
+            PointType::StartAngle => (false, false, true, false),
+            PointType::EndAngle => (false, false, false, true),
+            _ => (false, false, false, false),
+        }
+    }
+
+    fn save_current_position(&mut self) {
+        self.saved_position = self.position;
+    }
+    fn get_saved_position(&self) -> WPos {
+        self.saved_position
+    }
+    fn magnet_to_point(&self, pick_pos: &mut WPos, magnet_distance: f64) {
+        let sa_pos = self.sa_point.wpos;
+        let ea_pos = self.ea_point.wpos;
+
+        if pick_pos.dist(&(sa_pos + self.position)) < magnet_distance {
+            *pick_pos = self.position + sa_pos;
+        }
+        if pick_pos.dist(&(ea_pos + self.position)) < magnet_distance {
+            *pick_pos = self.position + ea_pos;
+        }
+    }
+
+    fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
-        if !selected {
+        if !self.selected {
             cst.push(ConstructionType::Layer(LayerType::Worksheet));
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (_, center) = pts_pos.get(&PointType::Center).unwrap();
-        let (_, radius) = pts_pos.get(&PointType::Radius).unwrap();
-        let (_, s_angle) = pts_pos.get(&PointType::StartAngle).unwrap();
-        let (_, e_angle) = pts_pos.get(&PointType::EndAngle).unwrap();
 
-        let start_angle = -self.angle_on_ellipse(center, s_angle, radius);
-        let end_angle = -self.angle_on_ellipse(center, e_angle, radius);
+        let start_angle = self.angle_on_ellipse(&self.sa_point.wpos);
+        let end_angle = self.angle_on_ellipse(&self.ea_point.wpos);
 
-        cst.push(ConstructionType::Move(position + s_angle));
+        let mut sa_point = self.sa_point;
+
+        sa_point.wpos = match (
+            self.radius_point.wpos.wx < 0.,
+            self.radius_point.wpos.wy < 0.,
+        ) {
+            (false, false) => sa_point.wpos,
+            (false, true) => WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
+            (true, false) => WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
+            (true, true) => WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
+        };
+
+        cst.push(ConstructionType::Move(self.position + sa_point.wpos));
         cst.push(ConstructionType::Ellipse(
-            position + center,
-            WPoint::new(radius.wx, -radius.wy),
+            self.position + self.center_point.wpos,
+            WPos::new(
+                self.radius_point.wpos.wx.abs(),
+                self.radius_point.wpos.wy.abs(),
+            ),
             0.,
             start_angle,
             end_angle,
@@ -261,62 +337,86 @@ impl Shape for Ellipse {
         ));
         cst
     }
-    fn get_handles_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        opt_sel_id_prop: &Option<(PointId, PointProperty)>,
-        size_handle: f64,
-    ) -> Vec<ConstructionType> {
+    fn get_handles_construction(&self, size_handle: f64) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        let mut hdles = Vec::new();
 
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (center_id, center) = pts_pos.get(&PointType::Center).unwrap();
-        let (radius_id, radius) = pts_pos.get(&PointType::Radius).unwrap();
-        let (sa_id, s_angle) = pts_pos.get(&PointType::StartAngle).unwrap();
-        let (ea_id, e_angle) = pts_pos.get(&PointType::EndAngle).unwrap();
+        let mut center_point = self.center_point;
+        center_point.wpos += self.position;
 
-        hdles.push((*center_id, position + center));
-        hdles.push((*radius_id, position + radius));
-        hdles.push((*sa_id, position + s_angle));
-        hdles.push((*ea_id, position + e_angle));
-        push_handles(&mut cst, &hdles, opt_sel_id_prop, size_handle);
+        let mut radius_point = self.radius_point;
+        radius_point.wpos += self.position;
+
+        let mut sa_point = self.sa_point;
+        let mut ea_point = self.ea_point;
+        (sa_point.wpos, ea_point.wpos) = match (
+            self.radius_point.wpos.wx < 0.,
+            self.radius_point.wpos.wy < 0.,
+        ) {
+            (false, false) => (sa_point.wpos, ea_point.wpos),
+            (false, true) => (
+                WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
+                WPos::new(ea_point.wpos.wx, -ea_point.wpos.wy),
+            ),
+            (true, false) => (
+                WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
+                WPos::new(-ea_point.wpos.wx, ea_point.wpos.wy),
+            ),
+            (true, true) => (
+                WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
+                WPos::new(-ea_point.wpos.wx, -ea_point.wpos.wy),
+            ),
+        };
+        sa_point.wpos += self.position;
+        ea_point.wpos += self.position;
+
+        push_handle(&mut cst, &center_point, size_handle);
+        push_handle(&mut cst, &radius_point, size_handle);
+        push_handle(&mut cst, &sa_point, size_handle);
+        push_handle(&mut cst, &ea_point, size_handle);
         cst
     }
-    fn get_helpers_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-    ) -> Vec<ConstructionType> {
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (_, center) = pts_pos.get(&PointType::Center).unwrap();
-        let (_, radius) = pts_pos.get(&PointType::Radius).unwrap();
-        let (_, s_angle) = pts_pos.get(&PointType::StartAngle).unwrap();
-        let (_, e_angle) = pts_pos.get(&PointType::EndAngle).unwrap();
-
+        let position = self.position;
+        let center = self.center_point.wpos;
+        let radius = self.radius_point.wpos;
+        let sa = self.sa_point.wpos;
+        let ea = self.ea_point.wpos;
         cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
         if is_aligned_45_or_135(&center, &radius) {
             helper_45_135(&(position + center), &(position + radius), true, &mut cst);
+            helper_45_135(
+                &(position + center),
+                &(position + WPos::new(radius.wx, -radius.wy)),
+                true,
+                &mut cst,
+            );
         }
-        if is_aligned_45_or_135(&center, &s_angle) {
-            helper_45_135(&(position + center), &(position + s_angle), true, &mut cst);
+        if is_aligned_45_or_135(&center, &sa) {
+            helper_45_135(&(position + center), &(position + sa), true, &mut cst);
         }
-        if is_aligned_vert(&center, &s_angle) {
-            helper_vertical(&(position + center), &(position + s_angle), true, &mut cst);
+        if is_aligned_vert(&center, &sa) {
+            helper_vertical(&(position + center), &(position + sa), true, &mut cst);
         }
-        if is_aligned_hori(&center, &s_angle) {
-            helper_horizontal(&(position + center), &(position + s_angle), true, &mut cst);
+        if is_aligned_hori(&center, &sa) {
+            helper_horizontal(&(position + center), &(position + sa), true, &mut cst);
         }
-        if is_aligned_45_or_135(&center, &e_angle) {
-            helper_45_135(&(position + center), &(position + e_angle), true, &mut cst);
+        if is_aligned_45_or_135(&center, &ea) {
+            helper_45_135(&(position + center), &(position + ea), true, &mut cst);
         }
-        if is_aligned_vert(&center, &e_angle) {
-            helper_vertical(&(position + center), &(position + e_angle), true, &mut cst);
+        if is_aligned_vert(&center, &ea) {
+            helper_vertical(&(position + center), &(position + ea), true, &mut cst);
         }
-        if is_aligned_hori(&center, &e_angle) {
-            helper_horizontal(&(position + center), &(position + e_angle), true, &mut cst);
+        if is_aligned_hori(&center, &ea) {
+            helper_horizontal(&(position + center), &(position + ea), true, &mut cst);
         }
         cst
+    }
+    fn get_bounded_rectangle(&self) -> [WPos; 2] {
+        [
+            self.position + self.center_point.wpos - self.radius_point.wpos,
+            self.position + self.center_point.wpos + self.radius_point.wpos,
+        ]
     }
 }
 impl ShapePool for Ellipse {}

@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"liveServer.settings.port": 5501,
+		"emeraldwalk.runonsave": {
+			"commands": [
+				{
+					"match": ".*",
+					"cmd": "sh ./build_and_bindgen.sh"
+				}
+			]
+		},
+		"rust-analyzer.linkedProjects": [
+			"./Cargo.toml",
+			"./Cargo.toml"
+		]
+	}
+}

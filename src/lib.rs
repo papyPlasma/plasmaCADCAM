@@ -4,11 +4,10 @@ mod math;
 pub mod shapes {
     pub mod cubicbezier;
     pub mod ellipse;
-    pub mod group;
     pub mod line;
     pub mod quadbezier;
     pub mod rectangle;
-    pub mod shapes;
+    pub mod types;
 }
 
 use canvas::create_playing_area;

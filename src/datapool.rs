@@ -1,70 +1,200 @@
 use crate::math::*;
-use crate::shapes::shapes::{ConstructionType, Shape};
+use crate::shapes::types::{GroupId, Shape, ShapeId, WPos};
 use std::any::Any;
-use std::hash::{Hash, Hasher};
-use std::ops::Add;
-use std::ops::AddAssign;
-use std::ops::Div;
-use std::ops::DivAssign;
-use std::ops::Mul;
-use std::ops::MulAssign;
-use std::ops::Neg;
-use std::ops::Sub;
-use std::ops::SubAssign;
-use std::ops::{Deref, DerefMut};
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use web_sys::console;
 
-static COUNTER_POINTS: AtomicUsize = AtomicUsize::new(0);
 static COUNTER_SHAPES: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct PointProperty {
-    magnetic: bool,
-    dragable: bool,
-}
-impl PointProperty {
-    pub fn new(magnetic: bool, dragable: bool) -> PointProperty {
-        PointProperty { magnetic, dragable }
-    }
-}
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum PointType {
-    Position,
-    Start,
-    End,
-    Center,
-    Radius,
-    StartAngle,
-    EndAngle,
-    BL,
-    TL,
-    TR,
-    BR,
-    Ctrl,
-    Ctrl1,
-    Ctrl2,
-}
+pub trait ShapePool: Shape + Any {}
+
 pub struct DataPools {
-    pub points_pool: PointsPool,
-    pub shapes_pool: ShapesPool,
-    pub pts_to_shs_pool: PointsToShapesPool,
+    shapes_pool: ShapesPool,
+    groups_pool: GroupsPool,
+    shapes_selected: HashSet<ShapeId>,
 }
 impl DataPools {
-    pub fn get_shape_position(&self, sh_id: &ShapeId) -> WPoint {
-        *self
-            .points_pool
-            .get(&self.shapes_pool.get(sh_id).unwrap().get_pos_id().0)
-            .unwrap()
+    pub fn new() -> DataPools {
+        DataPools {
+            groups_pool: GroupsPool::new(),
+            shapes_pool: ShapesPool::new(),
+            shapes_selected: HashSet::new(),
+        }
+    }
+
+    pub fn clear_shapes_selection(&mut self) {
+        for (_, shape) in self.shapes_pool.iter_mut() {
+            shape.deselect_all_points();
+            shape.set_selected(false);
+        }
+        self.shapes_selected.clear();
+    }
+    pub fn set_shape_selected(&mut self, sh_id: &ShapeId, selected: bool) {
+        let shape = self.shapes_pool.get_mut(sh_id).unwrap();
+        shape.set_selected(selected);
+        if selected {
+            self.shapes_selected.insert(*sh_id);
+        }
+    }
+    pub fn get_shapes_selected(&self) -> &HashSet<ShapeId> {
+        &self.shapes_selected
+    }
+    pub fn shapes_selection(
+        &mut self,
+        pick_pos: &WPos,
+        shift_pressed: bool,
+        grab_handle_precision: f64,
+    ) {
+        let mut new_shapes_selection: HashSet<ShapeId> = HashSet::new();
+
+        let mut point_under_pick_pos = None;
+        let mut shape_under_pick_pos = None;
+
+        // Retreive the firt point that is under the pick pos
+        // If a point is found, retrive the associated shape
+        for (sh_id, shape) in self.shapes_pool.iter_mut() {
+            if let Some(point_type) =
+                shape.get_shape_point_under_pick_pos(pick_pos, grab_handle_precision)
+            {
+                if shape.is_selected() {
+                    point_under_pick_pos = Some((*sh_id, point_type));
+                    shape_under_pick_pos = Some(*sh_id);
+                    break;
+                }
+            }
+        }
+        // If no point is under the pick pos,
+        // retreive THE FIRST shape that is under the pick pos
+        if let None = point_under_pick_pos {
+            for (sh_id, shape) in self.shapes_pool.iter_mut() {
+                if shape.is_shape_under_pick_pos(pick_pos, grab_handle_precision) {
+                    shape_under_pick_pos = Some(*sh_id);
+                    break;
+                }
+            }
+        }
+
+        // If neither shape nor point are under the pick pos then deselect all
+        // shapes and points and return
+        if !shift_pressed {
+            if let None = shape_under_pick_pos {
+                if let None = point_under_pick_pos {
+                    for (_, shape) in self.shapes_pool.iter_mut() {
+                        shape.set_selected(false);
+                        shape.deselect_all_points();
+                    }
+                    self.shapes_selected.clear();
+                    return;
+                }
+            }
+        }
+
+        // Calculate the number of shapes that will be selected
+        let nb_shape_will_select = if shift_pressed {
+            if let None = shape_under_pick_pos {
+                self.shapes_selected.len()
+            } else {
+                self.shapes_selected.len() + 1
+            }
+        } else {
+            if let None = shape_under_pick_pos {
+                0
+            } else {
+                1
+            }
+        };
+        if nb_shape_will_select > 1 {
+            // If more then one shape will be selected at the end then remove all points selection
+            self.shapes_pool
+                .iter_mut()
+                .for_each(|(_, shape)| shape.deselect_all_points());
+            point_under_pick_pos = None;
+        }
+
+        // Clear all shapes and points selection
+        for (_, shape) in self.shapes_pool.iter_mut() {
+            shape.set_selected(false);
+            shape.deselect_all_points();
+        }
+
+        // fill new_shapes_selection
+        if let Some((sh_id, point_type)) = point_under_pick_pos {
+            let shape = self.shapes_pool.get_mut(&sh_id).unwrap();
+            new_shapes_selection.insert(sh_id);
+            shape.save_current_position();
+            shape.set_selected(true);
+            shape.select_point(&point_type);
+        } else {
+            if let Some(sh_id) = shape_under_pick_pos {
+                let shape = self.shapes_pool.get_mut(&sh_id).unwrap();
+                new_shapes_selection.insert(sh_id);
+                shape.save_current_position();
+                shape.set_selected(true);
+            }
+        }
+
+        // Save new selection
+        if shift_pressed {
+            for sh_id in self.shapes_selected.iter() {
+                let shape = self.shapes_pool.get_mut(&sh_id).unwrap();
+                shape.set_selected(true);
+                new_shapes_selection.insert(*sh_id);
+            }
+        }
+        self.shapes_selected = new_shapes_selection;
+    }
+
+    pub fn select_shapes_bounded_by_rectangle(&mut self, bb_outer: [WPos; 2]) {
+        for (sh_id, shape) in self.shapes_pool.iter_mut() {
+            let bb_inner = shape.get_bounded_rectangle();
+            if is_box_inside(&bb_outer, &bb_inner) {
+                shape.set_selected(true);
+                self.shapes_selected.insert(*sh_id);
+            }
+        }
+    }
+    pub fn insert_shape<T: ShapePool>(&mut self, shape: T) -> ShapeId {
+        let sh_id = ShapeId(COUNTER_SHAPES.fetch_add(1, Ordering::Relaxed));
+        self.shapes_pool.insert(sh_id, Box::new(shape));
+        sh_id
+    }
+
+    pub fn create_group_id(&mut self) -> GroupId {
+        self.groups_pool.create_id()
+    }
+    pub fn set_shape_group(&mut self, gr_id: &GroupId, sh_id: &ShapeId) {
+        self.groups_pool.insert_shape_id(gr_id, sh_id);
+    }
+    pub fn get_shape_group(&mut self, gr_id: &GroupId) -> Option<&Vec<ShapeId>> {
+        self.groups_pool.get(gr_id)
+    }
+
+    pub fn get_shape(&self, sh_id: &ShapeId) -> Option<&Box<dyn Shape>> {
+        self.shapes_pool.get(sh_id)
+    }
+    pub fn get_shape_mut(&mut self, sh_id: &ShapeId) -> Option<&mut Box<dyn Shape>> {
+        self.shapes_pool.get_mut(sh_id)
+    }
+
+    pub fn get_all_shapes(&self) -> &ShapesPool {
+        &self.shapes_pool
+    }
+    pub fn get_all_shapes_mut(&mut self) -> &mut ShapesPool {
+        &mut self.shapes_pool
+    }
+
+    pub fn get_shape_position(&self, sh_id: &ShapeId) -> WPos {
+        self.shapes_pool.get(sh_id).unwrap().get_pos()
     }
     pub fn magnet_to_point(
         &self,
-        pick_point: &mut WPoint,
+        pick_pos: &mut WPos,
         excluded_sh_id: Option<ShapeId>,
         magnet_distance: f64,
     ) {
+        // Test all all shapes points but not the one that is excluded
         for (sh_id, shape) in self.shapes_pool.iter() {
             let exclude = if let Some(exc_sh_id) = excluded_sh_id {
                 if *sh_id == exc_sh_id {
@@ -76,149 +206,19 @@ impl DataPools {
                 false
             };
             if !exclude {
-                for (_, (pt_id, pt_prop)) in shape.get_points_ids().iter() {
-                    if pt_prop.magnetic {
-                        let position = self.get_shape_position(&sh_id);
-                        let point = self.points_pool.get(pt_id).unwrap();
-                        if pick_point.dist(&(*point + position)) < magnet_distance {
-                            *pick_point = *point + position;
-                            break;
-                        }
-                    }
-                }
+                shape.magnet_to_point(pick_pos, magnet_distance);
             }
         }
     }
-    pub fn move_shape(&mut self, sh_id: &ShapeId, rel_pos: &WPoint, magnet_distance: f64) {
+    pub fn is_point_on_shape(&self, sh_id: &ShapeId, pt_pos: &WPos, precision: f64) -> bool {
         let shape = self.shapes_pool.get(sh_id).unwrap();
-        let (position_id, _) = shape.get_pos_id();
-        self.points_pool.modify(&position_id, &rel_pos);
-    }
-    pub fn move_shape_point(
-        &mut self,
-        sh_id: &ShapeId,
-        pt_sel_id_prop: &(PointId, PointProperty),
-        pick_pt: &WPoint,
-        snap_distance: f64,
-        magnet_distance: f64,
-    ) {
-        let mut pick_pt = *pick_pt;
-        let shape = self.shapes_pool.get(sh_id).unwrap();
-        let pts_ids = shape.get_points_ids();
-        // Retreive the points positions
-        let mut pts_pos: HashMap<PointType, (PointId, WPoint)> = HashMap::new();
-        for (pt_type, (pt_id, _)) in pts_ids.iter() {
-            pts_pos.insert(*pt_type, (*pt_id, *self.points_pool.get(pt_id).unwrap()));
-        }
-        //
-        if pt_sel_id_prop.1.magnetic {
-            self.magnet_to_point(&mut pick_pt, Some(*sh_id), magnet_distance);
-        }
-        // Update positions from shape type
-        shape.update_points_pos(&mut pts_pos, &pt_sel_id_prop.0, &pick_pt, snap_distance);
-
-        // And set modifications on the points pool
-        for (_, (pt_id, pt_pos)) in pts_pos.iter() {
-            self.points_pool.modify(pt_id, pt_pos);
-        }
-    }
-    pub fn is_point_on_shape(&self, sh_id: &ShapeId, pt: &WPoint, precision: f64) -> bool {
-        let shape = self.shapes_pool.get(sh_id).unwrap();
-        let pts_ids = shape.get_points_ids();
-        let mut pts_pos: HashMap<PointType, (PointId, WPoint)> = HashMap::new();
-        for (pt_type, (pt_id, _)) in pts_ids.iter() {
-            pts_pos.insert(*pt_type, (*pt_id, *self.points_pool.get(pt_id).unwrap()));
-        }
-        shape.is_point_on_shape(&pts_pos, pt, precision)
-    }
-    pub fn get_construction(&self, sh_id: &ShapeId, selected: bool) -> Vec<ConstructionType> {
-        let shape = self.shapes_pool.get(sh_id).unwrap();
-        let pts_ids = shape.get_points_ids();
-        let mut pts_pos: HashMap<PointType, (PointId, WPoint)> = HashMap::new();
-        for (pt_type, (pt_id, _)) in pts_ids.iter() {
-            pts_pos.insert(*pt_type, (*pt_id, *self.points_pool.get(pt_id).unwrap()));
-        }
-        shape.get_construction(&pts_pos, selected)
-    }
-    pub fn get_handles_construction(
-        &self,
-        sh_id: &ShapeId,
-        opt_sel_id: &Option<(PointId, PointProperty)>,
-        size_handle: f64,
-    ) -> Vec<ConstructionType> {
-        let shape = self.shapes_pool.get(&sh_id).unwrap();
-        let pts_ids = shape.get_points_ids();
-        let mut pts_pos: HashMap<PointType, (PointId, WPoint)> = HashMap::new();
-        for (pt_type, (pt_id, _)) in pts_ids.iter() {
-            pts_pos.insert(*pt_type, (*pt_id, *self.points_pool.get(pt_id).unwrap()));
-        }
-        shape.get_handles_construction(&pts_pos, opt_sel_id, size_handle)
-    }
-    pub fn get_helpers_construction(&self, sh_id: &ShapeId) -> Vec<ConstructionType> {
-        let shape = self.shapes_pool.get(&sh_id).unwrap();
-        let pts_ids = shape.get_points_ids();
-        let mut pts_pos: HashMap<PointType, (PointId, WPoint)> = HashMap::new();
-        for (pt_type, (pt_id, _)) in pts_ids.iter() {
-            pts_pos.insert(*pt_type, (*pt_id, *self.points_pool.get(pt_id).unwrap()));
-        }
-        shape.get_helpers_construction(&pts_pos)
-    }
-    pub fn get_id_from_position(
-        &self,
-        pick_pt: &WPoint,
-        grab_handle_precision: f64,
-    ) -> Option<(PointId, PointProperty)> {
-        for (_, shape) in self.shapes_pool.iter() {
-            let (shape_pos_id, _) = shape.get_pos_id();
-            let shape_pos = self.points_pool.get(&shape_pos_id).unwrap();
-            for (pt_id, pt_prop) in shape.get_points_ids().values() {
-                let pt = self.points_pool.get(pt_id).unwrap();
-                if is_point_on_point(pick_pt, &(shape_pos + pt), grab_handle_precision) {
-                    return Some((pt_id.clone(), pt_prop.clone()));
-                }
-            }
-        }
-        None
-    }
-}
-pub struct PointsPool(HashMap<PointId, WPoint>);
-impl std::ops::Deref for PointsPool {
-    type Target = HashMap<PointId, WPoint>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl std::ops::DerefMut for PointsPool {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl PointsPool {
-    pub fn new() -> PointsPool {
-        PointsPool(HashMap::new())
-    }
-    pub fn insert(&mut self, pt: &WPoint) -> PointId {
-        let pt_id = PointId(COUNTER_POINTS.fetch_add(1, Ordering::Relaxed));
-        self.0.insert(pt_id.clone(), *pt);
-        pt_id
-    }
-    pub fn modify(&mut self, pt_id: &PointId, pt: &WPoint) {
-        self.0.insert(*pt_id, *pt);
-    }
-    pub fn get_all(&self) -> &HashMap<PointId, WPoint> {
-        &self.0
-    }
-    pub fn get_all_mut(&mut self) -> &mut HashMap<PointId, WPoint> {
-        &mut self.0
+        shape.is_shape_under_pick_pos(&pt_pos, precision)
     }
 }
 
-// Define a trait for all shapes that can be inserted into ShapesPool
-pub trait ShapePool: Shape + Any {}
-
-pub struct ShapesPool(HashMap<ShapeId, Box<dyn ShapePool>>);
+pub struct ShapesPool(pub HashMap<ShapeId, Box<dyn Shape>>);
 impl std::ops::Deref for ShapesPool {
-    type Target = HashMap<ShapeId, Box<dyn ShapePool>>;
+    type Target = HashMap<ShapeId, Box<dyn Shape>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -232,384 +232,36 @@ impl ShapesPool {
     pub fn new() -> ShapesPool {
         ShapesPool(HashMap::new())
     }
-    pub fn insert<T: ShapePool>(&mut self, shape: T) -> ShapeId {
-        let shape_id = ShapeId(COUNTER_SHAPES.fetch_add(1, Ordering::Relaxed));
-        self.0.insert(shape_id, Box::new(shape));
-        shape_id
-    }
-    pub fn modify<T: ShapePool>(&mut self, shape_id: &ShapeId, shape: T) {
-        self.0.insert(*shape_id, Box::new(shape));
-    }
-    pub fn get_all(&self) -> &HashMap<ShapeId, Box<dyn ShapePool>> {
-        &self.0
-    }
-    pub fn get_all_mut(&mut self) -> &mut HashMap<ShapeId, Box<dyn ShapePool>> {
-        &mut self.0
-    }
 }
 
-pub struct PointsToShapesPool(HashMap<PointId, ShapeId>);
-impl std::ops::Deref for PointsToShapesPool {
-    type Target = HashMap<PointId, ShapeId>;
+pub struct GroupsPool(HashMap<GroupId, Vec<ShapeId>>);
+impl std::ops::Deref for GroupsPool {
+    type Target = HashMap<GroupId, Vec<ShapeId>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl std::ops::DerefMut for PointsToShapesPool {
+impl std::ops::DerefMut for GroupsPool {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-impl PointsToShapesPool {
-    pub fn new() -> PointsToShapesPool {
-        PointsToShapesPool(HashMap::new())
+impl GroupsPool {
+    pub fn new() -> GroupsPool {
+        GroupsPool(HashMap::new())
     }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct PointId(usize);
-impl Deref for PointId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn create_id(&mut self) -> GroupId {
+        let group_id = GroupId::new_id();
+        group_id
     }
-}
-impl DerefMut for PointId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl Hash for PointId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-impl PartialEq for PointId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-impl Eq for PointId {}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ShapeId(usize);
-impl Deref for ShapeId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for ShapeId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl Hash for ShapeId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-impl PartialEq for ShapeId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-impl Eq for ShapeId {}
-
-#[derive(Copy, Clone, Debug)]
-pub struct WPoint {
-    pub wx: f64,
-    pub wy: f64,
-}
-impl WPoint {
-    pub fn new(wx: f64, wy: f64) -> Self {
-        WPoint { wx, wy }
-    }
-    pub fn to_canvas(&self, scale: f64, offset: CXY) -> CXY {
-        let canvas_x = (self.wx * scale) + offset.cx;
-        let canvas_y = (self.wy * scale) + offset.cy;
-        CXY {
-            cx: canvas_x,
-            cy: canvas_y,
+    pub fn insert_shape_id(&mut self, group_id: &GroupId, sh_id: &ShapeId) {
+        if let Some(sh_ids) = self.get_mut(group_id) {
+            sh_ids.push(*sh_id);
+        } else {
+            self.0.insert(*group_id, vec![*sh_id]);
         }
     }
-    #[allow(dead_code)]
-    pub fn round(&self) -> WPoint {
-        WPoint {
-            wx: self.wx.round(),
-            wy: self.wy.round(),
-        }
-    }
-    #[allow(dead_code)]
-    pub fn addxy(&self, wx: f64, wy: f64) -> WPoint {
-        WPoint {
-            wx: self.wx + wx,
-            wy: self.wy + wy,
-        }
-    }
-    pub fn abs(&self) -> WPoint {
-        WPoint {
-            wx: self.wx.abs(),
-            wy: self.wy.abs(),
-        }
-    }
-    pub fn dist(&self, other: &WPoint) -> f64 {
-        let dpt = *self - *other;
-        (dpt.wx * dpt.wx + dpt.wy * dpt.wy).sqrt()
-    }
-    #[allow(dead_code)]
-    pub fn norm(&self) -> f64 {
-        (self.wx * self.wx + self.wy * self.wy).sqrt()
-    }
-    pub fn lerp(&self, other: &WPoint, t: f64) -> WPoint {
-        WPoint {
-            wx: self.wx + t * (other.wx - self.wx),
-            wy: self.wy + t * (other.wy - self.wy),
-        }
+    pub fn get_shapes_ids(&self, group_id: &GroupId) -> Option<Vec<ShapeId>> {
+        self.0.get(group_id).cloned()
     }
 }
-impl Default for WPoint {
-    fn default() -> Self {
-        WPoint { wx: 0.0, wy: 0.0 }
-    }
-}
-impl Neg for WPoint {
-    type Output = WPoint;
-
-    fn neg(self) -> WPoint {
-        WPoint {
-            wx: -self.wx,
-            wy: -self.wy,
-        }
-    }
-}
-impl Add for WPoint {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        Self {
-            wx: self.wx + other.wx,
-            wy: self.wy + other.wy,
-        }
-    }
-}
-impl Add<&WPoint> for &WPoint {
-    type Output = WPoint;
-
-    fn add(self, other: &WPoint) -> WPoint {
-        WPoint {
-            wx: self.wx + other.wx,
-            wy: self.wy + other.wy,
-        }
-    }
-}
-impl Add<f64> for WPoint {
-    type Output = WPoint;
-    fn add(self, scalar: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx + scalar,
-            wy: self.wy + scalar,
-        }
-    }
-}
-impl AddAssign for WPoint {
-    fn add_assign(&mut self, other: WPoint) {
-        self.wx += other.wx;
-        self.wy += other.wy;
-    }
-}
-impl AddAssign<f64> for WPoint {
-    fn add_assign(&mut self, scalar: f64) {
-        self.wx += scalar;
-        self.wy += scalar;
-    }
-}
-impl Sub for WPoint {
-    type Output = WPoint;
-    fn sub(self, other: WPoint) -> WPoint {
-        WPoint {
-            wx: self.wx - other.wx,
-            wy: self.wy - other.wy,
-        }
-    }
-}
-impl Sub<&WPoint> for &WPoint {
-    type Output = WPoint;
-
-    fn sub(self, other: &WPoint) -> WPoint {
-        WPoint {
-            wx: self.wx - other.wx,
-            wy: self.wy - other.wy,
-        }
-    }
-}
-impl Sub<f64> for WPoint {
-    type Output = WPoint;
-    fn sub(self, scalar: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx - scalar,
-            wy: self.wy - scalar,
-        }
-    }
-}
-impl SubAssign for WPoint {
-    fn sub_assign(&mut self, other: WPoint) {
-        self.wx -= other.wx;
-        self.wy -= other.wy;
-    }
-}
-impl Div<f64> for WPoint {
-    type Output = WPoint;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        if rhs == 0.0 {
-            panic!("Division by zero");
-        }
-        WPoint {
-            wx: self.wx / rhs,
-            wy: self.wy / rhs,
-        }
-    }
-}
-impl DivAssign<f64> for WPoint {
-    fn div_assign(&mut self, rhs: f64) {
-        if rhs == 0.0 {
-            panic!("Division by zero");
-        }
-        self.wx /= rhs;
-        self.wy /= rhs;
-    }
-}
-impl Mul<f64> for WPoint {
-    type Output = WPoint;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        WPoint {
-            wx: self.wx * rhs,
-            wy: self.wy * rhs,
-        }
-    }
-}
-impl MulAssign<f64> for WPoint {
-    fn mul_assign(&mut self, rhs: f64) {
-        self.wx *= rhs;
-        self.wy *= rhs;
-    }
-}
-impl PartialEq for WPoint {
-    fn eq(&self, other: &Self) -> bool {
-        self.wx == other.wx && self.wy == other.wy
-    }
-}
-impl Eq for WPoint {}
-
-#[derive(Copy, Clone, Debug)]
-pub struct CXY {
-    pub cx: f64,
-    pub cy: f64,
-}
-impl CXY {
-    pub fn to_world(&self, scale: f64, offset: CXY) -> WPoint {
-        let world_x = (self.cx - offset.cx) / scale;
-        let world_y = (self.cy - offset.cy) / scale;
-        WPoint {
-            wx: world_x,
-            wy: world_y,
-        }
-    }
-}
-impl Default for CXY {
-    fn default() -> Self {
-        CXY { cx: 0., cy: 0. }
-    }
-}
-impl Add for CXY {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        Self {
-            cx: self.cx + other.cx,
-            cy: self.cy + other.cy,
-        }
-    }
-}
-impl Add<f64> for CXY {
-    type Output = CXY;
-    fn add(self, scalar: f64) -> Self::Output {
-        CXY {
-            cx: self.cx + scalar,
-            cy: self.cy + scalar,
-        }
-    }
-}
-impl AddAssign for CXY {
-    fn add_assign(&mut self, other: CXY) {
-        self.cx += other.cx;
-        self.cy += other.cy;
-    }
-}
-impl AddAssign<f64> for CXY {
-    fn add_assign(&mut self, scalar: f64) {
-        self.cx += scalar;
-        self.cy += scalar;
-    }
-}
-impl Sub for CXY {
-    type Output = CXY;
-    fn sub(self, other: CXY) -> CXY {
-        CXY {
-            cx: self.cx - other.cx,
-            cy: self.cy - other.cy,
-        }
-    }
-}
-impl SubAssign for CXY {
-    fn sub_assign(&mut self, other: CXY) {
-        self.cx -= other.cx;
-        self.cy -= other.cy;
-    }
-}
-impl Div<f64> for CXY {
-    type Output = CXY;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        if rhs == 0. {
-            panic!("Division by zero");
-        }
-        CXY {
-            cx: self.cx / rhs,
-            cy: self.cy / rhs,
-        }
-    }
-}
-impl DivAssign<f64> for CXY {
-    fn div_assign(&mut self, rhs: f64) {
-        if rhs == 0. {
-            panic!("Division by zero");
-        }
-        self.cx /= rhs;
-        self.cy /= rhs;
-    }
-}
-impl Mul<f64> for CXY {
-    type Output = CXY;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        CXY {
-            cx: self.cx * rhs,
-            cy: self.cy * rhs,
-        }
-    }
-}
-impl MulAssign<f64> for CXY {
-    fn mul_assign(&mut self, rhs: f64) {
-        self.cx *= rhs;
-        self.cy *= rhs;
-    }
-}
-impl PartialEq for CXY {
-    fn eq(&self, other: &Self) -> bool {
-        self.cx == other.cx && self.cy == other.cy
-    }
-}
-impl Eq for CXY {}

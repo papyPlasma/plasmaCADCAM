@@ -1,114 +1,114 @@
-use crate::{
-    datapool::{PointId, PointProperty, WPoint},
-    shapes::shapes::ConstructionType,
-};
+use crate::shapes::types::{ConstructionType, Point, WPos};
 use std::f64::consts::PI;
 
 pub const EPSILON: f64 = 1e-5; // Some small value
 pub const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
 
-pub fn is_aligned_vert(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn is_aligned_vert(pt1: &WPos, pt2: &WPos) -> bool {
     (pt1.wx - pt2.wx).abs() < 0.001
 }
-pub fn helper_vertical(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+pub fn helper_vertical(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
     if full {
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: pt1.wx,
             wy: 2. * pt1.wy - pt2.wy,
         }));
         cst.push(Move(*pt1));
         cst.push(Line(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: pt1.wx,
             wy: 2. * pt2.wy - pt1.wy,
         }));
     } else {
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: pt1.wx,
             wy: 2. * pt1.wy - pt2.wy,
         }));
         cst.push(Move(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: pt1.wx,
             wy: 2. * pt2.wy - pt1.wy,
         }));
     }
 }
-pub fn is_aligned_hori(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn is_aligned_hori(pt1: &WPos, pt2: &WPos) -> bool {
     (pt1.wy - pt2.wy).abs() < 0.001
 }
-pub fn helper_horizontal(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+pub fn helper_horizontal(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
     if full {
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt1.wx - pt2.wx,
             wy: pt1.wy,
         }));
         cst.push(Move(*pt1));
         cst.push(Line(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt2.wx - pt1.wx,
             wy: pt1.wy,
         }));
     } else {
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt1.wx - pt2.wx,
             wy: pt1.wy,
         }));
         cst.push(Move(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt2.wx - pt1.wx,
             wy: pt1.wy,
         }));
     }
 }
-pub fn is_aligned_45_or_135(pt1: &WPoint, pt2: &WPoint) -> bool {
+pub fn is_aligned_45_or_135(pt1: &WPos, pt2: &WPos) -> bool {
     let dy = pt2.wy - pt1.wy;
     let dx = pt2.wx - pt1.wx;
     if dx != 0. {
-        (dy / dx).abs() > 1. / 1.01 && (dy / dx).abs() < 1.01
+        let m = (dy / dx).abs();
+        let mr = (dy / dx).abs().round();
+        // (dy / dx).abs() > 1. / 1.01 && (dy / dx).abs() < 1.01
+        mr == m
     } else {
         false
     }
 }
-pub fn helper_45_135(pt1: &WPoint, pt2: &WPoint, full: bool, cst: &mut Vec<ConstructionType>) {
+pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     if full {
         use ConstructionType::*;
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt1.wx - pt2.wx,
             wy: 2. * pt1.wy - pt2.wy,
         }));
         cst.push(Move(*pt1));
         cst.push(Line(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt2.wx - pt1.wx,
             wy: 2. * pt2.wy - pt1.wy,
         }));
     } else {
         use ConstructionType::*;
         cst.push(Move(*pt1));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt1.wx - pt2.wx,
             wy: 2. * pt1.wy - pt2.wy,
         }));
         cst.push(Move(*pt2));
-        cst.push(Line(WPoint {
+        cst.push(Line(WPos {
             wx: 2. * pt2.wx - pt1.wx,
             wy: 2. * pt2.wy - pt1.wy,
         }));
     }
 }
 
-pub fn is_point_on_point(pt: &WPoint, pt1: &WPoint, precision: f64) -> bool {
+pub fn is_point_on_point(pt: &WPos, pt1: &WPos, precision: f64) -> bool {
     pt.dist(pt1) < precision
 }
-fn is_between(pt: &WPoint, pt1: &WPoint, pt2: &WPoint) -> bool {
+fn is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
     let dot_product = (pt.wx - pt1.wx) * (pt2.wx - pt1.wx) + (pt.wy - pt1.wy) * (pt2.wy - pt1.wy);
     if dot_product < 0. {
         return false;
@@ -119,22 +119,24 @@ fn is_between(pt: &WPoint, pt1: &WPoint, pt2: &WPoint) -> bool {
     }
     return true;
 }
-pub fn point_on_segment(pt1: &WPoint, pt2: &WPoint, pt: &WPoint, precision: f64) -> bool {
-    let denominator = ((pt2.wy - pt1.wy).powf(2.) + (pt2.wx - pt1.wx).powf(2.)).sqrt();
+pub fn is_point_on_segment(pt1: &Point, pt2: &Point, pt: &WPos, precision: f64) -> bool {
+    let denominator =
+        ((pt2.wpos.wy - pt1.wpos.wy).powf(2.) + (pt2.wpos.wx - pt1.wpos.wx).powf(2.)).sqrt();
     if denominator == 0. {
-        return is_point_on_point(pt, &pt1, precision);
+        return is_point_on_point(pt, &pt1.wpos, precision);
     }
-    let numerator = ((pt2.wy - pt1.wy) * pt.wx - (pt2.wx - pt1.wx) * pt.wy + pt2.wx * pt1.wy
-        - pt2.wy * pt1.wx)
+    let numerator = ((pt2.wpos.wy - pt1.wpos.wy) * pt.wx - (pt2.wpos.wx - pt1.wpos.wx) * pt.wy
+        + pt2.wpos.wx * pt1.wpos.wy
+        - pt2.wpos.wy * pt1.wpos.wx)
         .abs();
 
     if numerator / denominator > precision {
         return false;
     }
-    is_between(pt, &pt1, &pt2)
+    is_between(pt, &pt1.wpos, &pt2.wpos)
 }
 
-pub fn _is_box_inside(box_outer: &[WPoint; 2], box_inner: &[WPoint; 2]) -> bool {
+pub fn is_box_inside(box_outer: &[WPos; 2], box_inner: &[WPos; 2]) -> bool {
     let bl_outer = box_outer[0];
     let tr_outer = box_outer[1];
     let bl_inner = box_inner[0];
@@ -144,27 +146,27 @@ pub fn _is_box_inside(box_outer: &[WPoint; 2], box_inner: &[WPoint; 2]) -> bool 
         && tr_inner.wx <= tr_outer.wx
         && tr_inner.wy <= tr_outer.wy
 }
-pub fn reorder_corners(bb: &mut [WPoint; 2]) {
+pub fn reorder_corners(bb: &mut [WPos; 2]) {
     let pt1 = bb[0];
     let pt2 = bb[1];
     if pt1.wx < pt2.wx {
         if pt1.wy < pt2.wy {
-            let bl = WPoint {
+            let bl = WPos {
                 wx: pt1.wx,
                 wy: pt1.wy,
             };
-            let tr = WPoint {
+            let tr = WPos {
                 wx: pt2.wx,
                 wy: pt2.wy,
             };
             bb[0] = bl;
             bb[1] = tr;
         } else {
-            let bl = WPoint {
+            let bl = WPos {
                 wx: pt1.wx,
                 wy: pt2.wy,
             };
-            let tr = WPoint {
+            let tr = WPos {
                 wx: pt2.wx,
                 wy: pt1.wy,
             };
@@ -173,22 +175,22 @@ pub fn reorder_corners(bb: &mut [WPoint; 2]) {
         }
     } else {
         if pt1.wy < pt2.wy {
-            let bl = WPoint {
+            let bl = WPos {
                 wx: pt2.wx,
                 wy: pt1.wy,
             };
-            let tr = WPoint {
+            let tr = WPos {
                 wx: pt1.wx,
                 wy: pt2.wy,
             };
             bb[0] = bl;
             bb[1] = tr;
         } else {
-            let bl = WPoint {
+            let bl = WPos {
                 wx: pt2.wx,
                 wy: pt2.wy,
             };
-            let tr = WPoint {
+            let tr = WPos {
                 wx: pt1.wx,
                 wy: pt1.wy,
             };
@@ -198,45 +200,30 @@ pub fn reorder_corners(bb: &mut [WPoint; 2]) {
     }
 }
 
-pub fn snap_to_snap_grid(pos: &mut WPoint, snap_distance: f64) {
-    *pos = (*pos / snap_distance).round() * snap_distance;
-}
-pub fn _snap_to_snap_grid_y(pos: &mut WPoint, grid_spacing: f64) {
-    pos.wy = (pos.wy / grid_spacing).round() * grid_spacing;
-}
-pub fn _snap_to_snap_grid_x(pos: &mut WPoint, grid_spacing: f64) {
-    pos.wx = (pos.wx / grid_spacing).round() * grid_spacing;
-}
-
-pub fn push_handles(
-    cst: &mut Vec<ConstructionType>,
-    hdles: &Vec<(PointId, WPoint)>,
-    opt_sel_id_prop: &Option<(PointId, PointProperty)>,
-    size_handle: f64,
-) {
-    for (pt_id, point) in hdles.iter() {
-        let fill = matched_point(pt_id, opt_sel_id_prop);
-        push_handle(cst, &point, fill, size_handle);
-    }
-}
-pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &WPoint, fill: bool, size_handle: f64) {
-    let radius = WPoint::default() + size_handle / 2.;
-    use ConstructionType::*;
-    cst.push(Move(*pt + WPoint::default().addxy(size_handle / 2., 0.)));
-    cst.push(Ellipse(*pt, radius, 0., 0., 2. * PI, fill));
-}
-
-fn matched_point(pt_id: &PointId, opt_sel_id_prop: &Option<(PointId, PointProperty)>) -> bool {
-    if let Some(pt_sel_id_prop) = opt_sel_id_prop {
-        if pt_sel_id_prop.0 == *pt_id {
-            true
-        } else {
-            false
-        }
+pub fn snap_to_positive_value(value: f64, snap_value: f64) -> f64 {
+    let value = (value / snap_value).round() * snap_value;
+    if value == 0. {
+        snap_value
     } else {
-        false
+        if value < 0. {
+            -value
+        } else {
+            value
+        }
     }
 }
+
+pub fn snap_to_snap_grid(pos: &WPos, snap_distance: f64) -> WPos {
+    (*pos / snap_distance).round() * snap_distance
+}
+
+pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
+    let radius = WPos::default() + size_handle / 2.;
+    use ConstructionType::*;
+    cst.push(Move(pt.wpos + WPos::default().addxy(size_handle / 2., 0.)));
+    cst.push(Ellipse(pt.wpos, radius, 0., 0., 2. * PI, pt.selected));
+}
+
 //     magnet_geometry(&br, &mut p, self.snap_distance);
 //     snap_to_snap_grid(&mut p, self.snap_distance);
 //     tl = p;
@@ -463,24 +450,13 @@ fn matched_point(pt_id: &PointId, opt_sel_id_prop: &Option<(PointId, PointProper
 //     }
 // }
 
-pub fn get_point_on_quad_bezier(t: f64, start: &WPoint, ctrl: &WPoint, end: &WPoint) -> WPoint {
-    let u = 1.0 - t;
-    let tt = t * t;
-    let uu = u * u;
-
-    let mut result = WPoint::default();
-    result.wx = uu * start.wx + 2.0 * u * t * ctrl.wx + tt * end.wx;
-    result.wy = uu * start.wy + 2.0 * u * t * ctrl.wy + tt * end.wy;
-
-    result
-}
 pub fn get_point_on_cubic_bezier(
     t: f64,
-    start: &WPoint,
-    ctrl1: &WPoint,
-    ctrl2: &WPoint,
-    end: &WPoint,
-) -> WPoint {
+    start: &WPos,
+    ctrl1: &WPos,
+    ctrl2: &WPos,
+    end: &WPos,
+) -> WPos {
     let u = 1.0 - t;
     let tt = t * t;
     let uu = u * u;
@@ -494,53 +470,70 @@ pub fn get_point_on_cubic_bezier(
 
     result
 }
+pub fn get_point_from_angle(radius: &WPos, angle: f64) -> WPos {
+    let x = radius.wx.abs() * angle.cos();
+    let y = radius.wy.abs() * angle.sin();
+    WPos { wx: x, wy: y }
+}
+
 #[inline]
-pub fn get_atan2(point: &WPoint) -> f64 {
+pub fn switch_wx(point1: &mut WPos, point2: &mut WPos) {
+    let pos = point1.wx;
+    point1.wx = point2.wx;
+    point2.wx = pos;
+}
+#[inline]
+pub fn order_pos_x(x_inf: &mut WPos, x_sup: &mut WPos) {
+    if x_inf.wx > x_sup.wx {
+        let tmp = x_inf.wx;
+        x_inf.wx = x_sup.wx;
+        x_sup.wx = tmp;
+    }
+}
+#[inline]
+pub fn order_pos_y(x_inf: &mut WPos, x_sup: &mut WPos) {
+    if x_inf.wy > x_sup.wy {
+        let tmp = x_inf.wy;
+        x_inf.wy = x_sup.wy;
+        x_sup.wy = tmp;
+    }
+}
+
+#[inline]
+pub fn get_atan2(point: &WPos) -> f64 {
     point.wy.atan2(point.wx)
 }
 #[inline]
-pub fn get_point_from_angle(radius: &WPoint, angle: f64) -> WPoint {
-    let x = radius.wx.abs() * angle.cos();
-    let y = radius.wy.abs() * angle.sin();
-    WPoint { wx: x, wy: y }
-}
+// #[allow(dead_code)]
+// fn find_t_for_point_on_quad_bezier(p: &WPos, start: &WPos, ctrl: &WPos, end: &WPos) -> Option<f64> {
+//     let mut t_min = 0.0;
+//     let mut t_max = 1.0;
 
-#[allow(dead_code)]
-fn find_t_for_point_on_quad_bezier(
-    p: &WPoint,
-    start: &WPoint,
-    ctrl: &WPoint,
-    end: &WPoint,
-) -> Option<f64> {
-    let mut t_min = 0.0;
-    let mut t_max = 1.0;
+//     for _ in 0..MAX_ITERATIONS {
+//         let t_mid = (t_min + t_max) / 2.0;
+//         let mid_point = get_point_on_quad_bezier(t_mid, start, ctrl, end);
 
-    for _ in 0..MAX_ITERATIONS {
-        let t_mid = (t_min + t_max) / 2.0;
-        let mid_point = get_point_on_quad_bezier(t_mid, start, ctrl, end);
+//         let dist = mid_point.dist(p);
+//         if dist < EPSILON {
+//             return Some(t_mid);
+//         }
 
-        let dist = mid_point.dist(p);
-        if dist < EPSILON {
-            return Some(t_mid);
-        }
+//         if get_point_on_quad_bezier((t_min + t_mid) / 2.0, start, ctrl, end).dist(p) < dist {
+//             t_max = t_mid;
+//         } else {
+//             t_min = t_mid;
+//         }
+//     }
 
-        if get_point_on_quad_bezier((t_min + t_mid) / 2.0, start, ctrl, end).dist(p) < dist {
-            t_max = t_mid;
-        } else {
-            t_min = t_mid;
-        }
-    }
-
-    None
-}
-
+//     None
+// }
 #[allow(dead_code)]
 fn find_t_for_point_on_cubic_bezier(
-    p: &WPoint,
-    start: &WPoint,
-    ctrl1: &WPoint,
-    ctrl2: &WPoint,
-    end: &WPoint,
+    p: &WPos,
+    start: &WPos,
+    ctrl1: &WPos,
+    ctrl2: &WPos,
+    end: &WPos,
 ) -> Option<f64> {
     let mut t_min = 0.0;
     let mut t_max = 1.0;

@@ -1,104 +1,89 @@
-use std::collections::HashMap;
-
-use super::shapes::{ConstructionType, LayerType, PtIdProp, Shape};
-use crate::{
-    datapool::{DataPools, PointId, PointProperty, PointType, ShapeId, ShapePool, WPoint},
-    math::*,
-};
+use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
+use crate::{datapool::ShapePool, math::*};
 
 #[derive(Clone)]
 pub struct CubicBezier {
-    pts_ids: PtIdProp,
+    start_point: Point,
+    ctrl1_point: Point,
+    ctrl2_point: Point,
+    end_point: Point,
+    position: WPos,
+    saved_position: WPos,
+    selected: bool,
     init: bool,
 }
 impl CubicBezier {
     pub fn new(
-        data_pools: &mut DataPools,
-        start_point: &WPoint,
-        ctrl1_point: &WPoint,
-        ctrl2_point: &WPoint,
-        end_point: &WPoint,
+        start: &WPos,
+        ctrl1: &WPos,
+        ctrl2: &WPos,
+        end: &WPos,
         snap_distance: f64,
-    ) -> (ShapeId, (PointId, PointProperty)) {
-        let position = *start_point;
-        let start = *start_point - position;
-        let ctrl1 = *ctrl1_point - position;
-        let ctrl2 = *ctrl2_point - position;
-        let end = *end_point - position;
+    ) -> CubicBezier {
+        let mut start = *start;
+        let mut ctrl1 = *ctrl1;
+        let mut ctrl2 = *ctrl2;
+        let mut end = *end;
+        start = snap_to_snap_grid(&start, snap_distance);
+        ctrl1 = snap_to_snap_grid(&ctrl1, snap_distance);
+        ctrl2 = snap_to_snap_grid(&ctrl2, snap_distance);
+        end = snap_to_snap_grid(&end, snap_distance);
 
-        let (end, ctrl1, ctrl2) = if start.wx == end.wx || start.wy == end.wy {
-            (
-                start + 3. * snap_distance,
-                start + snap_distance,
-                start + 2. * snap_distance,
-            )
+        let end = if start.wx == end.wx || start.wy == end.wy {
+            start + 3. * snap_distance
         } else {
-            (end, ctrl1, ctrl2)
+            end
         };
-        let pos_id = data_pools.points_pool.insert(&position);
-        let s_id = data_pools.points_pool.insert(&start);
-        let c1_id = data_pools.points_pool.insert(&ctrl1);
-        let c2_id = data_pools.points_pool.insert(&ctrl2);
-        let e_id = data_pools.points_pool.insert(&end);
+        let ctrl1 = if start.wx == ctrl1.wx || start.wy == ctrl1.wy {
+            ctrl1 + snap_distance
+        } else {
+            ctrl1
+        };
+        let ctrl2 = if start.wx == ctrl2.wx || start.wy == ctrl2.wy {
+            ctrl2 + 2. * snap_distance
+        } else {
+            ctrl2
+        };
 
-        let mut pts_ids = HashMap::new();
-        pts_ids.insert(
-            PointType::Position,
-            (pos_id, PointProperty::new(false, false)),
-        );
-        pts_ids.insert(PointType::Start, (s_id, PointProperty::new(true, true)));
-        pts_ids.insert(PointType::Ctrl1, (c1_id, PointProperty::new(false, true)));
-        pts_ids.insert(PointType::Ctrl2, (c2_id, PointProperty::new(false, true)));
-        let pt_end_id_prop = (e_id, PointProperty::new(true, true));
-        pts_ids.insert(PointType::End, pt_end_id_prop);
+        let position = start;
+        let start_point = Point::new(&(start - position), false, false, false);
+        let ctrl1_point = Point::new(&(ctrl1 - position), false, false, false);
+        let ctrl2_point = Point::new(&(ctrl2 - position), false, false, false);
+        let end_point = Point::new(&(end - position), false, false, false);
 
-        let quadbezier = CubicBezier {
-            pts_ids,
+        CubicBezier {
+            start_point,
+            ctrl1_point,
+            ctrl2_point,
+            end_point,
+            position,
+            saved_position: position,
+            selected: false,
             init: true,
-        };
-        let sh_id = data_pools.shapes_pool.insert(quadbezier);
-        data_pools.pts_to_shs_pool.insert(pos_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(s_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(c1_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(c2_id, sh_id);
-        data_pools.pts_to_shs_pool.insert(e_id, sh_id);
-        (sh_id, pt_end_id_prop)
+        }
     }
-}
-impl Shape for CubicBezier {
-    fn is_init(&self) -> bool {
-        self.init
-    }
-    fn get_pos_id(&self) -> (PointId, PointProperty) {
-        *self.pts_ids.get(&PointType::Position).unwrap()
-    }
-    fn init_done(&mut self) {
-        self.init = false;
-    }
-    fn get_points_ids(&self) -> PtIdProp {
-        self.pts_ids.clone()
-    }
-    fn is_point_on_shape(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        pt: &WPoint,
-        precision: f64,
-    ) -> bool {
-        let position = pts_pos.get(&PointType::Position).unwrap().1;
-        let start = pts_pos.get(&PointType::Start).unwrap().1;
-        let ctrl1 = pts_pos.get(&PointType::Ctrl1).unwrap().1;
-        let ctrl2 = pts_pos.get(&PointType::Ctrl2).unwrap().1;
-        let end = pts_pos.get(&PointType::End).unwrap().1;
+    pub fn get_point_on_cubic_bezier(&self, t: f64) -> WPos {
+        let u = 1.0 - t;
+        let tt = t * t;
+        let uu = u * u;
+        let uuu = uu * u;
+        let ttt = tt * t;
 
+        let mut result = self.start_point.wpos * uuu; // (1-t)^3 * start
+        result += self.ctrl1_point.wpos * 3.0 * uu * t; // 3(1-t)^2 * t * ctrl1
+        result += self.ctrl2_point.wpos * 3.0 * u * tt; // 3(1-t) * t^2 * ctrl2
+        result += self.end_point.wpos * ttt; // t^3 * end
+
+        result
+    }
+    pub fn is_point_on_cubicbezier(&self, pos: &WPos, precision: f64) -> bool {
         let mut t_min = 0.;
         let mut t_max = 1.;
         let mut min_dist = f64::MAX;
-        let pt = *pt - position;
-
         for _i in 0..MAX_ITERATIONS {
             let t_mid = (t_min + t_max) / 2.;
-            let bt = get_point_on_cubic_bezier(t_mid, &start, &ctrl1, &ctrl2, &end);
-            let dist = bt.dist(&pt);
+            let bt = self.get_point_on_cubic_bezier(t_mid);
+            let dist = bt.dist(pos);
             if dist < min_dist {
                 min_dist = dist;
             }
@@ -106,8 +91,8 @@ impl Shape for CubicBezier {
                 return true; // We found a sufficiently close point
             }
             // Using gradient to decide the next tMid for the next iteration.
-            let gradient =
-                (bt.wx - pt.wx) * (end.wx - start.wx) + (bt.wy - pt.wy) * (end.wy - start.wy);
+            let gradient = (bt.wx - pos.wx) * (self.end_point.wpos.wx - self.start_point.wpos.wx)
+                + (bt.wy - pos.wy) * (self.end_point.wpos.wy - self.start_point.wpos.wy);
             if gradient > 0. {
                 t_max = t_mid;
             } else {
@@ -116,246 +101,319 @@ impl Shape for CubicBezier {
         }
         min_dist <= precision
     }
-    fn update_points_pos(
-        &self,
-        pts_pos: &mut HashMap<PointType, (PointId, WPoint)>,
-        pt_id: &PointId,
-        pick_pt: &WPoint,
+}
+impl Shape for CubicBezier {
+    fn is_init(&self) -> bool {
+        self.init
+    }
+    fn init_done(&mut self) {
+        self.init = false;
+    }
+    fn get_pos(&self) -> WPos {
+        self.position
+    }
+    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+        let pick_pos = *pick_pos - self.position;
+        self.is_point_on_cubicbezier(&pick_pos, grab_handle_precision / 2.)
+    }
+    fn get_shape_point_under_pick_pos(
+        &mut self,
+        pick_pos: &WPos,
+        grab_handle_precision: f64,
+    ) -> Option<PointType> {
+        // The first point found is returned
+        let pick_pos = *pick_pos - self.position;
+        if is_point_on_point(&pick_pos, &self.end_point.wpos, grab_handle_precision) {
+            return Some(PointType::End);
+        }
+        if is_point_on_point(&pick_pos, &self.ctrl1_point.wpos, grab_handle_precision) {
+            return Some(PointType::Ctrl1);
+        }
+        if is_point_on_point(&pick_pos, &self.ctrl2_point.wpos, grab_handle_precision) {
+            return Some(PointType::Ctrl2);
+        }
+        if is_point_on_point(&pick_pos, &self.start_point.wpos, grab_handle_precision) {
+            return Some(PointType::Start);
+        }
+        None
+    }
+    fn clear_selection(&mut self) {
+        self.selected = false
+    }
+    fn set_selected(&mut self, selected: bool) {
+        self.selected = selected;
+    }
+    fn deselect_all_points(&mut self) {
+        self.start_point.selected = false;
+        self.ctrl1_point.selected = false;
+        self.ctrl2_point.selected = false;
+        self.end_point.selected = false;
+    }
+    fn is_selected(&self) -> bool {
+        self.selected
+    }
+    fn move_selection(
+        &mut self,
+        pick_pos: &WPos,
+        pick_pos_ms_dwn: &WPos,
         snap_distance: f64,
+        _magnet_distance: f64,
     ) {
-        let (_, position) = pts_pos.get(&PointType::Position).cloned().unwrap();
-        let rel_pick_point = *pick_pt - position;
-        let (start_id, mut start_pos) = pts_pos.get(&PointType::Start).cloned().unwrap();
-        let (ctrl1_id, mut ctrl1_pos) = pts_pos.get(&PointType::Ctrl1).cloned().unwrap();
-        let (ctrl2_id, mut ctrl2_pos) = pts_pos.get(&PointType::Ctrl2).cloned().unwrap();
-        let (end_id, mut end_pos) = pts_pos.get(&PointType::End).cloned().unwrap();
-
         if self.init {
-            if *pt_id == end_id {
-                end_pos = rel_pick_point;
-                if end_pos == start_pos {
-                    end_pos += 3. * snap_distance;
-                }
-                ctrl1_pos = end_pos / 3.;
-                ctrl2_pos = end_pos * 2. / 3.;
-                pts_pos.insert(PointType::Ctrl1, (ctrl1_id, ctrl1_pos));
-                pts_pos.insert(PointType::Ctrl2, (ctrl2_id, ctrl2_pos));
-                pts_pos.insert(PointType::End, (end_id, end_pos));
+            self.end_point.wpos = *pick_pos - self.position;
+            if self.end_point.wpos == self.start_point.wpos {
+                self.end_point.wpos += 3. * snap_distance;
             }
+            self.ctrl1_point.wpos = (self.end_point.wpos - self.start_point.wpos) / 3.;
+            self.ctrl2_point.wpos = (self.end_point.wpos - self.start_point.wpos) * 2. / 3.;
         } else {
-            if *pt_id == start_id {
-                start_pos = rel_pick_point;
-                if start_pos == end_pos {
-                    start_pos += 2. * snap_distance;
+            if self.selected {
+                match (
+                    self.start_point.selected,
+                    self.ctrl1_point.selected,
+                    self.ctrl2_point.selected,
+                    self.end_point.selected,
+                ) {
+                    (true, false, false, false) => {
+                        self.start_point.wpos = *pick_pos - self.position;
+                        if self.start_point.wpos == self.end_point.wpos {
+                            self.start_point.wpos += snap_distance;
+                        }
+                    }
+                    (false, true, false, false) => {
+                        self.ctrl1_point.wpos = *pick_pos - self.position;
+                        if self.ctrl1_point.wpos == self.start_point.wpos {
+                            self.ctrl1_point.wpos += snap_distance;
+                        }
+                    }
+                    (false, false, true, false) => {
+                        self.ctrl2_point.wpos = *pick_pos - self.position;
+                        if self.ctrl2_point.wpos == self.start_point.wpos {
+                            self.ctrl2_point.wpos += snap_distance;
+                        }
+                    }
+                    (false, false, false, true) => {
+                        self.end_point.wpos = *pick_pos - self.position;
+                        if self.end_point.wpos == self.start_point.wpos {
+                            self.end_point.wpos += 2. * snap_distance;
+                        }
+                    }
+                    (false, false, false, false) => {
+                        self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                    }
+                    _ => (),
                 }
-                pts_pos.insert(PointType::Start, (start_id, start_pos));
-            }
-            if *pt_id == ctrl1_id {
-                ctrl1_pos = rel_pick_point;
-                if ctrl1_pos == end_pos || ctrl1_pos == start_pos {
-                    ctrl1_pos += snap_distance;
-                }
-                pts_pos.insert(PointType::Ctrl1, (ctrl1_id, ctrl1_pos));
-            }
-            if *pt_id == ctrl2_id {
-                ctrl2_pos = rel_pick_point;
-                if ctrl2_pos == end_pos || ctrl2_pos == start_pos {
-                    ctrl2_pos += snap_distance;
-                }
-                pts_pos.insert(PointType::Ctrl2, (ctrl2_id, ctrl2_pos));
-            }
-            if *pt_id == end_id {
-                end_pos = rel_pick_point;
-                if end_pos == start_pos {
-                    end_pos += 2. * snap_distance;
-                }
-                pts_pos.insert(PointType::End, (end_id, end_pos));
             }
         }
     }
-    fn get_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        selected: bool,
-    ) -> Vec<ConstructionType> {
+    fn select_point(&mut self, point_type: &PointType) {
+        (
+            self.start_point.selected,
+            self.ctrl1_point.selected,
+            self.ctrl2_point.selected,
+            self.end_point.selected,
+        ) = match point_type {
+            PointType::Start => (true, false, false, false),
+            PointType::Ctrl1 => (false, true, false, false),
+            PointType::Ctrl2 => (false, false, true, false),
+            PointType::End => (false, false, false, true),
+            _ => (false, false, false, false),
+        }
+    }
+
+    fn save_current_position(&mut self) {
+        self.saved_position = self.position;
+    }
+    fn get_saved_position(&self) -> WPos {
+        self.saved_position
+    }
+    fn magnet_to_point(&self, pick_pos: &mut WPos, magnet_distance: f64) {
+        let start_pos = self.start_point.wpos;
+        // let ctrl_pos = self.ctrl_point.wpos;
+        let end_pos = self.start_point.wpos;
+
+        if pick_pos.dist(&(start_pos + self.position)) < magnet_distance {
+            *pick_pos = self.position + start_pos;
+        }
+        if pick_pos.dist(&(end_pos + self.position)) < magnet_distance {
+            *pick_pos = self.position + end_pos;
+        }
+    }
+
+    fn get_construction(&self) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
-        if !selected {
+        if !self.selected {
             cst.push(ConstructionType::Layer(LayerType::Worksheet));
         } else {
             cst.push(ConstructionType::Layer(LayerType::Selected));
         }
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (_, start_pos) = pts_pos.get(&PointType::Start).unwrap();
-        let (_, ctrl1_pos) = pts_pos.get(&PointType::Ctrl1).unwrap();
-        let (_, ctrl2_pos) = pts_pos.get(&PointType::Ctrl2).unwrap();
-        let (_, end_pos) = pts_pos.get(&PointType::End).unwrap();
-        cst.push(ConstructionType::Move(position + start_pos));
+        cst.push(ConstructionType::Move(
+            self.position + self.start_point.wpos,
+        ));
         cst.push(ConstructionType::CubicBezier(
-            position + ctrl1_pos,
-            position + ctrl2_pos,
-            position + end_pos,
+            self.position + self.ctrl1_point.wpos,
+            self.position + self.ctrl2_point.wpos,
+            self.position + self.end_point.wpos,
         ));
         cst
     }
-    fn get_handles_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-        opt_sel_id_prop: &Option<(PointId, PointProperty)>,
-        size_handle: f64,
-    ) -> Vec<ConstructionType> {
+    fn get_handles_construction(&self, size_handle: f64) -> Vec<ConstructionType> {
         let mut cst = Vec::new();
-        let mut hdles = Vec::new();
 
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (start_id, start_pos) = pts_pos.get(&PointType::Start).unwrap();
-        let (ctrl1_id, ctrl1_pos) = pts_pos.get(&PointType::Ctrl1).unwrap();
-        let (ctrl2_id, ctrl2_pos) = pts_pos.get(&PointType::Ctrl2).unwrap();
-        let (end_id, end_pos) = pts_pos.get(&PointType::End).unwrap();
+        let mut start_point = self.start_point;
+        start_point.wpos += self.position;
 
-        hdles.push((*start_id, position + start_pos));
-        hdles.push((*ctrl1_id, position + ctrl1_pos));
-        hdles.push((*ctrl2_id, position + ctrl2_pos));
-        hdles.push((*end_id, position + end_pos));
-        push_handles(&mut cst, &hdles, opt_sel_id_prop, size_handle);
+        let mut ctrl1_point = self.ctrl1_point;
+        ctrl1_point.wpos += self.position;
+
+        let mut ctrl2_point = self.ctrl2_point;
+        ctrl2_point.wpos += self.position;
+
+        let mut end_point = self.end_point;
+        end_point.wpos += self.position;
+
+        push_handle(&mut cst, &start_point, size_handle);
+        push_handle(&mut cst, &ctrl1_point, size_handle);
+        push_handle(&mut cst, &ctrl2_point, size_handle);
+        push_handle(&mut cst, &end_point, size_handle);
         cst
     }
-    fn get_helpers_construction(
-        &self,
-        pts_pos: &HashMap<PointType, (PointId, WPoint)>,
-    ) -> Vec<ConstructionType> {
+    fn get_helpers_construction(&self) -> Vec<ConstructionType> {
         let mut cst: Vec<ConstructionType> = vec![];
-
-        let (_, position) = pts_pos.get(&PointType::Position).unwrap();
-        let (_, start_pos) = pts_pos.get(&PointType::Start).unwrap();
-        let (_, ctrl1_pos) = pts_pos.get(&PointType::Ctrl1).unwrap();
-        let (_, ctrl2_pos) = pts_pos.get(&PointType::Ctrl2).unwrap();
-        let (_, end_pos) = pts_pos.get(&PointType::End).unwrap();
-
         cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
 
-        if is_aligned_vert(&start_pos, &end_pos) {
+        // start - end
+        if is_aligned_vert(&self.start_point.wpos, &self.end_point.wpos) {
             helper_vertical(
-                &(position + start_pos),
-                &(position + end_pos),
+                &(self.position + self.start_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_hori(&start_pos, &end_pos) {
+        if is_aligned_hori(&self.start_point.wpos, &self.end_point.wpos) {
             helper_horizontal(
-                &(position + start_pos),
-                &(position + end_pos),
+                &(self.position + self.start_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_45_or_135(&start_pos, &end_pos) {
+        if is_aligned_45_or_135(&self.start_point.wpos, &self.end_point.wpos) {
             helper_45_135(
-                &(position + start_pos),
-                &(position + end_pos),
+                &(self.position + self.start_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-
-        if is_aligned_vert(&ctrl1_pos, &end_pos) {
+        // ctrl1 - end
+        if is_aligned_vert(&self.ctrl1_point.wpos, &self.end_point.wpos) {
             helper_vertical(
-                &(position + ctrl1_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_hori(&ctrl1_pos, &end_pos) {
+        if is_aligned_hori(&self.ctrl1_point.wpos, &self.end_point.wpos) {
             helper_horizontal(
-                &(position + ctrl1_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_45_or_135(&ctrl1_pos, &end_pos) {
+        if is_aligned_45_or_135(&self.ctrl1_point.wpos, &self.end_point.wpos) {
             helper_45_135(
-                &(position + ctrl1_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_vert(&ctrl1_pos, &start_pos) {
+        // ctrl1 - start
+        if is_aligned_vert(&self.ctrl1_point.wpos, &self.start_point.wpos) {
             helper_vertical(
-                &(position + ctrl1_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_hori(&ctrl1_pos, &start_pos) {
+        if is_aligned_hori(&self.ctrl1_point.wpos, &self.start_point.wpos) {
             helper_horizontal(
-                &(position + ctrl1_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_45_or_135(&ctrl1_pos, &start_pos) {
+        if is_aligned_45_or_135(&self.ctrl1_point.wpos, &self.start_point.wpos) {
             helper_45_135(
-                &(position + ctrl1_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl1_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
-
-        if is_aligned_vert(&ctrl2_pos, &end_pos) {
+        // ctrl2 - end
+        if is_aligned_vert(&self.ctrl2_point.wpos, &self.end_point.wpos) {
             helper_vertical(
-                &(position + ctrl2_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_hori(&ctrl2_pos, &end_pos) {
+        if is_aligned_hori(&self.ctrl2_point.wpos, &self.end_point.wpos) {
             helper_horizontal(
-                &(position + ctrl2_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_45_or_135(&ctrl2_pos, &end_pos) {
+        if is_aligned_45_or_135(&self.ctrl2_point.wpos, &self.end_point.wpos) {
             helper_45_135(
-                &(position + ctrl2_pos),
-                &(position + end_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.end_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_vert(&ctrl2_pos, &start_pos) {
+        // ctrl2 - start
+        if is_aligned_vert(&self.ctrl2_point.wpos, &self.start_point.wpos) {
             helper_vertical(
-                &(position + ctrl2_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_hori(&ctrl2_pos, &start_pos) {
+        if is_aligned_hori(&self.ctrl2_point.wpos, &self.start_point.wpos) {
             helper_horizontal(
-                &(position + ctrl2_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
-        if is_aligned_45_or_135(&ctrl2_pos, &start_pos) {
+        if is_aligned_45_or_135(&self.ctrl2_point.wpos, &self.start_point.wpos) {
             helper_45_135(
-                &(position + ctrl2_pos),
-                &(position + start_pos),
+                &(self.position + self.ctrl2_point.wpos),
+                &(self.position + self.start_point.wpos),
                 true,
                 &mut cst,
             );
         }
         cst
+    }
+    fn get_bounded_rectangle(&self) -> [WPos; 2] {
+        [
+            self.position + self.start_point.wpos,
+            self.position + self.end_point.wpos,
+        ]
     }
 }
 impl ShapePool for CubicBezier {}

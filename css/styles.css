@@ -149,6 +149,7 @@ canvas {
     /* background-color: #ff0; */
     position: absolute;
 }
+
 /* Style the custom context menu */
 #contextMenu {
     width: 150px;
@@ -164,6 +165,11 @@ canvas {
 
 #contextMenu a:hover {
     background-color: #f1f1f1;
+}
+
+.context-menu .separator {
+    border-top: 1px solid #ccc;  /* Change #ccc to whatever color you like */
+    margin: 8px 0;  /* Add some vertical spacing around the separator */
 }
 /* 
 
