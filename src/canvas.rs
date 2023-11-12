@@ -5,7 +5,7 @@ use crate::shapes::ellipse::Ellipse;
 use crate::shapes::line::Line;
 use crate::shapes::quadbezier::QuadBezier;
 use crate::shapes::rectangle::Rectangle;
-use crate::shapes::types::{CPos, ConstructionType, LayerType, Point, ShapeId, WPos};
+use crate::shapes::types::{CPos, ConstructionType, LayerType, Point, WPos};
 
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
@@ -712,85 +712,85 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                             }
                         }
                         Command::CubicCurve(postype, params) => {
-                            // if params.len() % 6 == 0 {
-                            //     let nb_curves = params.len() / 6;
-                            //     for curve in 0..nb_curves {
-                            //         let mut control_point1 = WPos {
-                            //             wx: params[6 * curve] as f64,
-                            //             wy: params[6 * curve + 1] as f64,
-                            //         };
-                            //         let mut control_point2 = WPos {
-                            //             wx: params[6 * curve + 2] as f64,
-                            //             wy: params[6 * curve + 3] as f64,
-                            //         };
-                            //         let end_point = WPos {
-                            //             wx: params[6 * curve + 4] as f64,
-                            //             wy: params[6 * curve + 5] as f64,
-                            //         };
-                            //         let new_position = match postype {
-                            //             Position::Absolute => end_point,
-                            //             Position::Relative => {
-                            //                 control_point1 += current_position;
-                            //                 control_point2 += current_position;
-                            //                 current_position + end_point
-                            //             }
-                            //         };
-                            //         CubicBezier::new(
-                            //             &mut pa_mut.data_pools,
-                            //             &Some(group_id),
-                            //             &current_position,
-                            //             &control_point1,
-                            //             &control_point2,
-                            //             &new_position,
-                            //             working_area_snap_grid,
-                            //             false,
-                            //         );
-                            //         current_position = new_position;
-                            //         last_quad_control_point = None;
-                            //         last_cubic_control_point = Some(control_point2);
-                            //     }
-                            // }
+                            if params.len() % 6 == 0 {
+                                let nb_curves = params.len() / 6;
+                                for curve in 0..nb_curves {
+                                    let mut control_point1 = WPos {
+                                        wx: params[6 * curve] as f64,
+                                        wy: params[6 * curve + 1] as f64,
+                                    };
+                                    let mut control_point2 = WPos {
+                                        wx: params[6 * curve + 2] as f64,
+                                        wy: params[6 * curve + 3] as f64,
+                                    };
+                                    let end_point = WPos {
+                                        wx: params[6 * curve + 4] as f64,
+                                        wy: params[6 * curve + 5] as f64,
+                                    };
+                                    let new_position = match postype {
+                                        Position::Absolute => end_point,
+                                        Position::Relative => {
+                                            control_point1 += current_position;
+                                            control_point2 += current_position;
+                                            current_position + end_point
+                                        }
+                                    };
+                                    let shape = CubicBezier::new(
+                                        &current_position,
+                                        &control_point1,
+                                        &control_point2,
+                                        &new_position,
+                                        working_area_snap_grid,
+                                    );
+                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
+                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    current_position = new_position;
+                                    last_quad_control_point = None;
+                                    last_cubic_control_point = Some(control_point2);
+                                }
+                            }
                         }
                         Command::SmoothCubicCurve(postype, params) => {
-                            // if params.len() % 4 == 0 {
-                            //     let nb_curves = params.len() / 4;
-                            //     for curve in 0..nb_curves {
-                            //         let control_point1 =
-                            //             if let Some(last_ctrl_pt) = last_cubic_control_point {
-                            //                 current_position + (current_position - last_ctrl_pt)
-                            //             } else {
-                            //                 current_position
-                            //             };
-                            //         let mut control_point2 = WPos {
-                            //             wx: params[4 * curve] as f64,
-                            //             wy: params[4 * curve + 1] as f64,
-                            //         };
-                            //         let end_point = WPos {
-                            //             wx: params[4 * curve + 2] as f64,
-                            //             wy: params[4 * curve + 3] as f64,
-                            //         };
-                            //         let new_position = match postype {
-                            //             Position::Absolute => end_point,
-                            //             Position::Relative => {
-                            //                 control_point2 += current_position;
-                            //                 current_position + end_point
-                            //             }
-                            //         };
-                            //         CubicBezier::new(
-                            //             &mut pa_mut.data_pools,
-                            //             &Some(group_id),
-                            //             &current_position,
-                            //             &control_point1,
-                            //             &control_point2,
-                            //             &new_position,
-                            //             working_area_snap_grid,
-                            //             false,
-                            //         );
-                            //         current_position = new_position;
-                            //         last_quad_control_point = None;
-                            //         last_cubic_control_point = Some(control_point2);
-                            //     }
-                            // }
+                            if params.len() % 4 == 0 {
+                                let nb_curves = params.len() / 4;
+                                for curve in 0..nb_curves {
+                                    let control_point1 =
+                                        if let Some(last_ctrl_pt) = last_cubic_control_point {
+                                            current_position + (current_position - last_ctrl_pt)
+                                        } else {
+                                            current_position
+                                        };
+                                    let mut control_point2 = WPos {
+                                        wx: params[4 * curve] as f64,
+                                        wy: params[4 * curve + 1] as f64,
+                                    };
+                                    let end_point = WPos {
+                                        wx: params[4 * curve + 2] as f64,
+                                        wy: params[4 * curve + 3] as f64,
+                                    };
+                                    let new_position = match postype {
+                                        Position::Absolute => end_point,
+                                        Position::Relative => {
+                                            control_point2 += current_position;
+                                            current_position + end_point
+                                        }
+                                    };
+                                    let shape = CubicBezier::new(
+                                        &current_position,
+                                        &control_point1,
+                                        &control_point2,
+                                        &new_position,
+                                        working_area_snap_grid,
+                                    );
+                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
+                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    current_position = new_position;
+                                    last_quad_control_point = None;
+                                    last_cubic_control_point = Some(control_point2);
+                                }
+                            }
                         }
                         Command::EllipticalArc(_postype, _params) => {}
                         Command::Close => {

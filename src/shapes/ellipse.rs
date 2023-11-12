@@ -1,8 +1,5 @@
-use web_sys::console;
-
 use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
 use crate::{datapool::ShapePool, math::*};
-use std::f64::consts::PI;
 
 #[derive(Clone)]
 pub struct Ellipse {

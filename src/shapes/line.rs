@@ -90,6 +90,10 @@ impl Shape for Line {
         snap_distance: f64,
         _magnet_distance: f64,
     ) {
+        if self.init {
+            self.start_point.selected = false;
+            self.end_point.selected = true;
+        }
         if self.selected {
             match (self.start_point.selected, self.end_point.selected) {
                 (true, false) => {

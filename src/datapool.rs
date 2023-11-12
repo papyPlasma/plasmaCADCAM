@@ -4,7 +4,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use web_sys::console;
 
 static COUNTER_SHAPES: AtomicUsize = AtomicUsize::new(0);
 
@@ -167,11 +166,11 @@ impl DataPools {
     pub fn set_shape_group(&mut self, gr_id: &GroupId, sh_id: &ShapeId) {
         self.groups_pool.insert_shape_id(gr_id, sh_id);
     }
-    pub fn get_shape_group(&mut self, gr_id: &GroupId) -> Option<&Vec<ShapeId>> {
+    pub fn _get_shape_group(&mut self, gr_id: &GroupId) -> Option<&Vec<ShapeId>> {
         self.groups_pool.get(gr_id)
     }
 
-    pub fn get_shape(&self, sh_id: &ShapeId) -> Option<&Box<dyn Shape>> {
+    pub fn _get_shape(&self, sh_id: &ShapeId) -> Option<&Box<dyn Shape>> {
         self.shapes_pool.get(sh_id)
     }
     pub fn get_shape_mut(&mut self, sh_id: &ShapeId) -> Option<&mut Box<dyn Shape>> {
@@ -185,7 +184,7 @@ impl DataPools {
         &mut self.shapes_pool
     }
 
-    pub fn get_shape_position(&self, sh_id: &ShapeId) -> WPos {
+    pub fn _get_shape_position(&self, sh_id: &ShapeId) -> WPos {
         self.shapes_pool.get(sh_id).unwrap().get_pos()
     }
     pub fn magnet_to_point(
@@ -210,7 +209,7 @@ impl DataPools {
             }
         }
     }
-    pub fn is_point_on_shape(&self, sh_id: &ShapeId, pt_pos: &WPos, precision: f64) -> bool {
+    pub fn _is_point_on_shape(&self, sh_id: &ShapeId, pt_pos: &WPos, precision: f64) -> bool {
         let shape = self.shapes_pool.get(sh_id).unwrap();
         shape.is_shape_under_pick_pos(&pt_pos, precision)
     }
@@ -261,7 +260,7 @@ impl GroupsPool {
             self.0.insert(*group_id, vec![*sh_id]);
         }
     }
-    pub fn get_shapes_ids(&self, group_id: &GroupId) -> Option<Vec<ShapeId>> {
+    pub fn _get_shapes_ids(&self, group_id: &GroupId) -> Option<Vec<ShapeId>> {
         self.0.get(group_id).cloned()
     }
 }

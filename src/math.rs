@@ -477,13 +477,13 @@ pub fn get_point_from_angle(radius: &WPos, angle: f64) -> WPos {
 }
 
 #[inline]
-pub fn switch_wx(point1: &mut WPos, point2: &mut WPos) {
+pub fn _switch_wx(point1: &mut WPos, point2: &mut WPos) {
     let pos = point1.wx;
     point1.wx = point2.wx;
     point2.wx = pos;
 }
 #[inline]
-pub fn order_pos_x(x_inf: &mut WPos, x_sup: &mut WPos) {
+pub fn _order_pos_x(x_inf: &mut WPos, x_sup: &mut WPos) {
     if x_inf.wx > x_sup.wx {
         let tmp = x_inf.wx;
         x_inf.wx = x_sup.wx;
@@ -491,7 +491,7 @@ pub fn order_pos_x(x_inf: &mut WPos, x_sup: &mut WPos) {
     }
 }
 #[inline]
-pub fn order_pos_y(x_inf: &mut WPos, x_sup: &mut WPos) {
+pub fn _order_pos_y(x_inf: &mut WPos, x_sup: &mut WPos) {
     if x_inf.wy > x_sup.wy {
         let tmp = x_inf.wy;
         x_inf.wy = x_sup.wy;
