@@ -248,6 +248,9 @@ canvas {
 #icon-rectangle {
     background-image: url('../assets/icon-rectangle.png');
 }
+#icon-scissors {
+    background-image: url('../assets/icon-scissors.png');
+}
 #icon-cog {
     background-image: url('../assets/icon-cog.png');
 }

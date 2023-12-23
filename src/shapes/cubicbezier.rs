@@ -1,5 +1,5 @@
 use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
-use crate::{datapool::ShapePool, math::*};
+use crate::math::*;
 
 #[derive(Clone)]
 pub struct CubicBezier {
@@ -13,36 +13,14 @@ pub struct CubicBezier {
     init: bool,
 }
 impl CubicBezier {
-    pub fn new(
-        start: &WPos,
-        ctrl1: &WPos,
-        ctrl2: &WPos,
-        end: &WPos,
-        snap_distance: f64,
-    ) -> CubicBezier {
-        let mut start = *start;
-        let mut ctrl1 = *ctrl1;
-        let mut ctrl2 = *ctrl2;
-        let mut end = *end;
-        start = snap_to_snap_grid(&start, snap_distance);
-        ctrl1 = snap_to_snap_grid(&ctrl1, snap_distance);
-        ctrl2 = snap_to_snap_grid(&ctrl2, snap_distance);
-        end = snap_to_snap_grid(&end, snap_distance);
+    pub fn new(start: &WPos, ctrl1: &WPos, ctrl2: &WPos, end: &WPos) -> Option<CubicBezier> {
+        let start = *start;
+        let ctrl1 = *ctrl1;
+        let ctrl2 = *ctrl2;
+        let end = *end;
 
-        let end = if start.wx == end.wx || start.wy == end.wy {
-            start + 3. * snap_distance
-        } else {
-            end
-        };
-        let ctrl1 = if start.wx == ctrl1.wx || start.wy == ctrl1.wy {
-            ctrl1 + snap_distance
-        } else {
-            ctrl1
-        };
-        let ctrl2 = if start.wx == ctrl2.wx || start.wy == ctrl2.wy {
-            ctrl2 + 2. * snap_distance
-        } else {
-            ctrl2
+        if start == end || start == ctrl1 || start == ctrl2 || ctrl1 == end || ctrl2 == end {
+            return None;
         };
 
         let position = start;
@@ -51,7 +29,7 @@ impl CubicBezier {
         let ctrl2_point = Point::new(&(ctrl2 - position), false, false, false);
         let end_point = Point::new(&(end - position), false, false, false);
 
-        CubicBezier {
+        Some(CubicBezier {
             start_point,
             ctrl1_point,
             ctrl2_point,
@@ -60,7 +38,7 @@ impl CubicBezier {
             saved_position: position,
             selected: false,
             init: true,
-        }
+        })
     }
     pub fn get_point_on_cubic_bezier(&self, t: f64) -> WPos {
         let u = 1.0 - t;
@@ -112,27 +90,52 @@ impl Shape for CubicBezier {
     fn get_pos(&self) -> WPos {
         self.position
     }
-    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        let pick_pos = *pick_pos - self.position;
-        self.is_point_on_cubicbezier(&pick_pos, grab_handle_precision / 2.)
+    fn get_step_r(&self, grab_handle_precision: f64) -> f64 {
+        //
+        0.
     }
-    fn get_shape_point_under_pick_pos(
+    fn get_pos_from_ratio(&self, r: f64) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn get_ratio_from_pos(&self, rpos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    fn get_projected_pos(&self, pick_pos: &WPos) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn split(&self, pos: &WPos) -> (Option<Box<dyn Shape>>, Option<Box<dyn Shape>>) {
+        // TODO
+        (None, None)
+    }
+
+    fn dist(&self, pick_pos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    // fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+    //     let pick_pos = *pick_pos - self.position;
+    //     self.is_point_on_cubicbezier(&pick_pos, grab_handle_precision / 2.)
+    // }
+    fn get_shape_point_type_under_pick_pos(
         &mut self,
         pick_pos: &WPos,
         grab_handle_precision: f64,
     ) -> Option<PointType> {
         // The first point found is returned
         let pick_pos = *pick_pos - self.position;
-        if is_point_on_point(&pick_pos, &self.end_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.end_point.wpos) < grab_handle_precision {
             return Some(PointType::End);
         }
-        if is_point_on_point(&pick_pos, &self.ctrl1_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.ctrl1_point.wpos) < grab_handle_precision {
             return Some(PointType::Ctrl1);
         }
-        if is_point_on_point(&pick_pos, &self.ctrl2_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.ctrl2_point.wpos) < grab_handle_precision {
             return Some(PointType::Ctrl2);
         }
-        if is_point_on_point(&pick_pos, &self.start_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.start_point.wpos) < grab_handle_precision {
             return Some(PointType::Start);
         }
         None
@@ -152,61 +155,73 @@ impl Shape for CubicBezier {
     fn is_selected(&self) -> bool {
         self.selected
     }
-    fn move_selection(
-        &mut self,
-        pick_pos: &WPos,
-        pick_pos_ms_dwn: &WPos,
-        snap_distance: f64,
-        _magnet_distance: f64,
-    ) {
+    fn move_selection(&mut self, pick_pos: &WPos, pick_pos_ms_dwn: &WPos, _magnet_distance: f64) {
+        let pick_pos = *pick_pos;
+        let pick_pos_ms_dwn = *pick_pos_ms_dwn;
+
         if self.init {
-            self.end_point.wpos = *pick_pos - self.position;
-            if self.end_point.wpos == self.start_point.wpos {
-                self.end_point.wpos += 3. * snap_distance;
-            }
-            self.ctrl1_point.wpos = (self.end_point.wpos - self.start_point.wpos) / 3.;
-            self.ctrl2_point.wpos = (self.end_point.wpos - self.start_point.wpos) * 2. / 3.;
-        } else {
-            if self.selected {
-                match (
-                    self.start_point.selected,
-                    self.ctrl1_point.selected,
-                    self.ctrl2_point.selected,
-                    self.end_point.selected,
-                ) {
-                    (true, false, false, false) => {
-                        self.start_point.wpos = *pick_pos - self.position;
-                        if self.start_point.wpos == self.end_point.wpos {
-                            self.start_point.wpos += snap_distance;
-                        }
+            self.start_point.selected = false;
+            self.ctrl1_point.selected = false;
+            self.ctrl2_point.selected = false;
+            self.end_point.selected = true;
+        }
+        if self.selected {
+            match (
+                self.start_point.selected,
+                self.ctrl1_point.selected,
+                self.ctrl2_point.selected,
+                self.end_point.selected,
+            ) {
+                (true, false, false, false) => {
+                    let pos = pick_pos - self.position;
+                    if pos != self.ctrl1_point.wpos
+                        && pos != self.ctrl2_point.wpos
+                        && pos != self.end_point.wpos
+                    {
+                        self.start_point.wpos = pos;
                     }
-                    (false, true, false, false) => {
-                        self.ctrl1_point.wpos = *pick_pos - self.position;
-                        if self.ctrl1_point.wpos == self.start_point.wpos {
-                            self.ctrl1_point.wpos += snap_distance;
-                        }
-                    }
-                    (false, false, true, false) => {
-                        self.ctrl2_point.wpos = *pick_pos - self.position;
-                        if self.ctrl2_point.wpos == self.start_point.wpos {
-                            self.ctrl2_point.wpos += snap_distance;
-                        }
-                    }
-                    (false, false, false, true) => {
-                        self.end_point.wpos = *pick_pos - self.position;
-                        if self.end_point.wpos == self.start_point.wpos {
-                            self.end_point.wpos += 2. * snap_distance;
-                        }
-                    }
-                    (false, false, false, false) => {
-                        self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
-                    }
-                    _ => (),
                 }
+                (false, true, false, false) => {
+                    let pos = pick_pos - self.position;
+                    if pos != self.start_point.wpos
+                        && pos != self.ctrl2_point.wpos
+                        && pos != self.end_point.wpos
+                    {
+                        self.ctrl1_point.wpos = pos;
+                    }
+                }
+                (false, false, true, false) => {
+                    let pos = pick_pos - self.position;
+                    if pos != self.start_point.wpos
+                        && pos != self.ctrl1_point.wpos
+                        && pos != self.end_point.wpos
+                    {
+                        self.ctrl2_point.wpos = pos;
+                    }
+                }
+                (false, false, false, true) => {
+                    let pos = pick_pos - self.position;
+                    if pos != self.start_point.wpos
+                        && pos != self.ctrl1_point.wpos
+                        && pos != self.ctrl2_point.wpos
+                    {
+                        self.end_point.wpos = pos;
+                        if self.init {
+                            self.ctrl1_point.wpos =
+                                (self.start_point.wpos + self.end_point.wpos) / 3.;
+                            self.ctrl2_point.wpos =
+                                (self.start_point.wpos + self.end_point.wpos) * 2. / 3.;
+                        }
+                    }
+                }
+                (false, false, false, false) => {
+                    self.position = self.saved_position + pick_pos - pick_pos_ms_dwn;
+                }
+                _ => (),
             }
         }
     }
-    fn select_point(&mut self, point_type: &PointType) {
+    fn select_point_type(&mut self, point_type: &PointType) {
         (
             self.start_point.selected,
             self.ctrl1_point.selected,
@@ -229,7 +244,6 @@ impl Shape for CubicBezier {
     }
     fn magnet_to_point(&self, pick_pos: &mut WPos, magnet_distance: f64) {
         let start_pos = self.start_point.wpos;
-        // let ctrl_pos = self.ctrl_point.wpos;
         let end_pos = self.start_point.wpos;
 
         if pick_pos.dist(&(start_pos + self.position)) < magnet_distance {
@@ -416,4 +430,4 @@ impl Shape for CubicBezier {
         ]
     }
 }
-impl ShapePool for CubicBezier {}
+// impl ShapePool for CubicBezier {}

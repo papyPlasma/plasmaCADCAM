@@ -10,8 +10,10 @@ pub mod shapes {
     pub mod types;
 }
 
+// #[cfg(not(test))]
 use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
+// #[cfg(not(test))]
 use web_sys::window;
 
 #[wasm_bindgen]
@@ -20,6 +22,7 @@ pub fn add(a: u32, b: u32) -> u32 {
 }
 
 #[wasm_bindgen(start)]
+// #[cfg(not(test))]
 fn start() -> Result<(), JsValue> {
     let window = window().expect("no global `window` exists");
     create_playing_area(window)?;

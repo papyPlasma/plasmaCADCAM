@@ -1,11 +1,15 @@
+#[cfg(not(test))]
+use web_sys::console;
+
 use crate::shapes::types::{ConstructionType, Point, WPos};
 use std::f64::consts::PI;
 
-pub const EPSILON: f64 = 1e-5; // Some small value
+pub const EPSILON: f64 = 1e-2; // Some small value
 pub const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
 
 pub fn is_aligned_vert(pt1: &WPos, pt2: &WPos) -> bool {
-    (pt1.wx - pt2.wx).abs() < 0.001
+    // I can do this because of snaping
+    (pt1.wx - pt2.wx).abs() == 0.
 }
 pub fn helper_vertical(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
@@ -35,7 +39,8 @@ pub fn helper_vertical(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<Constru
     }
 }
 pub fn is_aligned_hori(pt1: &WPos, pt2: &WPos) -> bool {
-    (pt1.wy - pt2.wy).abs() < 0.001
+    // I can do this because of snaping
+    (pt1.wy - pt2.wy).abs() == 0.
 }
 pub fn helper_horizontal(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
@@ -69,9 +74,8 @@ pub fn is_aligned_45_or_135(pt1: &WPos, pt2: &WPos) -> bool {
     let dx = pt2.wx - pt1.wx;
     if dx != 0. {
         let m = (dy / dx).abs();
-        let mr = (dy / dx).abs().round();
-        // (dy / dx).abs() > 1. / 1.01 && (dy / dx).abs() < 1.01
-        mr == m
+        // Equality test works because of snapping
+        m == 1.
     } else {
         false
     }
@@ -105,10 +109,7 @@ pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<Construct
     }
 }
 
-pub fn is_point_on_point(pt: &WPos, pt1: &WPos, precision: f64) -> bool {
-    pt.dist(pt1) < precision
-}
-fn is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
+fn _is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
     let dot_product = (pt.wx - pt1.wx) * (pt2.wx - pt1.wx) + (pt.wy - pt1.wy) * (pt2.wy - pt1.wy);
     if dot_product < 0. {
         return false;
@@ -119,22 +120,21 @@ fn is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
     }
     return true;
 }
-pub fn is_point_on_segment(pt1: &Point, pt2: &Point, pt: &WPos, precision: f64) -> bool {
-    let denominator =
-        ((pt2.wpos.wy - pt1.wpos.wy).powf(2.) + (pt2.wpos.wx - pt1.wpos.wx).powf(2.)).sqrt();
-    if denominator == 0. {
-        return is_point_on_point(pt, &pt1.wpos, precision);
-    }
-    let numerator = ((pt2.wpos.wy - pt1.wpos.wy) * pt.wx - (pt2.wpos.wx - pt1.wpos.wx) * pt.wy
-        + pt2.wpos.wx * pt1.wpos.wy
-        - pt2.wpos.wy * pt1.wpos.wx)
-        .abs();
+// pub fn is_point_on_segment(pos1: &WPos, pos2: &WPos, pos: &WPos, precision: f64) -> bool {
+//     let denominator = ((pos2.wy - pos1.wy).powf(2.) + (pos2.wx - pos1.wx).powf(2.)).sqrt();
+//     if denominator == 0. {
+//         return is_point_on_point(pos, &pos1, precision);
+//     }
+//     let numerator = ((pos2.wy - pos1.wy) * pos.wx - (pos2.wx - pos1.wx) * pos.wy
+//         + pos2.wx * pos1.wy
+//         - pos2.wy * pos1.wx)
+//         .abs();
 
-    if numerator / denominator > precision {
-        return false;
-    }
-    is_between(pt, &pt1.wpos, &pt2.wpos)
-}
+//     if numerator / denominator > precision {
+//         return false;
+//     }
+//     is_between(pos, &pos1, &pos2)
+// }
 
 pub fn is_box_inside(box_outer: &[WPos; 2], box_inner: &[WPos; 2]) -> bool {
     let bl_outer = box_outer[0];
@@ -200,7 +200,7 @@ pub fn reorder_corners(bb: &mut [WPos; 2]) {
     }
 }
 
-pub fn snap_to_positive_value(value: f64, snap_value: f64) -> f64 {
+pub fn _snap_to_positive_value(value: f64, snap_value: f64) -> f64 {
     let value = (value / snap_value).round() * snap_value;
     if value == 0. {
         snap_value
@@ -213,9 +213,64 @@ pub fn snap_to_positive_value(value: f64, snap_value: f64) -> f64 {
     }
 }
 
-pub fn snap_to_snap_grid(pos: &WPos, snap_distance: f64) -> WPos {
-    (*pos / snap_distance).round() * snap_distance
+pub fn magnet_to_x(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
+    let dx = (pos.wx - ref_pos.wx).abs();
+    if dx < magnet_distance {
+        pos.wx = ref_pos.wx;
+    }
 }
+pub fn magnet_to_y(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
+    let dy = (pos.wy - ref_pos.wy).abs();
+    if dy < magnet_distance {
+        pos.wy = ref_pos.wy;
+    }
+}
+pub fn _get_shape_groupmagnet_to(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
+    let dx = (pos.wx - ref_pos.wx).abs();
+    let dy = (pos.wy - ref_pos.wy).abs();
+    if dx < magnet_distance && dy < magnet_distance {
+        *pos = *ref_pos;
+    }
+}
+pub fn magnet_to_45(angle: &mut f64, radius_pos: &WPos, magnet_distance: f64) {
+    let a = radius_pos.wx * angle.sin();
+    let b = radius_pos.wy * angle.cos();
+    let dangle = magnet_distance / (a * a + b * b).sqrt();
+    if *angle < PI / 4. + dangle && *angle > PI / 4. - dangle {
+        #[cfg(not(test))]
+        console::log_1(&"ddd".into());
+        *angle = PI / 4.;
+    }
+}
+pub fn magnet_to_xy(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
+    let snap_distance = 2. * magnet_distance;
+
+    let x1 = ref_pos.wx;
+    let y1 = ref_pos.wy;
+    let x2 = pos.wx;
+    let y2 = pos.wy;
+    // Projection of p on (pt1, m=1)
+    let p_proj = WPos {
+        wx: (x1 + x2 + y2 - y1) / 2.,
+        wy: (-x1 + x2 + y2 + y1) / 2.,
+    };
+    if p_proj.dist(pos) < snap_distance {
+        *pos = p_proj;
+    } else {
+        // Projection of p on (pt1, m=-1)
+        let p_proj = WPos {
+            wx: (x1 + x2 - y2 + y1) / 2.,
+            wy: (x1 - x2 + y2 + y1) / 2.,
+        };
+        if p_proj.dist(pos) < snap_distance {
+            *pos = p_proj;
+        }
+    }
+}
+
+// pub fn snap_to_snap_grid(pos: &WPos, snap_distance: f64) -> WPos {
+//     (*pos / snap_distance).round() * snap_distance
+// }
 
 pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
     let radius = WPos::default() + size_handle / 2.;
@@ -262,28 +317,6 @@ pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64
 //     tr.wx = br.wx;
 //     bl.wy = br.wy;
 
-// // Line spliting (1 pt)
-// #[allow(dead_code)]
-// pub fn split_line(
-//     pt: &WPoint,
-//     shape: &SimpleShape,
-// ) -> Option<(SimpleShape, SimpleShape)> {
-//     if let SimpleShape::Line(start, end) = shape {
-//         if is_point_on_point(pt, &start.1, EPSILON) || is_point_on_point(pt, &end.1, EPSILON) {
-//             return None;
-//         };
-//         if is_point_on_line(pt, shape, EPSILON) {
-//             Some((
-//                 SimpleShape::Line((Handle::Start, start.1.clone()), (Handle::End, pt.clone())),
-//                 SimpleShape::Line((Handle::Start, pt.clone()), (Handle::End, end.1.clone())),
-//             ))
-//         } else {
-//             None
-//         }
-//     } else {
-//         None
-//     }
-// }
 // // Quad Bezier curve spliting (1 pt)
 // #[allow(dead_code)]
 // pub fn split_quad_bezier(
@@ -500,7 +533,7 @@ pub fn _order_pos_y(x_inf: &mut WPos, x_sup: &mut WPos) {
 }
 
 #[inline]
-pub fn get_atan2(point: &WPos) -> f64 {
+pub fn _get_atan2(point: &WPos) -> f64 {
     point.wy.atan2(point.wx)
 }
 #[inline]

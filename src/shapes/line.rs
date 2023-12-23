@@ -1,5 +1,13 @@
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+#[cfg(not(test))]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
-use crate::{datapool::ShapePool, math::*};
+use crate::math::*;
 
 #[derive(Clone)]
 pub struct Line {
@@ -11,35 +19,29 @@ pub struct Line {
     init: bool,
 }
 impl Line {
-    pub fn new(start: &WPos, end: &WPos, snap_distance: f64) -> Line {
-        let mut start = *start;
-        let mut end = *end;
-        start = snap_to_snap_grid(&start, snap_distance);
-        end = snap_to_snap_grid(&end, snap_distance);
+    pub fn new(start: &WPos, end: &WPos) -> Option<Line> {
+        let start = *start;
+        let end = *end;
 
-        let end = if start.wx == end.wx || start.wy == end.wy {
-            start + snap_distance
-        } else {
-            end
+        if start.dist(&end) < 1. {
+            return None;
         };
 
         let position = start;
         let start_point = Point::new(&(start - position), false, false, false);
         let end_point = Point::new(&(end - position), false, false, false);
 
-        Line {
+        Some(Line {
             start_point,
             end_point,
             position,
             saved_position: position,
             selected: false,
             init: true,
-        }
-    }
-    pub fn is_point_on_line(&self, pos: &WPos, precision: f64) -> bool {
-        is_point_on_segment(&self.start_point, &self.end_point, pos, precision)
+        })
     }
 }
+
 impl Shape for Line {
     fn is_init(&self) -> bool {
         self.init
@@ -50,21 +52,71 @@ impl Shape for Line {
     fn get_pos(&self) -> WPos {
         self.position
     }
-    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        let pick_pos = *pick_pos - self.position;
-        self.is_point_on_line(&pick_pos, grab_handle_precision / 2.)
+    fn get_step_r(&self, step: f64) -> f64 {
+        let dist = self.start_point.wpos.dist(&self.end_point.wpos);
+        if dist > 0. {
+            step / dist
+        } else {
+            step
+        }
     }
-    fn get_shape_point_under_pick_pos(
+    fn get_pos_from_ratio(&self, r: f64) -> WPos {
+        let s = self.start_point.wpos;
+        let e = self.end_point.wpos;
+        (e - s) * r + s + self.position
+    }
+    fn get_ratio_from_pos(&self, pos: &WPos) -> f64 {
+        (*pos - self.position).ratio(&self.start_point.wpos, &self.end_point.wpos)
+    }
+    fn get_projected_pos(&self, pick_pos: &WPos) -> WPos {
+        (*pick_pos - self.position).project_to_seg(&self.start_point.wpos, &self.end_point.wpos)
+            + self.position
+    }
+    fn split(&self, pos: &WPos) -> (Option<Box<dyn Shape>>, Option<Box<dyn Shape>>) {
+        let start_pos = self.start_point.wpos + self.position;
+        let end_pos = self.end_point.wpos + self.position;
+        (
+            if let Some(mut line1) = Line::new(&start_pos, pos) {
+                line1.init_done();
+                Some(Box::new(line1))
+            } else {
+                None
+            },
+            if let Some(mut line2) = Line::new(pos, &end_pos) {
+                line2.init_done();
+                Some(Box::new(line2))
+            } else {
+                None
+            },
+        )
+    }
+
+    fn dist(&self, pick_pos: &WPos) -> f64 {
+        let s = self.start_point.wpos + self.position;
+        let e = self.end_point.wpos + self.position;
+        let ratio = pick_pos.ratio(&s, &e);
+        println!(
+            "pick_pos: ({:.1},{:.1}), ratio:{:.4}",
+            pick_pos.wx, pick_pos.wy, ratio
+        );
+        if ratio >= 0. && ratio <= 1. {
+            pick_pos.sign_dist_to_seg(&s, &e).abs()
+        } else {
+            s.dist(&pick_pos).min(e.dist(&pick_pos))
+        }
+    }
+
+    fn get_shape_point_type_under_pick_pos(
         &mut self,
         pick_pos: &WPos,
         grab_handle_precision: f64,
     ) -> Option<PointType> {
         // The first point found is returned
         let pick_pos = *pick_pos - self.position;
-        if is_point_on_point(&pick_pos, &self.end_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.end_point.wpos) < grab_handle_precision {
             return Some(PointType::End);
         }
-        if is_point_on_point(&pick_pos, &self.start_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.start_point.wpos) < grab_handle_precision {
             return Some(PointType::Start);
         }
         None
@@ -83,13 +135,10 @@ impl Shape for Line {
     fn is_selected(&self) -> bool {
         self.selected
     }
-    fn move_selection(
-        &mut self,
-        pick_pos: &WPos,
-        pick_pos_ms_dwn: &WPos,
-        snap_distance: f64,
-        _magnet_distance: f64,
-    ) {
+    fn move_selection(&mut self, pick_pos: &WPos, pick_pos_ms_dwn: &WPos, _magnet_distance: f64) {
+        let pick_pos = *pick_pos;
+        let pick_pos_ms_dwn = *pick_pos_ms_dwn;
+
         if self.init {
             self.start_point.selected = false;
             self.end_point.selected = true;
@@ -97,25 +146,25 @@ impl Shape for Line {
         if self.selected {
             match (self.start_point.selected, self.end_point.selected) {
                 (true, false) => {
-                    self.start_point.wpos = *pick_pos - self.position;
-                    if self.start_point.wpos == self.end_point.wpos {
-                        self.start_point.wpos += snap_distance;
+                    let pos = pick_pos - self.position;
+                    if pos != self.end_point.wpos {
+                        self.start_point.wpos = pos;
                     }
                 }
                 (false, true) => {
-                    self.end_point.wpos = *pick_pos - self.position;
-                    if self.end_point.wpos == self.start_point.wpos {
-                        self.end_point.wpos += 2. * snap_distance;
+                    let pos = pick_pos - self.position;
+                    if pos != self.start_point.wpos {
+                        self.end_point.wpos = pos;
                     }
                 }
                 (false, false) => {
-                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                    self.position = self.saved_position + pick_pos - pick_pos_ms_dwn;
                 }
                 _ => (),
             }
         }
     }
-    fn select_point(&mut self, point_type: &PointType) {
+    fn select_point_type(&mut self, point_type: &PointType) {
         (self.start_point.selected, self.end_point.selected) = match point_type {
             PointType::Start => (true, false),
             PointType::End => (false, true),
@@ -131,7 +180,6 @@ impl Shape for Line {
     }
     fn magnet_to_point(&self, pick_pos: &mut WPos, magnet_distance: f64) {
         let start_pos = self.start_point.wpos;
-        // let ctrl_pos = self.ctrl_point.wpos;
         let end_pos = self.start_point.wpos;
 
         if pick_pos.dist(&(start_pos + self.position)) < magnet_distance {
@@ -205,4 +253,24 @@ impl Shape for Line {
         ]
     }
 }
-impl ShapePool for Line {}
+// impl ShapePool for Line {}
+
+mod tests {
+    use super::*;
+    use crate::shapes::line::Line;
+
+    // use: cargo test test_is_point_around --no-default-features -- --nocapture
+    #[test]
+    fn test_is_point_around() {
+        let pos0 = WPos::new(-10., -10.);
+        let pos1 = WPos::new(-10., 2.);
+
+        let pos = WPos::new(-10., 2.1);
+        let line: Line = Line::new(&pos0, &pos1).unwrap();
+
+        let res = line.dist(&pos);
+        println!("TOTO: {:?}", res);
+
+        assert!(true);
+    }
+}

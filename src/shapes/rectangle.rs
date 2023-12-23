@@ -1,5 +1,5 @@
 use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
-use crate::{datapool::ShapePool, math::*};
+use crate::math::*;
 
 #[derive(Clone)]
 pub struct Rectangle {
@@ -13,19 +13,19 @@ pub struct Rectangle {
     init: bool,
 }
 impl Rectangle {
-    pub fn new(position: &WPos, w: f64, h: f64, snap_distance: f64) -> Rectangle {
-        let position = snap_to_snap_grid(position, snap_distance);
-        let w = snap_to_positive_value(w, snap_distance);
-        let h = snap_to_positive_value(h, snap_distance);
+    pub fn new(position: &WPos, w: f64, h: f64) -> Option<Rectangle> {
+        let position = *position;
 
-        // let w = 30.;
-        // let h = 40.;
+        if w == 0. || h == 0. {
+            return None;
+        }
+
         let tl_pt = Point::new(&WPos::zero(), true, true, false);
         let tr_pt = Point::new(&WPos::zero().addxy(w, 0.), true, true, false);
         let br_pt = Point::new(&WPos::zero().addxy(w, h), true, true, false);
         let bl_pt = Point::new(&WPos::zero().addxy(0., h), true, true, false);
 
-        let rectangle = Rectangle {
+        Some(Rectangle {
             bl_pt,
             tl_pt,
             tr_pt,
@@ -34,14 +34,13 @@ impl Rectangle {
             saved_position: position,
             selected: false,
             init: true,
-        };
-        rectangle
+        })
     }
     pub fn is_point_on_rectangle(&self, pos: &WPos, precision: f64) -> bool {
-        is_point_on_segment(&self.bl_pt, &self.tl_pt, pos, precision)
-            || is_point_on_segment(&self.tl_pt, &self.tr_pt, pos, precision)
-            || is_point_on_segment(&self.tr_pt, &self.br_pt, pos, precision)
-            || is_point_on_segment(&self.br_pt, &self.bl_pt, pos, precision)
+        pos.sign_dist_to_seg(&self.bl_pt.wpos, &self.tl_pt.wpos) < precision
+            || pos.sign_dist_to_seg(&self.tl_pt.wpos, &self.tr_pt.wpos) < precision
+            || pos.sign_dist_to_seg(&self.tr_pt.wpos, &self.br_pt.wpos) < precision
+            || pos.sign_dist_to_seg(&self.br_pt.wpos, &self.bl_pt.wpos) < precision
     }
     // pub fn reorder_pts(&mut self) {
     //     let min_wx = self.tl_pt.wpos.wx.min(
@@ -85,30 +84,57 @@ impl Shape for Rectangle {
     fn init_done(&mut self) {
         self.init = false;
     }
+
     fn get_pos(&self) -> WPos {
         self.position
     }
-    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        let pick_pos = *pick_pos - self.position;
-        self.is_point_on_rectangle(&pick_pos, grab_handle_precision / 2.)
+    fn get_step_r(&self, grab_handle_precision: f64) -> f64 {
+        //
+        0.
     }
-    fn get_shape_point_under_pick_pos(
+
+    fn get_pos_from_ratio(&self, r: f64) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn get_ratio_from_pos(&self, rpos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    fn get_projected_pos(&self, pick_pos: &WPos) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn split(&self, pos: &WPos) -> (Option<Box<dyn Shape>>, Option<Box<dyn Shape>>) {
+        // TODO
+        (None, None)
+    }
+
+    fn dist(&self, pick_pos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    // fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+    //     let pick_pos = *pick_pos - self.position;
+    //     self.is_point_on_rectangle(&pick_pos, grab_handle_precision / 2.)
+    // }
+    fn get_shape_point_type_under_pick_pos(
         &mut self,
         pick_pos: &WPos,
         grab_handle_precision: f64,
     ) -> Option<PointType> {
         // The first point found is returned
         let pick_pos = *pick_pos - self.position;
-        if is_point_on_point(&pick_pos, &self.bl_pt.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.bl_pt.wpos) < grab_handle_precision {
             return Some(PointType::BL);
         }
-        if is_point_on_point(&pick_pos, &self.tl_pt.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.tl_pt.wpos) < grab_handle_precision {
             return Some(PointType::TL);
         }
-        if is_point_on_point(&pick_pos, &self.tr_pt.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.tr_pt.wpos) < grab_handle_precision {
             return Some(PointType::TR);
         }
-        if is_point_on_point(&pick_pos, &self.br_pt.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.br_pt.wpos) < grab_handle_precision {
             return Some(PointType::BR);
         }
         None
@@ -129,13 +155,10 @@ impl Shape for Rectangle {
     fn is_selected(&self) -> bool {
         self.selected
     }
-    fn move_selection(
-        &mut self,
-        pick_pos: &WPos,
-        pick_pos_ms_dwn: &WPos,
-        snap_distance: f64,
-        _magnet_distance: f64,
-    ) {
+    fn move_selection(&mut self, pick_pos: &WPos, pick_pos_ms_dwn: &WPos, _magnet_distance: f64) {
+        let pick_pos = *pick_pos;
+        let pick_pos_ms_dwn = *pick_pos_ms_dwn;
+
         if self.init {
             self.tl_pt.selected = false;
             self.tr_pt.selected = false;
@@ -150,37 +173,37 @@ impl Shape for Rectangle {
                 self.bl_pt.selected,
             ) {
                 (true, false, false, false) => {
-                    let new_tl_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
-                    self.tl_pt.wpos = new_tl_pos;
+                    let pos = pick_pos - self.position;
+                    self.tl_pt.wpos = pos;
                     self.bl_pt.wpos.wx = self.tl_pt.wpos.wx;
                     self.tr_pt.wpos.wy = self.tl_pt.wpos.wy;
                 }
                 (false, true, false, false) => {
-                    let new_tr_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
-                    self.tr_pt.wpos = new_tr_pos;
+                    let pos = pick_pos - self.position;
+                    self.tr_pt.wpos = pos;
                     self.br_pt.wpos.wx = self.tr_pt.wpos.wx;
                     self.tl_pt.wpos.wy = self.tr_pt.wpos.wy;
                 }
                 (false, false, true, false) => {
-                    let new_br_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
-                    self.br_pt.wpos = new_br_pos;
+                    let pos = pick_pos - self.position;
+                    self.br_pt.wpos = pos;
                     self.tr_pt.wpos.wx = self.br_pt.wpos.wx;
                     self.bl_pt.wpos.wy = self.br_pt.wpos.wy;
                 }
                 (false, false, false, true) => {
-                    let new_bl_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
-                    self.bl_pt.wpos = new_bl_pos;
+                    let pos = pick_pos - self.position;
+                    self.bl_pt.wpos = pos;
                     self.tl_pt.wpos.wx = self.bl_pt.wpos.wx;
                     self.br_pt.wpos.wy = self.bl_pt.wpos.wy;
                 }
                 (false, false, false, false) => {
-                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                    self.position = self.saved_position + pick_pos - pick_pos_ms_dwn;
                 }
                 _ => (),
             }
         }
     }
-    fn select_point(&mut self, point_type: &PointType) {
+    fn select_point_type(&mut self, point_type: &PointType) {
         (
             self.bl_pt.selected,
             self.tl_pt.selected,
@@ -285,4 +308,4 @@ impl Shape for Rectangle {
         ]
     }
 }
-impl ShapePool for Rectangle {}
+// impl ShapePool for Rectangle {}

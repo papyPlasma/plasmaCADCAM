@@ -1,3 +1,11 @@
+// #![cfg(not(test))]
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 use crate::datapool::DataPools;
 use crate::math::*;
 use crate::shapes::cubicbezier::CubicBezier;
@@ -106,6 +114,7 @@ pub struct PlayingArea {
 ///////////////
 // Initialization
 pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
+    log!("Creating playing area");
     let document = window.document().expect("should have a document on window");
     let body = document.body().expect("should have a body on document");
     let canvas = document
@@ -167,6 +176,7 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
     user_icons.insert("icon-cubicbezier", None);
     user_icons.insert("icon-rectangle", None);
     user_icons.insert("icon-ellipse", None);
+    user_icons.insert("icon-scissors", None);
     user_icons.insert("icon-cog", None);
 
     let document_element = document
@@ -538,7 +548,6 @@ fn set_callback(
 }
 fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
     let mut pa_mut = pa.borrow_mut();
-    let working_area_snap_grid = pa_mut.working_area_snap_grid;
     let grp_id = pa_mut.data_pools.create_group_id();
     pa_mut.data_pools.clear_shapes_selection();
 
@@ -584,14 +593,13 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let shape = Line::new(
-                                        &current_position,
-                                        &new_position,
-                                        working_area_snap_grid,
-                                    );
-                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    if let Some(shape) = Line::new(&current_position, &new_position)
+                                    {
+                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    }
+
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = None;
@@ -608,14 +616,12 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let shape = Line::new(
-                                    &current_position,
-                                    &new_position,
-                                    working_area_snap_grid,
-                                );
-                                let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                if let Some(shape) = Line::new(&current_position, &new_position) {
+                                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                }
+
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -631,14 +637,12 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                     Position::Absolute => end_point,
                                     Position::Relative => current_position + end_point,
                                 };
-                                let shape = Line::new(
-                                    &current_position,
-                                    &new_position,
-                                    working_area_snap_grid,
-                                );
-                                let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                if let Some(shape) = Line::new(&current_position, &new_position) {
+                                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                }
+
                                 current_position = new_position;
                                 last_quad_control_point = None;
                                 last_cubic_control_point = None;
@@ -663,15 +667,16 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                             current_position + end_point
                                         }
                                     };
-                                    let shape = QuadBezier::new(
+                                    if let Some(shape) = QuadBezier::new(
                                         &current_position,
                                         &control_point,
                                         &new_position,
-                                        working_area_snap_grid,
-                                    );
-                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    ) {
+                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    }
+
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -696,15 +701,16 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                         Position::Absolute => end_point,
                                         Position::Relative => current_position + end_point,
                                     };
-                                    let shape = QuadBezier::new(
+                                    if let Some(shape) = QuadBezier::new(
                                         &current_position,
                                         &control_point,
                                         &new_position,
-                                        working_area_snap_grid,
-                                    );
-                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    ) {
+                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    }
+
                                     current_position = new_position;
                                     last_quad_control_point = Some(control_point);
                                     last_cubic_control_point = None;
@@ -735,16 +741,17 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                             current_position + end_point
                                         }
                                     };
-                                    let shape = CubicBezier::new(
+                                    if let Some(shape) = CubicBezier::new(
                                         &current_position,
                                         &control_point1,
                                         &control_point2,
                                         &new_position,
-                                        working_area_snap_grid,
-                                    );
-                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    ) {
+                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    }
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -776,16 +783,18 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                             current_position + end_point
                                         }
                                     };
-                                    let shape = CubicBezier::new(
+                                    if let Some(shape) = CubicBezier::new(
                                         &current_position,
                                         &control_point1,
                                         &control_point2,
                                         &new_position,
-                                        working_area_snap_grid,
-                                    );
-                                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    ) {
+                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                    }
+
                                     current_position = new_position;
                                     last_quad_control_point = None;
                                     last_cubic_control_point = Some(control_point2);
@@ -794,14 +803,12 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                         }
                         Command::EllipticalArc(_postype, _params) => {}
                         Command::Close => {
-                            let shape = Line::new(
-                                &current_position,
-                                &start_position,
-                                working_area_snap_grid,
-                            );
-                            let sh_id = pa_mut.data_pools.insert_shape(shape);
-                            pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                            pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                            if let Some(shape) = Line::new(&current_position, &start_position) {
+                                let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                            }
+
                             current_position = start_position;
                             last_quad_control_point = None;
                             last_cubic_control_point = None;
@@ -846,7 +853,8 @@ fn on_mouse_down(pa: RefArea, event: Event) {
             };
 
             pa_mut.pick_pos = mouse_pos_canvas.to_world(scale, offset);
-            pa_mut.pick_pos = snap_to_snap_grid(&pa_mut.pick_pos, snap_grid);
+            pa_mut.pick_pos.snap(snap_grid);
+
             pa_mut.pick_pos_ms_dwn = pa_mut.pick_pos;
 
             let pick_pos = pa_mut.pick_pos;
@@ -857,7 +865,6 @@ fn on_mouse_down(pa: RefArea, event: Event) {
 
             match pa_mut.icon_selected {
                 "icon-arrow" => {
-                    //
                     pa_mut.data_pools.shapes_selection(
                         &pick_pos,
                         shift_pressed,
@@ -867,34 +874,58 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                 "icon-selection" => pa_mut.selection_area = Some([pick_pos, pick_pos]),
                 "icon-line" => {
                     pa_mut.data_pools.clear_shapes_selection();
-                    let shape = Line::new(&pick_pos, &pick_pos, snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    // pick_pos.snap(snap_grid);
+                    if let Some(shape) = Line::new(&pick_pos, &(pick_pos + snap_grid)) {
+                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    }
                 }
                 "icon-quadbezier" => {
                     pa_mut.data_pools.clear_shapes_selection();
-                    let shape = QuadBezier::new(&pick_pos, &pick_pos, &pick_pos, snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    if let Some(shape) = QuadBezier::new(
+                        &pick_pos,
+                        &(pick_pos + snap_grid),
+                        &(pick_pos + 2. * snap_grid),
+                    ) {
+                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    }
                 }
                 "icon-cubicbezier" => {
                     pa_mut.data_pools.clear_shapes_selection();
-                    let shape =
-                        CubicBezier::new(&pick_pos, &pick_pos, &pick_pos, &pick_pos, snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    if let Some(shape) = CubicBezier::new(
+                        &pick_pos,
+                        &(pick_pos + snap_grid),
+                        &(pick_pos + 2. * snap_grid),
+                        &(pick_pos + 3. * snap_grid),
+                    ) {
+                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    }
                 }
                 "icon-rectangle" => {
                     pa_mut.data_pools.clear_shapes_selection();
-                    let shape = Rectangle::new(&pick_pos, 0., 0., snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(shape);
-                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    if let Some(shape) = Rectangle::new(&pick_pos, snap_grid, snap_grid) {
+                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                    }
                 }
                 "icon-ellipse" => {
                     pa_mut.data_pools.clear_shapes_selection();
                     let shape = Ellipse::new(&pick_pos, &pick_pos, 0., 2. * PI, snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(shape);
+                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
                     pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                }
+                "icon-scissors" => {
+                    if let Some(sh_id) = pa_mut
+                        .data_pools
+                        .pick_first_shape(&pick_pos, grab_handle_precision)
+                    {
+                        log!("Picked some shape id: {:?}", sh_id);
+                        pa_mut
+                            .data_pools
+                            .cut_shape(&sh_id, &pick_pos, grab_handle_precision);
+                    }
                 }
                 _ => (),
             }
@@ -934,8 +965,8 @@ fn on_mouse_move(pa: RefArea, event: Event) {
 
         let mouse_delta_canvas = mouse_pos_canvas - pa_mut.mouse_previous_pos_canvas;
         pa_mut.pick_pos = mouse_pos_canvas.to_world(scale, offset);
-        pa_mut.pick_pos = snap_to_snap_grid(&pa_mut.pick_pos, snap_grid);
         let mut pick_pos = pa_mut.pick_pos;
+        pick_pos.snap(snap_grid);
         let pick_pos_ms_dwn = pa_mut.pick_pos_ms_dwn;
 
         if let MouseState::LeftDown = mouse_state {
@@ -948,17 +979,17 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                         } else {
                             let shapes_selected = pa_mut.data_pools.get_shapes_selected().clone();
                             shapes_selected.iter().for_each(|sh_id| {
+                                pa_mut.data_pools.magnet_to_point(
+                                    &mut pick_pos,
+                                    Some(*sh_id),
+                                    magnet_distance,
+                                );
                                 let shape = pa_mut
                                     .data_pools
                                     .get_all_shapes_mut()
                                     .get_mut(sh_id)
                                     .unwrap();
-                                shape.move_selection(
-                                    &pick_pos,
-                                    &pick_pos_ms_dwn,
-                                    snap_grid,
-                                    magnet_distance,
-                                )
+                                shape.move_selection(&pick_pos, &pick_pos_ms_dwn, magnet_distance)
                             });
                         }
                     }
@@ -971,42 +1002,43 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                     | "icon-rectangle" => {
                         let shapes_selected = pa_mut.data_pools.get_shapes_selected().clone();
                         shapes_selected.iter().for_each(|sh_id| {
+                            pa_mut.data_pools.magnet_to_point(
+                                &mut pick_pos,
+                                Some(*sh_id),
+                                magnet_distance,
+                            );
                             let shape = pa_mut
                                 .data_pools
                                 .get_all_shapes_mut()
                                 .get_mut(sh_id)
                                 .unwrap();
-                            shape.move_selection(
-                                &pick_pos,
-                                &pick_pos_ms_dwn,
-                                snap_grid,
-                                magnet_distance,
-                            )
+                            shape.move_selection(&pick_pos, &pick_pos_ms_dwn, magnet_distance)
                         });
                     }
-
                     _ => (),
                 }
-                // Update display mouse world position
-                pa_mut
-                    .mouse_worksheet_position
-                    .set_text_content(Some(&format!(
-                        "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                        pick_pos.wx.round() as i32,
-                        pick_pos.wy.round() as i32,
-                        (pick_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
-                        (pick_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
-                    )));
-
-                //
                 pa_mut.pick_pos = pick_pos;
             }
         } else {
+            pick_pos.snap(snap_grid);
             pa_mut
                 .data_pools
                 .magnet_to_point(&mut pick_pos, None, magnet_distance);
-            pick_pos = pick_pos;
+            pa_mut.pick_pos = pick_pos;
+        }
 
+        // Display: update mouse world position
+        if let MouseState::LeftDown = mouse_state {
+            pa_mut
+                .mouse_worksheet_position
+                .set_text_content(Some(&format!(
+                    "( {:?} , {:?} ) - ( {:?} , {:?} )",
+                    pick_pos.wx.round() as i32,
+                    pick_pos.wy.round() as i32,
+                    (pick_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
+                    (pick_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
+                )));
+        } else {
             pa_mut
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
@@ -1014,13 +1046,9 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                     pick_pos.wx.round() as i32,
                     pick_pos.wy.round() as i32
                 )));
-
-            //
-            pa_mut.pick_pos = pick_pos;
         }
 
         pa_mut.mouse_previous_pos_canvas = mouse_pos_canvas;
-
         drop(pa_mut);
         render(pa.clone());
     }
@@ -1113,7 +1141,7 @@ fn on_keydown(pa: RefArea, event: Event) {
         let mut pa_mut = pa.borrow_mut();
 
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            pa_mut.data_pools.clear_shapes_selection();
+            pa_mut.data_pools.delete_shapes_selected();
         }
         // if keyboard_event.key() == "Escape" {
         //     console::log_1(&"ddd".into());

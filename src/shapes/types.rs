@@ -1,3 +1,10 @@
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+// macro_rules! log {
+//     ( $( $t:tt )* ) => {
+//         web_sys::console::log_1(&format!( $( $t )* ).into());
+//     }
+// }
+
 use std::hash::{Hash, Hasher};
 use std::ops::Add;
 use std::ops::AddAssign;
@@ -14,10 +21,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub trait Shape {
     fn is_init(&self) -> bool;
     fn init_done(&mut self);
-    fn get_pos(&self) -> WPos;
 
-    fn is_shape_under_pick_pos(&self, position: &WPos, grab_handle_precision: f64) -> bool;
-    fn get_shape_point_under_pick_pos(
+    fn get_pos(&self) -> WPos;
+    fn get_step_r(&self, grab_handle_precision: f64) -> f64;
+
+    fn get_pos_from_ratio(&self, r: f64) -> WPos;
+    fn get_ratio_from_pos(&self, pos: &WPos) -> f64;
+
+    // Perpendicular projection of the point on the shape, then take the
+    // ratio of the point found
+    fn get_projected_pos(&self, pick_pos: &WPos) -> WPos;
+    fn split(&self, pos: &WPos) -> (Option<Box<dyn Shape>>, Option<Box<dyn Shape>>);
+
+    fn dist(&self, pick_pos: &WPos) -> f64;
+
+    fn get_shape_point_type_under_pick_pos(
         &mut self,
         pick_pos: &WPos,
         grab_handle_precision: f64,
@@ -26,14 +44,8 @@ pub trait Shape {
     fn set_selected(&mut self, selected: bool);
     fn deselect_all_points(&mut self);
     fn is_selected(&self) -> bool;
-    fn move_selection(
-        &mut self,
-        pick_pos: &WPos,
-        pick_pos_ms_dwn: &WPos,
-        snap_distance: f64,
-        magnet_distance: f64,
-    );
-    fn select_point(&mut self, point_type: &PointType);
+    fn move_selection(&mut self, pick_pos: &WPos, pick_pos_ms_dwn: &WPos, magnet_distance: f64);
+    fn select_point_type(&mut self, point_type: &PointType);
 
     fn save_current_position(&mut self);
     fn get_saved_position(&self) -> WPos;
@@ -174,21 +186,21 @@ impl Point {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct PointProp {
-    pub magnetic: bool,
-    pub draggable: bool,
-    pub selected: bool,
-}
-impl PointProp {
-    pub fn new(magnetic: bool, draggable: bool, selected: bool) -> PointProp {
-        PointProp {
-            magnetic,
-            draggable,
-            selected,
-        }
-    }
-}
+// #[derive(Copy, Clone, Debug)]
+// pub struct PointProp {
+//     pub magnetic: bool,
+//     pub draggable: bool,
+//     pub selected: bool,
+// }
+// impl PointProp {
+//     pub fn new(magnetic: bool, draggable: bool, selected: bool) -> PointProp {
+//         PointProp {
+//             magnetic,
+//             draggable,
+//             selected,
+//         }
+//     }
+// }
 
 #[derive(Copy, Clone, Debug)]
 pub struct WPos {
@@ -201,6 +213,9 @@ impl WPos {
     }
     pub fn zero() -> Self {
         WPos { wx: 0., wy: 0. }
+    }
+    pub fn snap(&mut self, snap_distance: f64) {
+        *self = (*self / snap_distance).round() * snap_distance;
     }
     pub fn to_canvas(&self, scale: f64, offset: CPos) -> CPos {
         let canvas_x = (self.wx * scale) + offset.cx;
@@ -236,12 +251,67 @@ impl WPos {
     }
     #[allow(dead_code)]
     pub fn norm(&self) -> f64 {
-        (self.wx * self.wx + self.wy * self.wy).sqrt()
+        self.norm2().sqrt()
+    }
+    #[allow(dead_code)]
+    pub fn norm2(&self) -> f64 {
+        self.wx * self.wx + self.wy * self.wy
+    }
+    #[allow(dead_code)]
+    pub fn dot(&self, other: &WPos) -> f64 {
+        self.wx * other.wx + self.wy * other.wy
     }
     pub fn lerp(&self, other: &WPos, t: f64) -> WPos {
         WPos {
             wx: self.wx + t * (other.wx - self.wx),
             wy: self.wy + t * (other.wy - self.wy),
+        }
+    }
+    // pub fn sign_dist_to_seg(&self, pos1: &WPos, pos2: &WPos) -> f64 {
+    //     let a = pos2.wy - pos1.wy;
+    //     let b = pos1.wx - pos2.wx;
+    //     let c = pos1.wx * pos2.wy - pos2.wx * pos1.wy;
+
+    //     let num = a * self.wx + b * self.wy + c;
+    //     let den = (a * a + b * b).sqrt();
+
+    //     let dist = if den != 0. {
+    //         num / den
+    //     } else {
+    //         self.dist(pos1)
+    //     };
+    //     dist
+    // }
+    pub fn sign_dist_to_seg(&self, pos1: &WPos, pos2: &WPos) -> f64 {
+        let num =
+            (pos2.wx - pos1.wx) * (pos1.wy - self.wy) - (pos1.wx - self.wx) * (pos2.wy - pos1.wy);
+        let den = ((pos2.wx - pos1.wx).powi(2) + (pos2.wy - pos1.wy).powi(2)).sqrt();
+        if den > 0. {
+            num / den
+        } else {
+            // pos1 == pos2, hence return the distance between the 2 points
+            self.dist(&pos1)
+        }
+    }
+    // Find the projection of a point onto a line segment defined by two points
+    pub fn project_to_seg(&self, pos1: &WPos, pos2: &WPos) -> WPos {
+        let pos_v = WPos::new(self.wx - pos1.wx, self.wy - pos1.wy);
+        let dir_v = WPos::new(pos2.wx - pos1.wx, pos2.wy - pos1.wy);
+        *pos1 + dir_v * (pos_v.dot(&dir_v) / dir_v.norm2())
+    }
+    pub fn ratio(&self, pos1: &WPos, pos2: &WPos) -> f64 {
+        let vec1 = self - pos1;
+        let vec2 = pos2 - pos1;
+        let norm1 = vec1.norm();
+        let norm2 = vec2.norm();
+        if norm2 > 0. {
+            if vec1.dot(&vec2) >= 0. {
+                norm1 / norm2
+            } else {
+                -norm1 / norm2
+            }
+        } else {
+            0.
         }
     }
 }

@@ -1,5 +1,9 @@
+use std::f64::consts::PI;
+#[cfg(not(test))]
+use web_sys::console;
+
 use super::types::{ConstructionType, LayerType, Point, PointType, Shape, WPos};
-use crate::{datapool::ShapePool, math::*};
+use crate::math::*;
 
 #[derive(Clone)]
 pub struct Ellipse {
@@ -20,12 +24,14 @@ impl Ellipse {
         end_angle: f64,
         snap_distance: f64,
     ) -> Ellipse {
-        let position = *center_pos;
-        let mut center_pos = WPos::zero();
+        let mut center_pos = *center_pos;
+        center_pos.snap(snap_distance);
+
+        let position = center_pos;
         let mut radius_pos = *radius_pos - position;
 
-        center_pos = snap_to_snap_grid(&center_pos, snap_distance);
-        radius_pos = snap_to_snap_grid(&radius_pos, snap_distance);
+        let center_pos = WPos::zero();
+        radius_pos.snap(snap_distance);
 
         if radius_pos.wx == center_pos.wx {
             radius_pos.wx += snap_distance;
@@ -85,21 +91,13 @@ impl Ellipse {
         let center_pos = self.center_point.wpos;
         let radius_pos = self.radius_point.wpos;
         f64::atan2(
-            (pos.wy - center_pos.wy) / radius_pos.wy,
-            (pos.wx - center_pos.wx) / radius_pos.wx,
-        )
-    }
-    fn angle_on_ellipse_abs(&self, pos: &WPos) -> f64 {
-        let center_pos = self.center_point.wpos;
-        let radius_pos = self.radius_point.wpos.abs();
-        f64::atan2(
-            (pos.wy - center_pos.wy) / radius_pos.wy,
-            (pos.wx - center_pos.wx) / radius_pos.wx,
+            (pos.wy - center_pos.wy) / radius_pos.wy.abs(),
+            (pos.wx - center_pos.wx) / radius_pos.wx.abs(),
         )
     }
     fn get_point_from_angle(&self, angle: f64) -> WPos {
-        let x = self.radius_point.wpos.wx * angle.cos();
-        let y = self.radius_point.wpos.wy * angle.sin();
+        let x = self.radius_point.wpos.wx.abs() * angle.cos();
+        let y = self.radius_point.wpos.wy.abs() * angle.sin();
         WPos { wx: x, wy: y }
     }
     fn is_point_on_ellipse(&self, pos: &WPos, precision: f64) -> bool {
@@ -112,13 +110,16 @@ impl Ellipse {
         }
         let start_angle = self.angle_on_ellipse(&self.sa_point.wpos);
         let end_angle = self.angle_on_ellipse(&self.ea_point.wpos);
-        let angle = self.angle_on_ellipse_abs(&pos);
+        let angle = self.angle_on_ellipse(&pos);
 
         if end_angle > start_angle {
             angle >= start_angle && angle <= end_angle
         } else {
             !(angle >= end_angle && angle <= start_angle)
         }
+    }
+    pub fn get_angle_from_pos(&self, pos: &WPos) -> f64 {
+        pos.wy.atan2(pos.wx)
     }
 }
 impl Shape for Ellipse {
@@ -131,11 +132,37 @@ impl Shape for Ellipse {
     fn get_pos(&self) -> WPos {
         self.position
     }
-    fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        let pick_pos = *pick_pos - self.position;
-        self.is_point_on_ellipse(&pick_pos, grab_handle_precision / 2.)
+    fn get_step_r(&self, grab_handle_precision: f64) -> f64 {
+        //
+        0.
     }
-    fn get_shape_point_under_pick_pos(
+
+    fn get_pos_from_ratio(&self, r: f64) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn get_ratio_from_pos(&self, rpos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    fn get_projected_pos(&self, pick_pos: &WPos) -> WPos {
+        // TODO
+        WPos::zero()
+    }
+    fn split(&self, pos: &WPos) -> (Option<Box<dyn Shape>>, Option<Box<dyn Shape>>) {
+        // TODO
+        (None, None)
+    }
+
+    fn dist(&self, pick_pos: &WPos) -> f64 {
+        // TODO
+        0.
+    }
+    // fn is_shape_under_pick_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+    //     let pick_pos = *pick_pos - self.position;
+    //     self.is_point_on_ellipse(&pick_pos, grab_handle_precision / 2.)
+    // }
+    fn get_shape_point_type_under_pick_pos(
         &mut self,
         pick_pos: &WPos,
         grab_handle_precision: f64,
@@ -143,34 +170,16 @@ impl Shape for Ellipse {
         let radius = self.radius_point.wpos;
         // The first point found is returned
         let pick_pos = *pick_pos - self.position;
-        if is_point_on_point(&pick_pos, &self.center_point.wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.center_point.wpos) < grab_handle_precision {
             return Some(PointType::Center);
         }
-        if is_point_on_point(&pick_pos, &radius, grab_handle_precision) {
+        if pick_pos.dist(&radius) < grab_handle_precision {
             return Some(PointType::Radius);
         }
-        let (sa_wpos, ea_wpos) = match (
-            self.radius_point.wpos.wx < 0.,
-            self.radius_point.wpos.wy < 0.,
-        ) {
-            (false, false) => (self.sa_point.wpos, self.ea_point.wpos),
-            (false, true) => (
-                WPos::new(self.sa_point.wpos.wx, -self.sa_point.wpos.wy),
-                WPos::new(self.ea_point.wpos.wx, -self.ea_point.wpos.wy),
-            ),
-            (true, false) => (
-                WPos::new(-self.sa_point.wpos.wx, self.sa_point.wpos.wy),
-                WPos::new(-self.ea_point.wpos.wx, self.ea_point.wpos.wy),
-            ),
-            (true, true) => (
-                WPos::new(-self.sa_point.wpos.wx, -self.sa_point.wpos.wy),
-                WPos::new(-self.ea_point.wpos.wx, -self.ea_point.wpos.wy),
-            ),
-        };
-        if is_point_on_point(&pick_pos, &sa_wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.sa_point.wpos) < grab_handle_precision {
             return Some(PointType::StartAngle);
         }
-        if is_point_on_point(&pick_pos, &ea_wpos, grab_handle_precision) {
+        if pick_pos.dist(&self.ea_point.wpos) < grab_handle_precision {
             return Some(PointType::EndAngle);
         }
         None
@@ -191,14 +200,8 @@ impl Shape for Ellipse {
     fn is_selected(&self) -> bool {
         self.selected
     }
-    fn move_selection(
-        &mut self,
-        pick_pos: &WPos,
-        pick_pos_ms_dwn: &WPos,
-        snap_distance: f64,
-        _magnet_distance: f64,
-    ) {
-        let rel_pick_pos = snap_to_snap_grid(&(*pick_pos - self.position), snap_distance);
+    fn move_selection(&mut self, pick_pos: &WPos, pick_pos_ms_dwn: &WPos, magnet_distance: f64) {
+        let pick_pos = *pick_pos;
 
         if self.init {
             self.center_point.selected = false;
@@ -213,16 +216,15 @@ impl Shape for Ellipse {
                 self.sa_point.selected,
                 self.ea_point.selected,
             ) {
-                (true, false, false, false) => {
-                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+                (false, false, false, false) | (true, false, false, false) => {
+                    let mut pick_pos_ms_dwn = *pick_pos_ms_dwn;
+                    self.position = self.saved_position + pick_pos - pick_pos_ms_dwn;
                 }
                 (false, true, false, false) => {
-                    self.radius_point.wpos = rel_pick_pos;
-                    if self.radius_point.wpos.wx == self.center_point.wpos.wx {
-                        self.radius_point.wpos.wx += snap_distance;
-                    }
-                    if self.radius_point.wpos.wy == self.center_point.wpos.wy {
-                        self.radius_point.wpos.wy += snap_distance;
+                    self.radius_point.wpos = pick_pos - self.position;
+                    let pos = pick_pos - self.position;
+                    if pos.wx != self.center_point.wpos.wx || pos.wy != self.center_point.wpos.wy {
+                        self.radius_point.wpos = pos;
                     }
 
                     let start_angle = self.angle_on_ellipse(&self.sa_point.wpos);
@@ -232,39 +234,56 @@ impl Shape for Ellipse {
                     self.ea_point.wpos = self.get_point_from_angle(end_angle);
                 }
                 (false, false, true, false) => {
-                    let pos = rel_pick_pos - self.center_point.wpos;
-                    let angle = match (
-                        self.radius_point.wpos.wx < 0.,
-                        self.radius_point.wpos.wy < 0.,
-                    ) {
-                        (false, false) => get_atan2(&pos),
-                        (false, true) => get_atan2(&WPos::new(pos.wx, -pos.wy)),
-                        (true, false) => get_atan2(&WPos::new(-pos.wx, pos.wy)),
-                        (true, true) => get_atan2(&WPos::new(-pos.wx, -pos.wy)),
-                    };
+                    let pos = pick_pos - self.position - self.center_point.wpos;
+                    let mut angle = self.get_angle_from_pos(&pos);
+
+                    magnet_to_45(&mut angle, &self.radius_point.wpos, magnet_distance);
                     self.sa_point.wpos = get_point_from_angle(&self.radius_point.wpos, angle);
+
+                    magnet_to_x(
+                        &mut self.sa_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
+                    magnet_to_y(
+                        &mut self.sa_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
+                    magnet_to_xy(
+                        &mut self.sa_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
                 }
                 (false, false, false, true) => {
-                    let pos = rel_pick_pos - self.center_point.wpos;
-                    let angle = match (
-                        self.radius_point.wpos.wx < 0.,
-                        self.radius_point.wpos.wy < 0.,
-                    ) {
-                        (false, false) => get_atan2(&pos),
-                        (false, true) => get_atan2(&WPos::new(pos.wx, -pos.wy)),
-                        (true, false) => get_atan2(&WPos::new(-pos.wx, pos.wy)),
-                        (true, true) => get_atan2(&WPos::new(-pos.wx, -pos.wy)),
-                    };
+                    let pos = pick_pos - self.position - self.center_point.wpos;
+                    let mut angle = self.get_angle_from_pos(&pos);
+
+                    magnet_to_45(&mut angle, &self.radius_point.wpos, magnet_distance);
                     self.ea_point.wpos = get_point_from_angle(&self.radius_point.wpos, angle);
-                }
-                (false, false, false, false) => {
-                    self.position = self.saved_position + *pick_pos - *pick_pos_ms_dwn;
+
+                    magnet_to_x(
+                        &mut self.ea_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
+                    magnet_to_y(
+                        &mut self.ea_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
+                    magnet_to_xy(
+                        &mut self.ea_point.wpos,
+                        &self.center_point.wpos,
+                        magnet_distance,
+                    );
                 }
                 _ => (),
             }
         }
     }
-    fn select_point(&mut self, point_type: &PointType) {
+    fn select_point_type(&mut self, point_type: &PointType) {
         (
             self.center_point.selected,
             self.radius_point.selected,
@@ -310,15 +329,15 @@ impl Shape for Ellipse {
 
         let mut sa_point = self.sa_point;
 
-        sa_point.wpos = match (
-            self.radius_point.wpos.wx < 0.,
-            self.radius_point.wpos.wy < 0.,
-        ) {
-            (false, false) => sa_point.wpos,
-            (false, true) => WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
-            (true, false) => WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
-            (true, true) => WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
-        };
+        // sa_point.wpos = match (
+        //     self.radius_point.wpos.wx < 0.,
+        //     self.radius_point.wpos.wy < 0.,
+        // ) {
+        //     (false, false) => sa_point.wpos,
+        //     (false, true) => WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
+        //     (true, false) => WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
+        //     (true, true) => WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
+        // };
 
         cst.push(ConstructionType::Move(self.position + sa_point.wpos));
         cst.push(ConstructionType::Ellipse(
@@ -345,24 +364,26 @@ impl Shape for Ellipse {
 
         let mut sa_point = self.sa_point;
         let mut ea_point = self.ea_point;
-        (sa_point.wpos, ea_point.wpos) = match (
-            self.radius_point.wpos.wx < 0.,
-            self.radius_point.wpos.wy < 0.,
-        ) {
-            (false, false) => (sa_point.wpos, ea_point.wpos),
-            (false, true) => (
-                WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
-                WPos::new(ea_point.wpos.wx, -ea_point.wpos.wy),
-            ),
-            (true, false) => (
-                WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
-                WPos::new(-ea_point.wpos.wx, ea_point.wpos.wy),
-            ),
-            (true, true) => (
-                WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
-                WPos::new(-ea_point.wpos.wx, -ea_point.wpos.wy),
-            ),
-        };
+        (sa_point.wpos, ea_point.wpos) = (sa_point.wpos, ea_point.wpos);
+
+        // (sa_point.wpos, ea_point.wpos) = match (
+        //     self.radius_point.wpos.wx < 0.,
+        //     self.radius_point.wpos.wy < 0.,
+        // ) {
+        //     (false, false) => (sa_point.wpos, ea_point.wpos),
+        //     (false, true) => (
+        //         WPos::new(sa_point.wpos.wx, -sa_point.wpos.wy),
+        //         WPos::new(ea_point.wpos.wx, -ea_point.wpos.wy),
+        //     ),
+        //     (true, false) => (
+        //         WPos::new(-sa_point.wpos.wx, sa_point.wpos.wy),
+        //         WPos::new(-ea_point.wpos.wx, ea_point.wpos.wy),
+        //     ),
+        //     (true, true) => (
+        //         WPos::new(-sa_point.wpos.wx, -sa_point.wpos.wy),
+        //         WPos::new(-ea_point.wpos.wx, -ea_point.wpos.wy),
+        //     ),
+        // };
         sa_point.wpos += self.position;
         ea_point.wpos += self.position;
 
@@ -416,4 +437,4 @@ impl Shape for Ellipse {
         ]
     }
 }
-impl ShapePool for Ellipse {}
+// impl ShapePool for Ellipse {}
