@@ -1,7 +1,7 @@
 #[cfg(not(test))]
 use web_sys::console;
 
-use crate::shapes::types::{ConstructionType, Point, WPos};
+use crate::types::*;
 use std::f64::consts::PI;
 
 pub const EPSILON: f64 = 1e-2; // Some small value
@@ -273,10 +273,10 @@ pub fn magnet_to_xy(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
 // }
 
 pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
-    let radius = WPos::default() + size_handle / 2.;
-    use ConstructionType::*;
-    cst.push(Move(pt.wpos + WPos::default().addxy(size_handle / 2., 0.)));
-    cst.push(Ellipse(pt.wpos, radius, 0., 0., 2. * PI, pt.selected));
+    // let radius = WPos::default() + size_handle / 2.;
+    // use ConstructionType::*;
+    // cst.push(Move(pt.wpos + WPos::default().addxy(size_handle / 2., 0.)));
+    // cst.push(Ellipse(pt.wpos, radius, 0., 0., 2. * PI, pt.selected));
 }
 
 //     magnet_geometry(&br, &mut p, self.snap_distance);

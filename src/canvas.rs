@@ -6,14 +6,10 @@ macro_rules! log {
     }
 }
 
-use crate::datapool::DataPools;
 use crate::math::*;
-use crate::shapes::cubicbezier::CubicBezier;
-use crate::shapes::ellipse::Ellipse;
-use crate::shapes::line::Line;
-use crate::shapes::quadbezier::QuadBezier;
-use crate::shapes::rectangle::Rectangle;
-use crate::shapes::types::{CPos, ConstructionType, LayerType, Point, WPos};
+use crate::shape::{Shape, ShapeTypes};
+use crate::shapes_pool::ShapesPool;
+use crate::types::*;
 
 use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
@@ -50,7 +46,7 @@ struct KeysStates {
 }
 
 pub struct PlayingArea {
-    data_pools: DataPools,
+    shapes_pool: ShapesPool,
     //
     pub window: Window,
     pub document: Document,
@@ -221,10 +217,10 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
     };
     let global_scale = 1.;
 
-    let data_pools = DataPools::new();
+    let shapes_pool = ShapesPool::new();
 
     let playing_area = Rc::new(RefCell::new(PlayingArea {
-        data_pools,
+        shapes_pool,
         window,
         document,
         body,
@@ -548,8 +544,8 @@ fn set_callback(
 }
 fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
     let mut pa_mut = pa.borrow_mut();
-    let grp_id = pa_mut.data_pools.create_group_id();
-    pa_mut.data_pools.clear_shapes_selection();
+    // let grp_id = pa_mut.data_pools.create_group_id();
+    pa_mut.shapes_pool.clear_shapes_selections();
 
     for event in svg::parser::Parser::new(&svg_data).into_iter() {
         match event {
@@ -581,238 +577,238 @@ fn convert_svg_to_shapes(pa: RefArea, svg_data: String) {
                                 last_cubic_control_point = None;
                             }
                         }
-                        Command::Line(postype, params) => {
-                            if params.len() % 2 == 0 {
-                                let nb_curves = params.len() / 2;
-                                for curve in 0..nb_curves {
-                                    let end_point = WPos {
-                                        wx: params[2 * curve] as f64,
-                                        wy: params[2 * curve + 1] as f64,
-                                    };
-                                    let new_position = match postype {
-                                        Position::Absolute => end_point,
-                                        Position::Relative => current_position + end_point,
-                                    };
-                                    if let Some(shape) = Line::new(&current_position, &new_position)
-                                    {
-                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                    }
+                        _ => (), // Command::Line(postype, params) => {
+                                 //     if params.len() % 2 == 0 {
+                                 //         let nb_curves = params.len() / 2;
+                                 //         for curve in 0..nb_curves {
+                                 //             let end_point = WPos {
+                                 //                 wx: params[2 * curve] as f64,
+                                 //                 wy: params[2 * curve + 1] as f64,
+                                 //             };
+                                 //             let new_position = match postype {
+                                 //                 Position::Absolute => end_point,
+                                 //                 Position::Relative => current_position + end_point,
+                                 //             };
+                                 //             if let Some(shape) = Line::new(&current_position, &new_position)
+                                 //             {
+                                 //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //             }
 
-                                    current_position = new_position;
-                                    last_quad_control_point = None;
-                                    last_cubic_control_point = None;
-                                }
-                            }
-                        }
-                        Command::HorizontalLine(postype, params) => {
-                            for curve in 0..params.len() {
-                                let end_point = WPos {
-                                    wx: params[curve] as f64,
-                                    wy: current_position.wy,
-                                };
-                                let new_position = match postype {
-                                    Position::Absolute => end_point,
-                                    Position::Relative => current_position + end_point,
-                                };
-                                if let Some(shape) = Line::new(&current_position, &new_position) {
-                                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                }
+                                 //             current_position = new_position;
+                                 //             last_quad_control_point = None;
+                                 //             last_cubic_control_point = None;
+                                 //         }
+                                 //     }
+                                 // }
+                                 // Command::HorizontalLine(postype, params) => {
+                                 //     for curve in 0..params.len() {
+                                 //         let end_point = WPos {
+                                 //             wx: params[curve] as f64,
+                                 //             wy: current_position.wy,
+                                 //         };
+                                 //         let new_position = match postype {
+                                 //             Position::Absolute => end_point,
+                                 //             Position::Relative => current_position + end_point,
+                                 //         };
+                                 //         if let Some(shape) = Line::new(&current_position, &new_position) {
+                                 //             let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //             pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //             pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //         }
 
-                                current_position = new_position;
-                                last_quad_control_point = None;
-                                last_cubic_control_point = None;
-                            }
-                        }
-                        Command::VerticalLine(postype, params) => {
-                            for curve in 0..params.len() {
-                                let end_point = WPos {
-                                    wx: current_position.wx,
-                                    wy: params[curve] as f64,
-                                };
-                                let new_position = match postype {
-                                    Position::Absolute => end_point,
-                                    Position::Relative => current_position + end_point,
-                                };
-                                if let Some(shape) = Line::new(&current_position, &new_position) {
-                                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                    pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                }
+                                 //         current_position = new_position;
+                                 //         last_quad_control_point = None;
+                                 //         last_cubic_control_point = None;
+                                 //     }
+                                 // }
+                                 // Command::VerticalLine(postype, params) => {
+                                 //     for curve in 0..params.len() {
+                                 //         let end_point = WPos {
+                                 //             wx: current_position.wx,
+                                 //             wy: params[curve] as f64,
+                                 //         };
+                                 //         let new_position = match postype {
+                                 //             Position::Absolute => end_point,
+                                 //             Position::Relative => current_position + end_point,
+                                 //         };
+                                 //         if let Some(shape) = Line::new(&current_position, &new_position) {
+                                 //             let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //             pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //             pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //         }
 
-                                current_position = new_position;
-                                last_quad_control_point = None;
-                                last_cubic_control_point = None;
-                            }
-                        }
-                        Command::QuadraticCurve(postype, params) => {
-                            if params.len() % 4 == 0 {
-                                let nb_curves = params.len() / 4;
-                                for curve in 0..nb_curves {
-                                    let mut control_point = WPos {
-                                        wx: params[4 * curve] as f64,
-                                        wy: params[4 * curve + 1] as f64,
-                                    };
-                                    let end_point = WPos {
-                                        wx: params[4 * curve + 2] as f64,
-                                        wy: params[4 * curve + 3] as f64,
-                                    };
-                                    let new_position = match postype {
-                                        Position::Absolute => end_point,
-                                        Position::Relative => {
-                                            control_point += current_position;
-                                            current_position + end_point
-                                        }
-                                    };
-                                    if let Some(shape) = QuadBezier::new(
-                                        &current_position,
-                                        &control_point,
-                                        &new_position,
-                                    ) {
-                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                    }
+                                 //         current_position = new_position;
+                                 //         last_quad_control_point = None;
+                                 //         last_cubic_control_point = None;
+                                 //     }
+                                 // }
+                                 // Command::QuadraticCurve(postype, params) => {
+                                 //     if params.len() % 4 == 0 {
+                                 //         let nb_curves = params.len() / 4;
+                                 //         for curve in 0..nb_curves {
+                                 //             let mut control_point = WPos {
+                                 //                 wx: params[4 * curve] as f64,
+                                 //                 wy: params[4 * curve + 1] as f64,
+                                 //             };
+                                 //             let end_point = WPos {
+                                 //                 wx: params[4 * curve + 2] as f64,
+                                 //                 wy: params[4 * curve + 3] as f64,
+                                 //             };
+                                 //             let new_position = match postype {
+                                 //                 Position::Absolute => end_point,
+                                 //                 Position::Relative => {
+                                 //                     control_point += current_position;
+                                 //                     current_position + end_point
+                                 //                 }
+                                 //             };
+                                 //             if let Some(shape) = QuadBezier::new(
+                                 //                 &current_position,
+                                 //                 &control_point,
+                                 //                 &new_position,
+                                 //             ) {
+                                 //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //             }
 
-                                    current_position = new_position;
-                                    last_quad_control_point = Some(control_point);
-                                    last_cubic_control_point = None;
-                                }
-                            }
-                        }
-                        Command::SmoothQuadraticCurve(postype, params) => {
-                            if params.len() % 2 == 0 {
-                                let nb_curves = params.len() / 2;
-                                for curve in 0..nb_curves {
-                                    let control_point =
-                                        if let Some(last_ctrl_pt) = last_quad_control_point {
-                                            current_position + (current_position - last_ctrl_pt)
-                                        } else {
-                                            current_position
-                                        };
-                                    let end_point = WPos {
-                                        wx: params[2 * curve] as f64,
-                                        wy: params[2 * curve + 1] as f64,
-                                    };
-                                    let new_position = match postype {
-                                        Position::Absolute => end_point,
-                                        Position::Relative => current_position + end_point,
-                                    };
-                                    if let Some(shape) = QuadBezier::new(
-                                        &current_position,
-                                        &control_point,
-                                        &new_position,
-                                    ) {
-                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                    }
+                                 //             current_position = new_position;
+                                 //             last_quad_control_point = Some(control_point);
+                                 //             last_cubic_control_point = None;
+                                 //         }
+                                 //     }
+                                 // }
+                                 // Command::SmoothQuadraticCurve(postype, params) => {
+                                 //     if params.len() % 2 == 0 {
+                                 //         let nb_curves = params.len() / 2;
+                                 //         for curve in 0..nb_curves {
+                                 //             let control_point =
+                                 //                 if let Some(last_ctrl_pt) = last_quad_control_point {
+                                 //                     current_position + (current_position - last_ctrl_pt)
+                                 //                 } else {
+                                 //                     current_position
+                                 //                 };
+                                 //             let end_point = WPos {
+                                 //                 wx: params[2 * curve] as f64,
+                                 //                 wy: params[2 * curve + 1] as f64,
+                                 //             };
+                                 //             let new_position = match postype {
+                                 //                 Position::Absolute => end_point,
+                                 //                 Position::Relative => current_position + end_point,
+                                 //             };
+                                 //             if let Some(shape) = QuadBezier::new(
+                                 //                 &current_position,
+                                 //                 &control_point,
+                                 //                 &new_position,
+                                 //             ) {
+                                 //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //             }
 
-                                    current_position = new_position;
-                                    last_quad_control_point = Some(control_point);
-                                    last_cubic_control_point = None;
-                                }
-                            }
-                        }
-                        Command::CubicCurve(postype, params) => {
-                            if params.len() % 6 == 0 {
-                                let nb_curves = params.len() / 6;
-                                for curve in 0..nb_curves {
-                                    let mut control_point1 = WPos {
-                                        wx: params[6 * curve] as f64,
-                                        wy: params[6 * curve + 1] as f64,
-                                    };
-                                    let mut control_point2 = WPos {
-                                        wx: params[6 * curve + 2] as f64,
-                                        wy: params[6 * curve + 3] as f64,
-                                    };
-                                    let end_point = WPos {
-                                        wx: params[6 * curve + 4] as f64,
-                                        wy: params[6 * curve + 5] as f64,
-                                    };
-                                    let new_position = match postype {
-                                        Position::Absolute => end_point,
-                                        Position::Relative => {
-                                            control_point1 += current_position;
-                                            control_point2 += current_position;
-                                            current_position + end_point
-                                        }
-                                    };
-                                    if let Some(shape) = CubicBezier::new(
-                                        &current_position,
-                                        &control_point1,
-                                        &control_point2,
-                                        &new_position,
-                                    ) {
-                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                    }
-                                    current_position = new_position;
-                                    last_quad_control_point = None;
-                                    last_cubic_control_point = Some(control_point2);
-                                }
-                            }
-                        }
-                        Command::SmoothCubicCurve(postype, params) => {
-                            if params.len() % 4 == 0 {
-                                let nb_curves = params.len() / 4;
-                                for curve in 0..nb_curves {
-                                    let control_point1 =
-                                        if let Some(last_ctrl_pt) = last_cubic_control_point {
-                                            current_position + (current_position - last_ctrl_pt)
-                                        } else {
-                                            current_position
-                                        };
-                                    let mut control_point2 = WPos {
-                                        wx: params[4 * curve] as f64,
-                                        wy: params[4 * curve + 1] as f64,
-                                    };
-                                    let end_point = WPos {
-                                        wx: params[4 * curve + 2] as f64,
-                                        wy: params[4 * curve + 3] as f64,
-                                    };
-                                    let new_position = match postype {
-                                        Position::Absolute => end_point,
-                                        Position::Relative => {
-                                            control_point2 += current_position;
-                                            current_position + end_point
-                                        }
-                                    };
-                                    if let Some(shape) = CubicBezier::new(
-                                        &current_position,
-                                        &control_point1,
-                                        &control_point2,
-                                        &new_position,
-                                    ) {
-                                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                        pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                                    }
+                                 //             current_position = new_position;
+                                 //             last_quad_control_point = Some(control_point);
+                                 //             last_cubic_control_point = None;
+                                 //         }
+                                 //     }
+                                 // }
+                                 // Command::CubicCurve(postype, params) => {
+                                 //     if params.len() % 6 == 0 {
+                                 //         let nb_curves = params.len() / 6;
+                                 //         for curve in 0..nb_curves {
+                                 //             let mut control_point1 = WPos {
+                                 //                 wx: params[6 * curve] as f64,
+                                 //                 wy: params[6 * curve + 1] as f64,
+                                 //             };
+                                 //             let mut control_point2 = WPos {
+                                 //                 wx: params[6 * curve + 2] as f64,
+                                 //                 wy: params[6 * curve + 3] as f64,
+                                 //             };
+                                 //             let end_point = WPos {
+                                 //                 wx: params[6 * curve + 4] as f64,
+                                 //                 wy: params[6 * curve + 5] as f64,
+                                 //             };
+                                 //             let new_position = match postype {
+                                 //                 Position::Absolute => end_point,
+                                 //                 Position::Relative => {
+                                 //                     control_point1 += current_position;
+                                 //                     control_point2 += current_position;
+                                 //                     current_position + end_point
+                                 //                 }
+                                 //             };
+                                 //             if let Some(shape) = CubicBezier::new(
+                                 //                 &current_position,
+                                 //                 &control_point1,
+                                 //                 &control_point2,
+                                 //                 &new_position,
+                                 //             ) {
+                                 //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //             }
+                                 //             current_position = new_position;
+                                 //             last_quad_control_point = None;
+                                 //             last_cubic_control_point = Some(control_point2);
+                                 //         }
+                                 //     }
+                                 // }
+                                 // Command::SmoothCubicCurve(postype, params) => {
+                                 //     if params.len() % 4 == 0 {
+                                 //         let nb_curves = params.len() / 4;
+                                 //         for curve in 0..nb_curves {
+                                 //             let control_point1 =
+                                 //                 if let Some(last_ctrl_pt) = last_cubic_control_point {
+                                 //                     current_position + (current_position - last_ctrl_pt)
+                                 //                 } else {
+                                 //                     current_position
+                                 //                 };
+                                 //             let mut control_point2 = WPos {
+                                 //                 wx: params[4 * curve] as f64,
+                                 //                 wy: params[4 * curve + 1] as f64,
+                                 //             };
+                                 //             let end_point = WPos {
+                                 //                 wx: params[4 * curve + 2] as f64,
+                                 //                 wy: params[4 * curve + 3] as f64,
+                                 //             };
+                                 //             let new_position = match postype {
+                                 //                 Position::Absolute => end_point,
+                                 //                 Position::Relative => {
+                                 //                     control_point2 += current_position;
+                                 //                     current_position + end_point
+                                 //                 }
+                                 //             };
+                                 //             if let Some(shape) = CubicBezier::new(
+                                 //                 &current_position,
+                                 //                 &control_point1,
+                                 //                 &control_point2,
+                                 //                 &new_position,
+                                 //             ) {
+                                 //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //             }
 
-                                    current_position = new_position;
-                                    last_quad_control_point = None;
-                                    last_cubic_control_point = Some(control_point2);
-                                }
-                            }
-                        }
-                        Command::EllipticalArc(_postype, _params) => {}
-                        Command::Close => {
-                            if let Some(shape) = Line::new(&current_position, &start_position) {
-                                let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                                pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                                pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
-                            }
+                                 //             current_position = new_position;
+                                 //             last_quad_control_point = None;
+                                 //             last_cubic_control_point = Some(control_point2);
+                                 //         }
+                                 //     }
+                                 // }
+                                 // Command::EllipticalArc(_postype, _params) => {}
+                                 // Command::Close => {
+                                 //     if let Some(shape) = Line::new(&current_position, &start_position) {
+                                 //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                                 //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                                 //         pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+                                 //     }
 
-                            current_position = start_position;
-                            last_quad_control_point = None;
-                            last_cubic_control_point = None;
-                        }
+                                 //     current_position = start_position;
+                                 //     last_quad_control_point = None;
+                                 //     last_cubic_control_point = None;
+                                 // }
                     }
                 }
             }
@@ -858,74 +854,82 @@ fn on_mouse_down(pa: RefArea, event: Event) {
             pa_mut.pick_pos_ms_dwn = pa_mut.pick_pos;
 
             let pick_pos = pa_mut.pick_pos;
-            let shift_pressed = pa_mut.keys_states.shift_pressed;
+            let _shift_pressed = pa_mut.keys_states.shift_pressed;
             let grab_handle_precision = pa_mut.grab_handle_precision;
 
             pa_mut.show_pick_point = false;
 
             match pa_mut.icon_selected {
                 "icon-arrow" => {
-                    pa_mut.data_pools.shapes_selection(
-                        &pick_pos,
-                        shift_pressed,
-                        grab_handle_precision,
-                    );
+                    pa_mut.shapes_pool.clear_shapes_selections();
+                    pa_mut
+                        .shapes_pool
+                        .select_all_under_pos(&pick_pos, grab_handle_precision);
                 }
                 "icon-selection" => pa_mut.selection_area = Some([pick_pos, pick_pos]),
                 "icon-line" => {
-                    pa_mut.data_pools.clear_shapes_selection();
+                    pa_mut.shapes_pool.clear_shapes_selections();
                     // pick_pos.snap(snap_grid);
-                    if let Some(shape) = Line::new(&pick_pos, &(pick_pos + snap_grid)) {
-                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                    }
+                    let mut shape = Box::new(Shape::create(ShapeTypes::Line(
+                        pick_pos,
+                        pick_pos + snap_grid,
+                    )));
+                    shape.set_selected(true);
+                    pa_mut.shapes_pool.insert_shape(shape);
                 }
-                "icon-quadbezier" => {
-                    pa_mut.data_pools.clear_shapes_selection();
-                    if let Some(shape) = QuadBezier::new(
-                        &pick_pos,
-                        &(pick_pos + snap_grid),
-                        &(pick_pos + 2. * snap_grid),
-                    ) {
-                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                    }
-                }
-                "icon-cubicbezier" => {
-                    pa_mut.data_pools.clear_shapes_selection();
-                    if let Some(shape) = CubicBezier::new(
-                        &pick_pos,
-                        &(pick_pos + snap_grid),
-                        &(pick_pos + 2. * snap_grid),
-                        &(pick_pos + 3. * snap_grid),
-                    ) {
-                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                    }
-                }
+                // "icon-quadbezier" => {
+                //     pa_mut.data_pools.clear_shapes_selection();
+                //     if let Some(shape) = QuadBezier::new(
+                //         &pick_pos,
+                //         &(pick_pos + snap_grid),
+                //         &(pick_pos + 2. * snap_grid),
+                //     ) {
+                //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                //     }
+                // }
+                // "icon-cubicbezier" => {
+                //     pa_mut.data_pools.clear_shapes_selection();
+                //     if let Some(shape) = CubicBezier::new(
+                //         &pick_pos,
+                //         &(pick_pos + snap_grid),
+                //         &(pick_pos + 2. * snap_grid),
+                //         &(pick_pos + 3. * snap_grid),
+                //     ) {
+                //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                //     }
+                // }
                 "icon-rectangle" => {
-                    pa_mut.data_pools.clear_shapes_selection();
-                    if let Some(shape) = Rectangle::new(&pick_pos, snap_grid, snap_grid) {
-                        let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                        pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                    }
+                    pa_mut.shapes_pool.clear_shapes_selections();
+                    // pick_pos.snap(snap_grid);
+                    let mut shape = Box::new(Shape::create(ShapeTypes::Rectangle(
+                        pick_pos,
+                        pick_pos + snap_grid,
+                    )));
+                    shape.set_selected(true);
+                    pa_mut.shapes_pool.insert_shape(shape);
                 }
-                "icon-ellipse" => {
-                    pa_mut.data_pools.clear_shapes_selection();
-                    let shape = Ellipse::new(&pick_pos, &pick_pos, 0., 2. * PI, snap_grid);
-                    let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                    pa_mut.data_pools.set_shape_selected(&sh_id, true);
-                }
+                // "icon-ellipse" => {
+                //     pa_mut.data_pools.clear_shapes_selection();
+                //     let shape = EllipticArc::new(&pick_pos, &pick_pos, 0., 2. * PI, snap_grid);
+                //     let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
+                //     pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                // }
                 "icon-scissors" => {
-                    if let Some(sh_id) = pa_mut
-                        .data_pools
-                        .pick_first_shape(&pick_pos, grab_handle_precision)
-                    {
-                        log!("Picked some shape id: {:?}", sh_id);
-                        pa_mut
-                            .data_pools
-                            .cut_shape(&sh_id, &pick_pos, grab_handle_precision);
-                    }
+                    pa_mut.shapes_pool.clear_shapes_selections();
+                    pa_mut
+                        .shapes_pool
+                        .select_all_under_pos(&pick_pos, grab_handle_precision);
+                    // if let Some((sh_id, bs_id)) = pa_mut
+                    //     .shapes_pool
+                    //     .get_shape_under_pos(&pick_pos, grab_handle_precision)
+                    // {
+                    //     log!("Picked some shape id: {:?}", sh_id);
+                    //     // pa_mut
+                    //     //     .data_pools
+                    //     //     .cut_shape(&sh_id, &pick_pos, grab_handle_precision);
+                    // }
                 }
                 _ => (),
             }
@@ -965,66 +969,39 @@ fn on_mouse_move(pa: RefArea, event: Event) {
 
         let mouse_delta_canvas = mouse_pos_canvas - pa_mut.mouse_previous_pos_canvas;
         pa_mut.pick_pos = mouse_pos_canvas.to_world(scale, offset);
-        let mut pick_pos = pa_mut.pick_pos;
-        pick_pos.snap(snap_grid);
-        let pick_pos_ms_dwn = pa_mut.pick_pos_ms_dwn;
+        let mut pick_delta_pos = pa_mut.pick_pos - pa_mut.pick_pos_ms_dwn;
+        pick_delta_pos.snap(snap_grid);
 
         if let MouseState::LeftDown = mouse_state {
-            if pick_pos.dist(&pick_pos_ms_dwn) > snap_grid / 2. {
-                match pa_mut.icon_selected {
-                    "icon-arrow" => {
-                        if pa_mut.data_pools.get_shapes_selected().len() == 0 {
-                            // Move Canvas if no selection
-                            pa_mut.canvas_offset += mouse_delta_canvas;
-                        } else {
-                            let shapes_selected = pa_mut.data_pools.get_shapes_selected().clone();
-                            shapes_selected.iter().for_each(|sh_id| {
-                                pa_mut.data_pools.magnet_to_point(
-                                    &mut pick_pos,
-                                    Some(*sh_id),
-                                    magnet_distance,
-                                );
-                                let shape = pa_mut
-                                    .data_pools
-                                    .get_all_shapes_mut()
-                                    .get_mut(sh_id)
-                                    .unwrap();
-                                shape.move_selection(&pick_pos, &pick_pos_ms_dwn, magnet_distance)
-                            });
-                        }
+            match pa_mut.icon_selected {
+                "icon-arrow" => {
+                    if pa_mut.shapes_pool.is_any_shape_selected() {
+                        pa_mut
+                            .shapes_pool
+                            .move_selection(&pick_delta_pos, magnet_distance);
+                    } else {
+                        // Move Canvas if no selection
+                        pa_mut.canvas_offset += mouse_delta_canvas;
                     }
-                    "icon-selection" => {
-                        if let Some(sa) = pa_mut.selection_area.as_mut() {
-                            sa[1] = pick_pos
-                        }
-                    }
-                    "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
-                    | "icon-rectangle" => {
-                        let shapes_selected = pa_mut.data_pools.get_shapes_selected().clone();
-                        shapes_selected.iter().for_each(|sh_id| {
-                            pa_mut.data_pools.magnet_to_point(
-                                &mut pick_pos,
-                                Some(*sh_id),
-                                magnet_distance,
-                            );
-                            let shape = pa_mut
-                                .data_pools
-                                .get_all_shapes_mut()
-                                .get_mut(sh_id)
-                                .unwrap();
-                            shape.move_selection(&pick_pos, &pick_pos_ms_dwn, magnet_distance)
-                        });
-                    }
-                    _ => (),
                 }
-                pa_mut.pick_pos = pick_pos;
+                "icon-selection" => {
+                    if let Some(sa) = pa_mut.selection_area.as_mut() {
+                        sa[1] = pick_delta_pos
+                    }
+                }
+                "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
+                | "icon-rectangle" => pa_mut
+                    .shapes_pool
+                    .move_selection(&pick_delta_pos, magnet_distance),
+                _ => (),
             }
+            pa_mut.pick_pos = pick_delta_pos;
         } else {
-            pick_pos.snap(snap_grid);
+            pick_delta_pos.snap(snap_grid);
             pa_mut
-                .data_pools
-                .magnet_to_point(&mut pick_pos, None, magnet_distance);
-            pa_mut.pick_pos = pick_pos;
+                .shapes_pool
+                .magnet_to_point(&mut pick_delta_pos, None, magnet_distance);
+            pa_mut.pick_pos = pick_delta_pos;
         }
 
         // Display: update mouse world position
@@ -1033,18 +1010,18 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                    pick_pos.wx.round() as i32,
-                    pick_pos.wy.round() as i32,
-                    (pick_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
-                    (pick_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
+                    pick_delta_pos.wx.round() as i32,
+                    pick_delta_pos.wy.round() as i32,
+                    (pick_delta_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
+                    (pick_delta_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
                 )));
         } else {
             pa_mut
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} )",
-                    pick_pos.wx.round() as i32,
-                    pick_pos.wy.round() as i32
+                    pick_delta_pos.wx.round() as i32,
+                    pick_delta_pos.wy.round() as i32
                 )));
         }
 
@@ -1064,25 +1041,24 @@ fn on_mouse_up(pa: RefArea, event: Event) {
                     let mut bb_outer = sa_raw;
                     reorder_corners(&mut bb_outer);
                     pa_mut
-                        .data_pools
+                        .shapes_pool
                         .select_shapes_bounded_by_rectangle(bb_outer);
                 }
                 pa_mut.selection_area = None;
             }
-            "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
-            | "icon-rectangle" => {
-                if let Some(sh_sel_id) = pa_mut
-                    .data_pools
-                    .get_shapes_selected()
-                    .iter()
-                    .next()
-                    .cloned()
-                {
-                    let shape_selected = pa_mut.data_pools.get_shape_mut(&sh_sel_id).unwrap();
-                    shape_selected.init_done();
-                }
-            }
-
+            // "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
+            // | "icon-rectangle" => {
+            //     if let Some((sh_sel_id, o)) = pa_mut
+            //         .data_pools
+            //         .get_shapes_selected()
+            //         .iter()
+            //         .next()
+            //         .cloned()
+            //     {
+            //         let shape_selected = pa_mut.data_pools.get_shape_mut(&sh_sel_id).unwrap();
+            //         // shape_selected.init_done();
+            //     }
+            // }
             _ => (),
         }
         go_to_arrow_tool(&mut pa_mut);
@@ -1141,7 +1117,7 @@ fn on_keydown(pa: RefArea, event: Event) {
         let mut pa_mut = pa.borrow_mut();
 
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            pa_mut.data_pools.delete_shapes_selected();
+            pa_mut.shapes_pool.delete_selected_shapes();
         }
         // if keyboard_event.key() == "Escape" {
         //     console::log_1(&"ddd".into());
@@ -1259,7 +1235,7 @@ fn on_context_menu_delete_click(pa: RefArea, _event: Event) {
                 .style()
                 .set_property("display", "none")
                 .unwrap();
-            pa_mut.data_pools.clear_shapes_selection();
+            pa_mut.shapes_pool.clear_shapes_selections();
             drop(pa_mut);
             render(pa.clone());
         }
@@ -1599,21 +1575,21 @@ fn draw_content(pa: RefArea) {
     let size_handle = pa_ref.size_handle;
 
     // Draw all shapes
-    for shape in pa_ref.data_pools.get_all_shapes().values() {
+    for (sh_id, shape) in pa_ref.shapes_pool.iter() {
         raw_draw(&pa_ref, &shape.get_construction());
         if shape.is_selected() {
             raw_draw(&pa_ref, &shape.get_handles_construction(size_handle));
             raw_draw(&pa_ref, &shape.get_helpers_construction());
         }
-        // raw_draw(&pa_ref, &shape.get_highlight_construction());
+        raw_draw(&pa_ref, &shape.get_highlight_construction());
     }
 
     // Show pick point if requested
     if pa_ref.show_pick_point {
         let mut cst = vec![];
         cst.push(ConstructionType::Layer(LayerType::Worksheet));
-        let point = Point::new(&pa_ref.pick_pos, false, false, false);
-        push_handle(&mut cst, &point, size_handle);
+        let (pt, _) = Point::new(&pa_ref.pick_pos, false, false, false);
+        push_handle(&mut cst, &pt, size_handle);
         raw_draw(&pa_ref, &cst);
     }
 }
