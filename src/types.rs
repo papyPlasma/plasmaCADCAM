@@ -25,37 +25,13 @@ pub struct ShapeParameters {
     pub highlight_size: f64,
 }
 
-// #[derive(Copy, Clone)]
-// pub struct CommonVars {
-//     position: WPos,
-//     saved_position: WPos,
-//     selected: bool,
-// }
-// impl CommonVars {
-//     pub fn new(position: &WPos, selected: bool) -> CommonVars {
-//         CommonVars {
-//             position: *position,
-//             saved_position: *position,
-//             selected: false,
-//         }
-//     }
+pub enum BasicShapeType {
+    Segment,
+    QBezier,
+    CBezier,
+    ArcEllipse,
+}
 
-//     pub fn is_selected(&self) -> bool {
-//         self.selected == true
-//     }
-//     pub fn set_selection(&mut self, selection: bool) {
-//         self.selected = selection;
-//     }
-//     pub fn save_pos(&mut self) {
-//         self.saved_position = self.position;
-//     }
-//     pub fn get_pos(&self) -> &WPos {
-//         &self.position
-//     }
-//     pub fn get_pos_mut(&mut self) -> &mut WPos {
-//         &mut self.position
-//     }
-// }
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum LayerType {
@@ -70,16 +46,19 @@ pub enum LayerType {
     Handle(bool),
 }
 
-#[allow(dead_code)]
-#[derive(Clone)]
+pub enum Pattern {
+    NoSelection,
+    SimpleSelection,
+    DoubleSelection,
+}
 pub enum ConstructionType {
     Layer(LayerType),
     Move(WPos),
-    Line(WPos),
-    QuadBezier(WPos, WPos),
-    CubicBezier(WPos, WPos, WPos),
-    Ellipse(WPos, WPos, f64, f64, f64, bool),
-    Rectangle(WPos, WPos, bool),
+    Point(Pattern, WPos),
+    Segment(Pattern, WPos, WPos),
+    QBezier(Pattern, WPos, WPos, WPos),
+    CBezier(Pattern, WPos, WPos, WPos, WPos),
+    ArcEllipse(Pattern, WPos, WPos, f64, f64),
     Text(WPos, String),
 }
 

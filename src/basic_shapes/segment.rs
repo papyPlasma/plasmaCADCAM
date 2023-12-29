@@ -6,7 +6,6 @@ macro_rules! log {
     }
 }
 
-use super::basic_shapes::*;
 use crate::math::*;
 use crate::types::*;
 

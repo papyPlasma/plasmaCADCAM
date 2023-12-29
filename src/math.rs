@@ -13,62 +13,46 @@ pub fn is_aligned_vert(pt1: &WPos, pt2: &WPos) -> bool {
 }
 pub fn helper_vertical(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
+    use Pattern::*;
+    let y1 = 2. * pt1.wy - pt2.wy;
+    let y2 = 2. * pt2.wy - pt1.wy;
     if full {
         cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: pt1.wx,
-            wy: 2. * pt1.wy - pt2.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y1)));
         cst.push(Move(*pt1));
-        cst.push(Line(*pt2));
-        cst.push(Line(WPos {
-            wx: pt1.wx,
-            wy: 2. * pt2.wy - pt1.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt1, *pt2));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y2)));
     } else {
         cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: pt1.wx,
-            wy: 2. * pt1.wy - pt2.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y1)));
         cst.push(Move(*pt2));
-        cst.push(Line(WPos {
-            wx: pt1.wx,
-            wy: 2. * pt2.wy - pt1.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt2, WPos::new(pt1.wx, y2)));
     }
 }
+
 pub fn is_aligned_hori(pt1: &WPos, pt2: &WPos) -> bool {
     // I can do this because of snaping
     (pt1.wy - pt2.wy).abs() == 0.
 }
 pub fn helper_horizontal(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
     use ConstructionType::*;
+    use Pattern::*;
+    let x1 = 2. * pt1.wx - pt2.wx;
+    let x2 = 2. * pt2.wx - pt1.wx;
     if full {
         cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: 2. * pt1.wx - pt2.wx,
-            wy: pt1.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x1, pt1.wy)));
         cst.push(Move(*pt1));
-        cst.push(Line(*pt2));
-        cst.push(Line(WPos {
-            wx: 2. * pt2.wx - pt1.wx,
-            wy: pt1.wy,
-        }));
+        cst.push(Segment(Pattern::NoSelection, *pt1, *pt2));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x2, pt1.wy)));
     } else {
         cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: 2. * pt1.wx - pt2.wx,
-            wy: pt1.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x1, pt1.wy)));
         cst.push(Move(*pt2));
-        cst.push(Line(WPos {
-            wx: 2. * pt2.wx - pt1.wx,
-            wy: pt1.wy,
-        }));
+        cst.push(Segment(NoSelection, *pt2, WPos::new(x2, pt1.wy)));
     }
 }
+
 pub fn is_aligned_45_or_135(pt1: &WPos, pt2: &WPos) -> bool {
     let dy = pt2.wy - pt1.wy;
     let dx = pt2.wx - pt1.wx;
@@ -80,34 +64,34 @@ pub fn is_aligned_45_or_135(pt1: &WPos, pt2: &WPos) -> bool {
         false
     }
 }
-pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
-    if full {
-        use ConstructionType::*;
-        cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: 2. * pt1.wx - pt2.wx,
-            wy: 2. * pt1.wy - pt2.wy,
-        }));
-        cst.push(Move(*pt1));
-        cst.push(Line(*pt2));
-        cst.push(Line(WPos {
-            wx: 2. * pt2.wx - pt1.wx,
-            wy: 2. * pt2.wy - pt1.wy,
-        }));
-    } else {
-        use ConstructionType::*;
-        cst.push(Move(*pt1));
-        cst.push(Line(WPos {
-            wx: 2. * pt1.wx - pt2.wx,
-            wy: 2. * pt1.wy - pt2.wy,
-        }));
-        cst.push(Move(*pt2));
-        cst.push(Line(WPos {
-            wx: 2. * pt2.wx - pt1.wx,
-            wy: 2. * pt2.wy - pt1.wy,
-        }));
-    }
-}
+// pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
+//     if full {
+//         use ConstructionType::*;
+//         cst.push(Move(*pt1));
+//         cst.push(Line(WPos {
+//             wx: 2. * pt1.wx - pt2.wx,
+//             wy: 2. * pt1.wy - pt2.wy,
+//         }));
+//         cst.push(Move(*pt1));
+//         cst.push(Line(*pt2));
+//         cst.push(Line(WPos {
+//             wx: 2. * pt2.wx - pt1.wx,
+//             wy: 2. * pt2.wy - pt1.wy,
+//         }));
+//     } else {
+//         use ConstructionType::*;
+//         cst.push(Move(*pt1));
+//         cst.push(Line(WPos {
+//             wx: 2. * pt1.wx - pt2.wx,
+//             wy: 2. * pt1.wy - pt2.wy,
+//         }));
+//         cst.push(Move(*pt2));
+//         cst.push(Line(WPos {
+//             wx: 2. * pt2.wx - pt1.wx,
+//             wy: 2. * pt2.wy - pt1.wy,
+//         }));
+//     }
+// }
 
 fn _is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
     let dot_product = (pt.wx - pt1.wx) * (pt2.wx - pt1.wx) + (pt.wy - pt1.wy) * (pt2.wy - pt1.wy);
@@ -273,10 +257,22 @@ pub fn magnet_to_xy(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
 // }
 
 pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
-    // let radius = WPos::default() + size_handle / 2.;
-    // use ConstructionType::*;
-    // cst.push(Move(pt.wpos + WPos::default().addxy(size_handle / 2., 0.)));
-    // cst.push(Ellipse(pt.wpos, radius, 0., 0., 2. * PI, pt.selected));
+    let radius = WPos::default() + size_handle / 2.;
+    let pattern = if pt.selected {
+        Pattern::SimpleSelection
+    } else {
+        Pattern::NoSelection
+    };
+    cst.push(ConstructionType::Move(
+        pt.wpos + WPos::default().addxy(size_handle / 2., 0.),
+    ));
+    cst.push(ConstructionType::ArcEllipse(
+        pattern,
+        pt.wpos,
+        radius,
+        0.,
+        2. * PI,
+    ));
 }
 
 //     magnet_geometry(&br, &mut p, self.snap_distance);

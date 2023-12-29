@@ -15,6 +15,7 @@ use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::ops::ControlFlow;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -105,6 +106,8 @@ pub struct PlayingArea {
     // line patterns
     pub pattern_dashed: JsValue,
     pub pattern_solid: JsValue,
+    // Playing area static draw
+    // grid: ShapesPool,
 }
 
 ///////////////
@@ -1492,96 +1495,107 @@ fn render(pa: RefArea) {
     // Then draw all
     draw_all(pa.clone());
 }
+
 fn draw_all(pa: RefArea) {
-    draw_grid(pa.clone());
-    draw_working_area(pa.clone());
+    // draw_grid(pa.clone());
+    // draw_working_area(pa.clone());
     draw_content(pa.clone());
-    draw_selection_area(pa.clone());
+    // draw_selection_area(pa.clone());
 }
-fn draw_working_area(pa: RefArea) {
-    use ConstructionType::*;
-    let pa_ref = pa.borrow();
 
-    // Draw working area
-    let mut cst = Vec::new();
-    let wa = pa_ref.working_area;
+// fn draw_working_area(pa: RefArea) {
+//     use ConstructionType::*;
+//     let pa_ref = pa.borrow();
+//     // Draw working area
+//     let mut cst = Vec::new();
+//     let wa = pa_ref.working_area;
+//     cst.push(Layer(LayerType::Worksheet));
+//     // Title
+//     cst.push(Text(
+//         WPos {
+//             wx: wa.wx / 3.,
+//             wy: -20.,
+//         },
+//         "Working sheet".into(),
+//     ));
+//     // Arrows
+//     cst.push(Move(WPos { wx: 0., wy: -10. }));
+//     cst.push(Line(WPos { wx: 100., wy: -10. }));
+//     cst.push(Line(WPos { wx: 90., wy: -15. }));
+//     cst.push(Line(WPos { wx: 90., wy: -5. }));
+//     cst.push(Line(WPos { wx: 100., wy: -10. }));
+//     cst.push(Move(WPos { wx: -10., wy: 0. }));
+//     cst.push(Line(WPos { wx: -10., wy: 100. }));
+//     cst.push(Line(WPos { wx: -15., wy: 90. }));
+//     cst.push(Line(WPos { wx: -5., wy: 90. }));
+//     cst.push(Line(WPos { wx: -10., wy: 100. }));
+//     cst.push(Text(WPos { wx: 40., wy: -20. }, "X".into()));
+//     cst.push(Text(WPos { wx: -30., wy: 50. }, "Y".into()));
+//     // Border
+//     cst.push(Move(WPos { wx: 0., wy: 0. }));
+//     cst.push(Line(WPos { wx: 0., wy: wa.wy }));
+//     cst.push(Line(WPos {
+//         wx: wa.wx,
+//         wy: wa.wy,
+//     }));
+//     cst.push(Line(WPos { wx: wa.wx, wy: 0. }));
+//     cst.push(Line(WPos { wx: 0., wy: 0. }));
+//     raw_draw(&pa_ref, &cst);
+// }
 
-    cst.push(Layer(LayerType::Worksheet));
-    // Title
-    cst.push(Text(
-        WPos {
-            wx: wa.wx / 3.,
-            wy: -20.,
-        },
-        "Working sheet".into(),
-    ));
-    // Arrows
-    cst.push(Move(WPos { wx: 0., wy: -10. }));
-    cst.push(Line(WPos { wx: 100., wy: -10. }));
-    cst.push(Line(WPos { wx: 90., wy: -15. }));
-    cst.push(Line(WPos { wx: 90., wy: -5. }));
-    cst.push(Line(WPos { wx: 100., wy: -10. }));
-    cst.push(Move(WPos { wx: -10., wy: 0. }));
-    cst.push(Line(WPos { wx: -10., wy: 100. }));
-    cst.push(Line(WPos { wx: -15., wy: 90. }));
-    cst.push(Line(WPos { wx: -5., wy: 90. }));
-    cst.push(Line(WPos { wx: -10., wy: 100. }));
-    cst.push(Text(WPos { wx: 40., wy: -20. }, "X".into()));
-    cst.push(Text(WPos { wx: -30., wy: 50. }, "Y".into()));
+// fn draw_grid(pa: RefArea) {
+//     use ConstructionType::*;
+//     let pa_ref = pa.borrow();
+//     let wa = pa_ref.working_area;
+//     let w_grid_spacing = pa_ref.working_area_visual_grid;
+//     let mut cst = Vec::new();
+//     cst.push(Layer(LayerType::Grid));
+//     // Vertical grid lines
+//     let mut wx = 0.;
+//     while wx <= wa.wx {
+//         cst.push(Move(WPos { wx: wx, wy: 0. }));
+//         cst.push(Line(WPos { wx: wx, wy: wa.wy }));
+//         raw_draw(&pa_ref, &cst);
+//         wx += w_grid_spacing
+//     }
+//     // Horizontal grid lines
+//     let mut cst = Vec::new();
+//     let mut wy = 0.;
+//     while wy <= wa.wy {
+//         cst.push(Move(WPos { wx: 0., wy: wy }));
+//         cst.push(Line(WPos { wx: wa.wx, wy: wy }));
+//         raw_draw(&pa_ref, &cst);
+//         wy += w_grid_spacing;
+//     }
+// }
 
-    // Border
-    cst.push(Move(WPos { wx: 0., wy: 0. }));
-    cst.push(Line(WPos { wx: 0., wy: wa.wy }));
-    cst.push(Line(WPos {
-        wx: wa.wx,
-        wy: wa.wy,
-    }));
-    cst.push(Line(WPos { wx: wa.wx, wy: 0. }));
-    cst.push(Line(WPos { wx: 0., wy: 0. }));
-
-    raw_draw(&pa_ref, &cst);
-}
-fn draw_grid(pa: RefArea) {
-    use ConstructionType::*;
-    let pa_ref = pa.borrow();
-
-    let wa = pa_ref.working_area;
-    let w_grid_spacing = pa_ref.working_area_visual_grid;
-
-    let mut cst = Vec::new();
-    cst.push(Layer(LayerType::Grid));
-
-    // Vertical grid lines
-    let mut wx = 0.;
-    while wx <= wa.wx {
-        cst.push(Move(WPos { wx: wx, wy: 0. }));
-        cst.push(Line(WPos { wx: wx, wy: wa.wy }));
-        raw_draw(&pa_ref, &cst);
-        wx += w_grid_spacing;
-    }
-
-    // Horizontal grid lines
-    let mut cst = Vec::new();
-    let mut wy = 0.;
-    while wy <= wa.wy {
-        cst.push(Move(WPos { wx: 0., wy: wy }));
-        cst.push(Line(WPos { wx: wa.wx, wy: wy }));
-        raw_draw(&pa_ref, &cst);
-        wy += w_grid_spacing;
-    }
-}
 fn draw_content(pa: RefArea) {
     let pa_ref = pa.borrow();
     let size_handle = pa_ref.size_handle;
+    let scale = pa_ref.global_scale;
+    let offset = pa_ref.canvas_offset;
 
     // Draw all shapes
     for (sh_id, shape) in pa_ref.shapes_pool.iter() {
-        raw_draw(&pa_ref, &shape.get_construction());
+        // Draw the shape without the handles
+        let mut cst = vec![];
+        cst.push(ConstructionType::Layer(LayerType::Worksheet));
+        shape.get_bss_constructions(&mut cst);
+        raw_draw(&pa_ref, &cst);
+
         if shape.is_selected() {
-            raw_draw(&pa_ref, &shape.get_handles_construction(size_handle));
-            raw_draw(&pa_ref, &shape.get_helpers_construction());
+            // Draw the handles point
+            let mut cst = vec![];
+            cst.push(ConstructionType::Layer(LayerType::Worksheet));
+            shape.get_handles_construction(&mut cst, size_handle);
+            raw_draw(&pa_ref, &cst);
+
+            // Draw the geometry helpers
+            let mut cst = vec![];
+            cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
+            shape.get_helpers_construction(&mut cst);
+            raw_draw(&pa_ref, &cst);
         }
-        raw_draw(&pa_ref, &shape.get_highlight_construction());
     }
 
     // Show pick point if requested
@@ -1593,40 +1607,41 @@ fn draw_content(pa: RefArea) {
         raw_draw(&pa_ref, &cst);
     }
 }
-fn draw_selection_area(pa: RefArea) {
-    use ConstructionType::*;
-    let pa_ref = pa.borrow();
 
-    if let Some(sa) = pa_ref.selection_area {
-        let bl = sa[0];
-        let tr = sa[1];
-        if bl.wx != tr.wx && bl.wy != tr.wy {
-            let mut cst = Vec::new();
-            cst.push(Layer(LayerType::SelectionTool));
-            cst.push(Move(WPos {
-                wx: bl.wx,
-                wy: bl.wy,
-            }));
-            cst.push(Line(WPos {
-                wx: bl.wx,
-                wy: tr.wy,
-            }));
-            cst.push(Line(WPos {
-                wx: tr.wx,
-                wy: tr.wy,
-            }));
-            cst.push(Line(WPos {
-                wx: tr.wx,
-                wy: bl.wy,
-            }));
-            cst.push(Line(WPos {
-                wx: bl.wx,
-                wy: bl.wy,
-            }));
-            raw_draw(&pa_ref, &cst);
-        }
-    }
-}
+// fn draw_selection_area(pa: RefArea) {
+//     use ConstructionType::*;
+//     let pa_ref = pa.borrow();
+//     if let Some(sa) = pa_ref.selection_area {
+//         let bl = sa[0];
+//         let tr = sa[1];
+//         if bl.wx != tr.wx && bl.wy != tr.wy {
+//             let mut cst = Vec::new();
+//             cst.push(Layer(LayerType::SelectionTool));
+//             cst.push(Move(WPos {
+//                 wx: bl.wx,
+//                 wy: bl.wy,
+//             }));
+//             cst.push(Line(WPos {
+//                 wx: bl.wx,
+//                 wy: tr.wy,
+//             }));
+//             cst.push(Line(WPos {
+//                 wx: tr.wx,
+//                 wy: tr.wy,
+//             }));
+//             cst.push(Line(WPos {
+//                 wx: tr.wx,
+//                 wy: bl.wy,
+//             }));
+//             cst.push(Line(WPos {
+//                 wx: bl.wx,
+//                 wy: bl.wy,
+//             }));
+//             raw_draw(&pa_ref, &cst);
+//         }
+//     }
+// }
+
 fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     let p = Path2d::new().unwrap();
     let scale = pa_ref.global_scale;
@@ -1697,20 +1712,25 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                 pa_ref.ctx.set_stroke_style(&color.into());
                 pa_ref.ctx.set_fill_style(&fill_color.into());
             }
+
             Move(w_end) => {
                 let c_end = w_end.to_canvas(scale, offset);
                 p.move_to(c_end.cx, c_end.cy);
             }
-            Line(w_end) => {
+            Point(w_end) => {
+                let c_end = w_end.to_canvas(scale, offset);
+                p.move_to(c_end.cx, c_end.cy);
+            }
+            Segment(w_end) => {
                 let c_end = w_end.to_canvas(scale, offset);
                 p.line_to(c_end.cx, c_end.cy);
             }
-            QuadBezier(w_ctrl, w_end) => {
+            QBezier(w_ctrl, w_end) => {
                 let c_ctrl = w_ctrl.to_canvas(scale, offset);
                 let c_end = w_end.to_canvas(scale, offset);
                 p.quadratic_curve_to(c_ctrl.cx, c_ctrl.cy, c_end.cx, c_end.cy);
             }
-            CubicBezier(w_ctrl1, w_crtl2, w_end) => {
+            CBezier(w_ctrl1, w_crtl2, w_end) => {
                 let c_ctrl1 = w_ctrl1.to_canvas(scale, offset);
                 let c_ctrl2 = w_crtl2.to_canvas(scale, offset);
                 let c_end = w_end.to_canvas(scale, offset);
@@ -1718,19 +1738,7 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
                     c_ctrl1.cx, c_ctrl1.cy, c_ctrl2.cx, c_ctrl2.cy, c_end.cx, c_end.cy,
                 );
             }
-            Rectangle(w_start, w_dimensions, fill) => {
-                let c_start = w_start.to_canvas(scale, offset);
-                let c_dimensions = *w_dimensions * scale;
-                if *fill {
-                    pa_ref.ctx.fill();
-                    pa_ref
-                        .ctx
-                        .fill_rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
-                } else {
-                    p.rect(c_start.cx, c_start.cy, c_dimensions.wx, c_dimensions.wy);
-                }
-            }
-            Ellipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
+            ArcEllipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
                 let c_center = w_center.to_canvas(scale, offset);
                 if *fill {
                     pa_ref.ctx.begin_path();
@@ -1767,6 +1775,7 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
     pa_ref.ctx.begin_path(); // Begin a new path
     pa_ref.ctx.stroke_with_path(&p);
 }
+
 fn raw_draw_clear_canvas(pa_ref: &Ref<'_, PlayingArea>) {
     pa_ref.ctx.set_stroke_style(&"#F00".into());
     let background_color = &pa_ref.background_color;

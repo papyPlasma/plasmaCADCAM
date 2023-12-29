@@ -92,13 +92,13 @@ impl ShapesPool {
         }
     }
     pub fn select_shapes_bounded_by_rectangle(&mut self, bb_outer: [WPos; 2]) {
-        // for (sh_id, shape) in self.shapes_pool.iter_mut() {
-        //     let bb_inner = shape.get_bounded_rectangle();
-        //     if is_box_inside(&bb_outer, &bb_inner) {
-        //         // shape.set_selected(true);
-        //         self.selections.insert(*sh_id);
-        //     }
-        // }
+        for (sh_id, shape) in self.iter_mut() {
+            let bb_inner = shape.get_bounded_rectangle();
+            if is_box_inside(&bb_outer, &bb_inner) {
+                // shape.set_selected(true);
+                // self.selections.insert(*sh_id);
+            }
+        }
     }
 
     // pub fn create_group_id(&mut self) -> GroupId {
@@ -146,18 +146,14 @@ impl ShapesPool {
     // ) -> Option<WPos> {
     //     let shape = self.shapes_pool.get(&sh_id).unwrap();
     //     let other_shape = self.shapes_pool.get(&other_sh_id).unwrap();
-
     //     let stepping_r = shape.get_step_r(EPSILON);
-
     //     // Linear search, distance are not signed, can't do a binary search
     //     let mut r = r_a;
     //     loop {
     //         let pos = shape.get_pos_from_ratio(r);
-
     //         if other_shape.dist(&pos) < EPSILON {
     //             return Some(pos);
     //         }
-
     //         r += stepping_r;
     //         if r >= r_b {
     //             break;
@@ -176,19 +172,15 @@ impl ShapesPool {
     //     let shape = self.shapes_pool.get(&sh_id).unwrap();
     //     let r_init = shape.get_ratio_from_pos(pos_init);
     //     let stepping_r = shape.get_step_r(stepping);
-
     //     let mut r = if dir {
     //         (r_init + stepping_r + 0.0001).min(1.0)
     //     } else {
     //         (r_init - stepping_r - 0.0001).max(0.0)
     //     };
-
     //     let mut count = 0;
     //     loop {
     //         let pos = shape.get_pos_from_ratio(r);
-
     //         log!("CURRENT r: {}", r);
-
     //         for (other_sh_id, other_shape) in self.shapes_pool.iter().filter(|(id, _)| id != &sh_id)
     //         {
     //             log!("other_sh_id: {}, dir: {}", other_sh_id.0, dir);
@@ -200,7 +192,6 @@ impl ShapesPool {
     //                     ((r - 2. * stepping_r).max(0.0), r)
     //                 };
     //                 log!("dir: {}, r_a: {:.2}, r_b: {:.2}", dir, r_a, r_b);
-
     //                 // And search precisely
     //                 // If a position is found return it
     //                 if let Some(pos_int) =
@@ -210,24 +201,20 @@ impl ShapesPool {
     //                 };
     //             }
     //         }
-
     //         r = if dir {
     //             (r + stepping_r).min(1.0)
     //         } else {
     //             (r - stepping_r).max(0.0)
     //         };
-
     //         if r == 0. || r == 1. {
     //             break;
     //         }
-
     //         count += 1;
     //         if count == 1000 {
     //             log!("Couille dans l'potage");
     //             break;
     //         }
     //     }
-
     //     None
     // }
 
@@ -245,12 +232,10 @@ impl ShapesPool {
     //         pos.wy
     //     );
     //     let stepping = grab_handle_precision / 10.;
-
     //     // Search intersection with another shape in the first direction
     //     let o_pos_p: Option<WPos> = self.seek_intersection(&sh_id, &pos, stepping, true);
     //     // Search intersection with another shape in the second direction
     //     let o_pos_n: Option<WPos> = self.seek_intersection(&sh_id, &pos, stepping, false);
-
     //     if let Some(pos_p) = o_pos_p {
     //         log!("pos_p: ({:.0},{:.0})", pos_p.wx, pos_p.wy);
     //     } else {
@@ -261,7 +246,6 @@ impl ShapesPool {
     //     } else {
     //         log!("pos_n: None");
     //     }
-
     //     // inf and sup names are convention
     //     match (o_pos_n, o_pos_p) {
     //         (None, None) => {

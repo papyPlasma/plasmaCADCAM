@@ -5,7 +5,6 @@ mod shapes_pool;
 pub mod types;
 pub mod basic_shapes {
     // pub mod arc_ellipse;
-    pub mod basic_shapes;
     // pub mod cubic_bezier;
     // pub mod quad_bezier;
     pub mod segment;
