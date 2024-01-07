@@ -1,9 +1,18 @@
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 use std::collections::{HashMap, HashSet};
+
+use web_sys::console;
 
 use crate::{math::*, types::*};
 
 pub enum ShapeTypes {
-    Line(WPos, WPos),
+    Segment(WPos, WPos),
     Rectangle(WPos, WPos),
     // Circle,
     // Ellipse,
@@ -11,7 +20,6 @@ pub enum ShapeTypes {
     // ArcEllipse,
     // RoundedRectangle,
     // Triangle,
-    // Polygon,
     // QuadBezier,
     // CubicBezier,
     // Custom,
@@ -19,80 +27,75 @@ pub enum ShapeTypes {
 
 pub struct Shape {
     selected: bool,
-    bss: HashMap<BasicShapeId, (BasicShapeType, bool, HashMap<PointType, PointId>)>,
+    bss: HashMap<BasicShapeId, (BasicShape, HashSet<PointId>)>,
     pts: HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    constraints: HashMap<(PointId, PointId), PointConstraint>,
+    pts_cstr: HashMap<(PointId, PointId), PointConstraint>,
+    bss_cstr: HashMap<(BasicShapeId, BasicShapeId), ShapeConstraint>,
 }
 impl Shape {
     pub fn create(shape: ShapeTypes) -> Shape {
         use ShapeTypes::*;
         match shape {
-            Line(start, end) => {
+            Segment(pos1, pos2) => {
                 // Vertices
                 let mut pts = HashMap::new();
-                let (pt_start, pt_start_id) = Point::new(&start, true, true, false);
-                let (pt_end, pt_end_id) = Point::new(&end, true, true, true);
-                let mut hpts = HashMap::new();
-                hpts.insert(PointType::Start, pt_start_id);
-                hpts.insert(PointType::End, pt_end_id);
+                let (pt1, pt1_id) = Point::new(&pos1, true, true, false);
+                let (pt2, pt2_id) = Point::new(&pos2, true, true, true);
+                let mut hpts = HashSet::new();
+                hpts.insert(pt1_id);
+                hpts.insert(pt2_id);
 
-                // Edges
-                let bs_id = BasicShapeId::new_id();
+                // Edge
+                let (bs, bs_id) = BasicShape::new(BasicShapeType::Line, false);
                 let mut bss = HashMap::new();
-                bss.insert(bs_id, (BasicShapeType::Segment, false, hpts));
+                bss.insert(bs_id, (bs, hpts));
 
                 let mut hbss = HashSet::new();
                 hbss.insert(bs_id);
-                pts.insert(pt_start_id, (pt_start, hbss.clone()));
-                pts.insert(pt_end_id, (pt_end, hbss));
+                pts.insert(pt1_id, (pt1, hbss.clone()));
+                pts.insert(pt2_id, (pt2, hbss));
 
                 Shape {
                     selected: false,
                     bss,
                     pts,
-                    constraints: HashMap::new(),
+                    pts_cstr: HashMap::new(),
+                    bss_cstr: HashMap::new(),
                 }
             }
             Rectangle(bot_left, top_right) => {
-                let top_left = WPos::new(bot_left.wx, top_right.wy);
-                let bot_right = WPos::new(top_right.wx, bot_left.wy);
+                let top_left = WPos::new(bot_left.wx - 2., top_right.wy);
+                let bot_right = WPos::new(top_right.wx + 2., bot_left.wy);
 
                 // Vertices
                 let mut pts = HashMap::new();
                 let (pt_bot_left, pt_bot_left_id) = Point::new(&bot_left, true, true, false);
                 let (pt_top_left, pt_top_left_id) = Point::new(&top_left, true, true, false);
-                let (pt_top_right, pt_top_right_id) = Point::new(&top_right, true, true, false);
+                let (pt_top_right, pt_top_right_id) = Point::new(&top_right, true, true, true);
                 let (pt_bot_right, pt_bot_right_id) = Point::new(&bot_right, true, true, false);
-                let mut hpts_left_line = HashMap::new();
-                hpts_left_line.insert(PointType::Start, pt_bot_left_id);
-                hpts_left_line.insert(PointType::End, pt_top_left_id);
-                let mut hpts_top_line = HashMap::new();
-                hpts_top_line.insert(PointType::Start, pt_top_left_id);
-                hpts_top_line.insert(PointType::End, pt_top_right_id);
-                let mut hpts_right_line = HashMap::new();
-                hpts_right_line.insert(PointType::Start, pt_top_right_id);
-                hpts_right_line.insert(PointType::End, pt_bot_right_id);
-                let mut hpts_bot_line = HashMap::new();
-                hpts_bot_line.insert(PointType::Start, pt_bot_right_id);
-                hpts_bot_line.insert(PointType::End, pt_bot_left_id);
+                let mut hpts_left_seg = HashSet::new();
+                hpts_left_seg.insert(pt_bot_left_id);
+                hpts_left_seg.insert(pt_top_left_id);
+                let mut hpts_top_seg = HashSet::new();
+                hpts_top_seg.insert(pt_top_left_id);
+                hpts_top_seg.insert(pt_top_right_id);
+                let mut hpts_right_line = HashSet::new();
+                hpts_right_line.insert(pt_top_right_id);
+                hpts_right_line.insert(pt_bot_right_id);
+                let mut hpts_bot_line = HashSet::new();
+                hpts_bot_line.insert(pt_bot_right_id);
+                hpts_bot_line.insert(pt_bot_left_id);
 
                 // Edges
+                let (left_line, id_left_line) = BasicShape::new(BasicShapeType::Line, false);
+                let (top_line, id_top_line) = BasicShape::new(BasicShapeType::Line, false);
+                let (right_line, id_right_line) = BasicShape::new(BasicShapeType::Line, false);
+                let (bot_line, id_bot_line) = BasicShape::new(BasicShapeType::Line, false);
                 let mut bss = HashMap::new();
-
-                let id_left_line = BasicShapeId::new_id();
-                bss.insert(
-                    id_left_line,
-                    (BasicShapeType::Segment, false, hpts_left_line),
-                );
-                let id_top_line = BasicShapeId::new_id();
-                bss.insert(id_top_line, (BasicShapeType::Segment, false, hpts_top_line));
-                let id_right_line = BasicShapeId::new_id();
-                bss.insert(
-                    id_right_line,
-                    (BasicShapeType::Segment, false, hpts_right_line),
-                );
-                let id_bot_line = BasicShapeId::new_id();
-                bss.insert(id_bot_line, (BasicShapeType::Segment, false, hpts_bot_line));
+                bss.insert(id_left_line, (left_line, hpts_left_seg));
+                bss.insert(id_top_line, (top_line, hpts_top_seg));
+                bss.insert(id_right_line, (right_line, hpts_right_line));
+                bss.insert(id_bot_line, (bot_line, hpts_bot_line));
 
                 let mut hbss = HashSet::new();
                 hbss.insert(id_left_line);
@@ -112,31 +115,48 @@ impl Shape {
                 pts.insert(pt_bot_right_id, (pt_bot_right, hbss));
 
                 // Add the constrains between vertices
-                let mut constraints = HashMap::new();
-                constraints.insert(
-                    (pt_bot_left_id, pt_top_left_id),
-                    PointConstraint::VerticalAlign,
-                );
-                constraints.insert(
-                    (pt_top_left_id, pt_top_right_id),
-                    PointConstraint::HorizontalAlign,
-                );
-                constraints.insert(
-                    (pt_top_right_id, pt_bot_right_id),
-                    PointConstraint::VerticalAlign,
-                );
-                constraints.insert(
-                    (pt_bot_right_id, pt_bot_left_id),
-                    PointConstraint::HorizontalAlign,
-                );
+                let mut pts_cstr = HashMap::new();
+                // use PointConstraint::*;
+                // pts_cstr.insert((pt_bot_left_id, pt_top_left_id), Direction);
+                // pts_cstr.insert((pt_top_left_id, pt_top_right_id), Direction);
+                // pts_cstr.insert((pt_top_right_id, pt_bot_right_id), Direction);
+                // pts_cstr.insert((pt_bot_right_id, pt_bot_left_id), Direction);
+                // Add the constrains between edges
+                let mut bss_cstr = HashMap::new();
+                bss_cstr.insert((id_left_line, id_right_line), ShapeConstraint::Parallel);
+                bss_cstr.insert((id_top_line, id_bot_line), ShapeConstraint::Parallel);
+                bss_cstr.insert((id_left_line, id_bot_line), ShapeConstraint::Perpendicular);
                 Shape {
                     selected: false,
                     bss,
                     pts,
-                    constraints,
+                    pts_cstr,
+                    bss_cstr,
                 }
             }
         }
+    }
+    pub fn add_line(&mut self, pos: WPos) -> Option<BasicShapeId> {
+        // If a point is selected
+        if let Some(pt1_id) = self.is_a_point_selected() {
+            if let Some((pt1, hbss_pt1)) = self.pts.get_mut(&pt1_id) {
+                // deselect this point
+                pt1.selected = false;
+                // Create a new selected point and add a new segment with this point
+                let (pt2, pt2_id) = Point::new(&pos, true, true, true);
+                let mut hpts = HashSet::new();
+                hpts.insert(pt1_id);
+                hpts.insert(pt2_id);
+                let (bs, bs_id) = BasicShape::new(BasicShapeType::Line, false);
+                self.bss.insert(bs_id, (bs, hpts));
+                hbss_pt1.insert(bs_id);
+
+                let mut hbss_pt2 = HashSet::new();
+                hbss_pt2.insert(bs_id);
+                self.pts.insert(pt2_id, (pt2, hbss_pt2));
+            }
+        }
+        None
     }
     pub fn is_selected(&self) -> bool {
         self.selected == true
@@ -147,7 +167,7 @@ impl Shape {
     pub fn set_all_bss_selection(&mut self, selection: bool) {
         self.bss
             .values_mut()
-            .for_each(|(bs, selected, _)| *selected = selection);
+            .for_each(|(bs, _)| bs.selected = selection);
     }
     pub fn clear_all_pts_selection(&mut self) {
         self.pts
@@ -155,30 +175,16 @@ impl Shape {
             .for_each(|(pt, _)| pt.selected = false)
     }
     pub fn is_a_point_selected(&self) -> Option<PointId> {
-        for (bs_id, (bs, _, hpts)) in self.bss.iter() {
-            use BasicShapeType::*;
-            match bs {
-                Segment => {
-                    let seg_points = vec![PointType::Start, PointType::End];
-                    for pt_typ in seg_points.iter() {
-                        if let Some(pt_id) = hpts.get(pt_typ) {
-                            if let Some((pt, _)) = self.pts.get(pt_id) {
-                                if pt.selected {
-                                    return Some(*pt_id);
-                                }
-                            }
-                        }
-                    }
-                } // QBezier(qbezier) => qbezier.save_current_position(),
-                  // CBezier(cbezier) => cbezier.save_current_position(),
-                  // ArcEllipse(aellipse) => aellipse.save_current_position(),
+        for (pt_id, (pt, _)) in self.pts.iter() {
+            if pt.selected {
+                return Some(*pt_id);
             }
         }
         None
     }
     pub fn set_bs_selection(&mut self, bs_id: &BasicShapeId, selection: bool) {
-        if let Some((bs, selected, _)) = self.bss.get_mut(bs_id) {
-            *selected = selection;
+        if let Some((bs, _)) = self.bss.get_mut(bs_id) {
+            bs.selected = selection;
         }
     }
     pub fn set_pt_selection(&mut self, pt_id: &PointId, selection: bool) {
@@ -190,33 +196,17 @@ impl Shape {
         // TODO
         [WPos::zero(), WPos::zero()]
     }
-    pub fn s_dist(&self, pos: &WPos) -> Option<(BasicShapeId, f64)> {
+    pub fn min_bss_s_dist(&self, pos: &WPos) -> Option<(BasicShapeId, f64)> {
         // Return the signed minimum (pos/neg nearest to zero)
         // of all the distances between pos and basic shapes
         let mut min_s_dist = f64::MAX;
         let mut bs_id_min = None;
-        for (bs_id, (bs, _, bspts)) in self.bss.iter() {
-            let mut s_dist = f64::MAX;
-            use BasicShapeType::*;
-            match bs {
-                Segment => {
-                    if let Some(pt_start_id) = bspts.get(&PointType::Start) {
-                        if let Some(pt_end_id) = bspts.get(&PointType::End) {
-                            if let Some((pt_start, _)) = self.pts.get(pt_start_id) {
-                                if let Some((pt_end, _)) = self.pts.get(pt_end_id) {
-                                    s_dist = pos.s_dist_seg(&pt_start.wpos, &pt_end.wpos)
-                                }
-                            }
-                        }
-                    }
-                } // QBezier(qbezier) => qbezier.save_current_position(),
-                  // CBezier(cbezier) => cbezier.save_current_position(),
-                  // ArcEllipse(aellipse) => aellipse.save_current_position(),
-            };
-
-            if min_s_dist.abs() > s_dist.abs() {
-                min_s_dist = s_dist;
-                bs_id_min = Some(*bs_id);
+        for (bs_id, (bs, hpts)) in self.bss.iter() {
+            if let Some(s_dist) = bs.s_dist(pos, hpts, &self.pts) {
+                if min_s_dist.abs() > s_dist.abs() {
+                    min_s_dist = s_dist;
+                    bs_id_min = Some(*bs_id);
+                }
             }
         }
         if let Some(bs_id) = bs_id_min {
@@ -225,108 +215,164 @@ impl Shape {
             None
         }
     }
-    pub fn is_shape_under_pos(&self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        if let Some((_, s_dist)) = self.s_dist(pick_pos) {
+    pub fn select_shape_under_pos(&mut self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
+        if let Some((_, s_dist)) = self.min_bss_s_dist(pick_pos) {
             if s_dist.abs() < grab_handle_precision {
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-    pub fn get_point_under_pos(
-        &self,
-        pick_pos: &WPos,
-        grab_handle_precision: f64,
-    ) -> Option<(BasicShapeId, PointId, PointType)> {
-        for (bs_id, (bs, _, hpts)) in self.bss.iter() {
-            use BasicShapeType::*;
-            match bs {
-                Segment => {
-                    let seg_points = vec![PointType::Start, PointType::End];
-                    for pt_typ in seg_points.iter() {
-                        if let Some(pt_id) = hpts.get(pt_typ) {
-                            if let Some((pt, _)) = self.pts.get(pt_id) {
-                                if pt.wpos.dist(pick_pos) < grab_handle_precision {
-                                    return Some((*bs_id, *pt_id, *pt_typ));
-                                }
-                            }
-                        }
-                    }
-                } // QBezier(qbezier) => qbezier.save_current_position(),
-                  // CBezier(cbezier) => cbezier.save_current_position(),
-                  // ArcEllipse(aellipse) => aellipse.save_current_position(),
-            }
-        }
-        None
-    }
-    pub fn select_point_under_pos(&mut self, pick_pos: &WPos, grab_handle_precision: f64) -> bool {
-        if let Some((_, pt_id, _)) = self.get_point_under_pos(pick_pos, grab_handle_precision) {
-            if let Some((pt, _)) = self.pts.get_mut(&pt_id) {
-                pt.selected = true;
+                self.selected = true;
+                self.pts
+                    .values_mut()
+                    .for_each(|(pt, _)| pt.saved_wpos = pt.wpos);
                 return true;
             }
         }
         false
     }
-    pub fn move_elements(&mut self, pick_delta_pos: &WPos) {
+    pub fn get_point_under_pos(
+        &self,
+        pick_pos: &WPos,
+        grab_handle_precision: f64,
+    ) -> Option<(BasicShapeId, PointId)> {
+        for (bs_id, (_, hpts)) in self.bss.iter() {
+            for pt_id in hpts.iter() {
+                if let Some((pt, _)) = self.pts.get(pt_id) {
+                    if pt.wpos.dist(pick_pos) < grab_handle_precision {
+                        return Some((*bs_id, *pt_id));
+                    }
+                }
+            }
+        }
+        None
+    }
+    pub fn select_point_under_pos(&mut self, pick_pos: &WPos, grab_handle_precision: f64) {
+        if let Some((_, pt_id)) = self.get_point_under_pos(pick_pos, grab_handle_precision) {
+            if let Some((pt, _)) = self.pts.get_mut(&pt_id) {
+                pt.selected = true;
+                pt.saved_wpos = pt.wpos;
+            }
+        }
+    }
+    pub fn move_elements(&mut self, delta_pick_pos: &WPos) {
         // If a point is selected, we move the point
-        // In no point is selected we move all the position points
+        // If no point is selected we move all the position points
         if let Some(pt_id) = self.is_a_point_selected() {
-            self.move_point(&pt_id, pick_delta_pos);
+            self.move_point(&pt_id, delta_pick_pos);
+            // Apply point cstr
+            //self.apply_pts_cstr(&pt_id);
+            // Seek bs belonging to the point and apply bs cstr
+            self.apply_bss_cstr(&pt_id);
         } else {
-            self.move_all_points(pick_delta_pos);
+            self.move_all_points(delta_pick_pos);
         }
     }
-    pub fn move_point(&mut self, pt_id: &PointId, pick_delta_pos: &WPos) {
+    pub fn move_point(&mut self, pt_id: &PointId, delta_pick_pos: &WPos) {
         if let Some((pt, _)) = self.pts.get_mut(pt_id) {
-            pt.wpos += *pick_delta_pos;
+            pt.wpos = pt.saved_wpos + *delta_pick_pos;
         }
     }
-    pub fn move_all_points(&mut self, pick_delta_pos: &WPos) {
+
+    pub fn bs_get_line_pts(&self, bs_id: &BasicShapeId) -> Option<(Point, Point)> {
+        if let Some((bs, hpts)) = self.bss.get(&bs_id) {
+            if let BasicShapeType::Line = bs.bs_typ {
+                let v: Vec<PointId> = hpts.iter().cloned().collect();
+                if v.len() == 2 {
+                    if let Some((pt0, _)) = self.pts.get(&v[0]).cloned() {
+                        if let Some((pt1, _)) = self.pts.get(&v[1]).cloned() {
+                            return Some((pt0, pt1));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn apply_pts_cstr(&mut self, pt_id: &PointId) {
+        for ((pt1_id, pt2_id), constraint) in self.pts_cstr.iter() {
+            if pt1_id == pt_id || pt2_id == pt_id {
+                use PointConstraint::*;
+                match constraint {
+                    Equal => (),
+                    VerticalAlign => (),
+                    HorizontalAlign => (),
+                    Direction => {
+                        if pt1_id == pt_id {
+                            if let Some((pt1, _)) = self.pts.get(pt1_id).cloned() {
+                                if let Some((pt2, _)) = self.pts.get_mut(pt2_id) {
+                                    apply_cstr_direction(pt2, &pt1);
+                                }
+                            }
+                        } else {
+                            if let Some((pt2, _)) = self.pts.get(pt2_id).cloned() {
+                                if let Some((pt1, _)) = self.pts.get_mut(pt1_id) {
+                                    apply_cstr_direction(pt1, &pt2);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn apply_bss_cstr(&mut self, pt_id: &PointId) {
+        for ((bs1_id, bs2_id), constraint) in self.bss_cstr.iter() {
+            match constraint {
+                ShapeConstraint::Parallel => {
+                    if let Some(bs1_pts) = self.bs_get_line_pts(bs1_id) {
+                        if let Some(bs2_pts) = self.bs_get_line_pts(&bs2_id) {
+                            let (next_bs1_pts, next_bs2_pts) =
+                                apply_cstr_parallel(pt_id, &bs1_pts, &bs2_pts);
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs1_pts.0.id) {
+                                mut_pt.wpos = next_bs1_pts.0.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs1_pts.1.id) {
+                                mut_pt.wpos = next_bs1_pts.1.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs2_pts.0.id) {
+                                mut_pt.wpos = next_bs2_pts.0.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs2_pts.1.id) {
+                                mut_pt.wpos = next_bs2_pts.1.wpos;
+                            }
+                        }
+                    }
+                }
+                ShapeConstraint::Perpendicular => {
+                    if let Some(bs1_pts) = self.bs_get_line_pts(bs1_id) {
+                        if let Some(bs2_pts) = self.bs_get_line_pts(&bs2_id) {
+                            let (next_bs1_pts, next_bs2_pts) =
+                                apply_cstr_perpendicular(pt_id, &bs1_pts, &bs2_pts);
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs1_pts.0.id) {
+                                mut_pt.wpos = next_bs1_pts.0.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs1_pts.1.id) {
+                                mut_pt.wpos = next_bs1_pts.1.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs2_pts.0.id) {
+                                mut_pt.wpos = next_bs2_pts.0.wpos;
+                            }
+                            if let Some((mut_pt, _)) = self.pts.get_mut(&next_bs2_pts.1.id) {
+                                mut_pt.wpos = next_bs2_pts.1.wpos;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pub fn move_all_points(&mut self, delta_pick_pos: &WPos) {
         let mut pt_to_move = HashSet::new();
-        for (_, (_, _, hpts)) in self.bss.iter() {
-            hpts.values()
-                .for_each(|pt_id| _ = pt_to_move.insert(*pt_id));
+        for (_, (_, hpts)) in self.bss.iter() {
+            hpts.iter().for_each(|pt_id| _ = pt_to_move.insert(*pt_id));
         }
         for pt_id in pt_to_move.iter() {
-            self.move_point(pt_id, pick_delta_pos);
+            self.move_point(pt_id, delta_pick_pos);
         }
     }
     pub fn get_bss_constructions(&self, cst: &mut Vec<ConstructionType>) {
-        for (_, (bs, selected, hpts)) in self.bss.iter() {
-            use ConstructionType::*;
-            match bs {
-                BasicShapeType::Segment => {
-                    match (hpts.get(&PointType::Start), hpts.get(&PointType::End)) {
-                        (Some(start_id), Some(end_id)) => {
-                            match (self.pts.get(start_id), self.pts.get(end_id)) {
-                                (Some((start_pt, _)), Some((end_pt, _))) => {
-                                    let pattern = match (self.selected, selected) {
-                                        (false, false) => Pattern::NoSelection,
-                                        (false, true) => Pattern::SimpleSelection,
-                                        (true, false) => Pattern::SimpleSelection,
-                                        (true, true) => Pattern::DoubleSelection,
-                                    };
-                                    cst.push(Segment(pattern, start_pt.wpos, end_pt.wpos))
-                                }
-                                _ => (),
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                BasicShapeType::QBezier => {
-                    //
-                }
-                BasicShapeType::CBezier => {
-                    //
-                }
-                BasicShapeType::ArcEllipse => {
-                    //
-                }
+        for (_, (bs, hpts)) in self.bss.iter() {
+            if let Some(cst_bs) = bs.get_bss_constructions(cst, self.selected, hpts, &self.pts) {
+                cst.push(cst_bs)
             }
         }
     }
@@ -336,55 +382,8 @@ impl Shape {
         }
     }
     pub fn get_helpers_construction(&self, cst: &mut Vec<ConstructionType>) {
-        for (_, (bs, selected, hpts)) in self.bss.iter() {
-            use ConstructionType::*;
-            match bs {
-                BasicShapeType::Segment => {
-                    match (hpts.get(&PointType::Start), hpts.get(&PointType::End)) {
-                        (Some(start_id), Some(end_id)) => {
-                            match (self.pts.get(start_id), self.pts.get(end_id)) {
-                                (Some((start_pt, _)), Some((end_pt, _))) => {
-                                    if is_aligned_vert(&start_pt.wpos, &end_pt.wpos) {
-                                        helper_vertical(
-                                            &(start_pt.wpos),
-                                            &(end_pt.wpos),
-                                            true,
-                                            &mut cst,
-                                        );
-                                    }
-                                    if is_aligned_hori(&start_pt.wpos, &end_pt.wpos) {
-                                        helper_horizontal(
-                                            &(start_pt.wpos),
-                                            &(end_pt.wpos),
-                                            true,
-                                            &mut cst,
-                                        );
-                                    }
-                                    if is_aligned_45_or_135(start_pt.wpos, end_point.wpos) {
-                                        helper_45_135(
-                                            &(start_pt.wpos),
-                                            &(end_pt.wpos),
-                                            true,
-                                            &mut cst,
-                                        );
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                BasicShapeType::QBezier => {
-                    //
-                }
-                BasicShapeType::CBezier => {
-                    //
-                }
-                BasicShapeType::ArcEllipse => {
-                    //
-                }
-            }
+        for (_, (bs, hpts)) in self.bss.iter() {
+            bs.get_helpers_construction(cst, hpts, &self.pts);
         }
     }
 }

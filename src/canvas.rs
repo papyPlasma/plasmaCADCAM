@@ -6,6 +6,7 @@ macro_rules! log {
     }
 }
 
+use crate::basic_shapes::prefab;
 use crate::math::*;
 use crate::shape::{Shape, ShapeTypes};
 use crate::shapes_pool::ShapesPool;
@@ -15,7 +16,6 @@ use js_sys::Array;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::f64::consts::PI;
-use std::ops::ControlFlow;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -65,6 +65,7 @@ pub struct PlayingArea {
     apply_settings_button: HtmlElement,
     settings_width_input: HtmlInputElement,
     settings_height_input: HtmlInputElement,
+    draw_styles: DrawStyles,
 
     // Mouse position on worksheet
     mouse_worksheet_position: HtmlElement,
@@ -72,6 +73,8 @@ pub struct PlayingArea {
     _snapgrid_element: HtmlElement,
 
     pick_pos: WPos,
+    pick_pos_ms_dwn: WPos,
+    canvas_mouse_pos_ms_dwn: CPos,
     show_pick_point: bool,
     magnet_distance: f64,
     grab_handle_precision: f64,
@@ -82,30 +85,13 @@ pub struct PlayingArea {
     keys_states: KeysStates,
     //
     mouse_state: MouseState,
-    mouse_previous_pos_canvas: CPos,
-    pick_pos_ms_dwn: WPos,
 
     working_area: WPos,
     global_scale: f64,
     canvas_offset: CPos,
+    canvas_offset_ms_dwn: CPos,
     working_area_visual_grid: f64,
     working_area_snap_grid: f64,
-
-    // Drawing colors
-    worksheet_color: String,
-    dimension_color: String,
-    geohelper_color: String,
-    origin_color: String,
-    grid_color: String,
-    selection_color: String,
-    selected_color: String,
-    background_color: String,
-    fill_color: String,
-    highlight_color: String,
-
-    // line patterns
-    pub pattern_dashed: JsValue,
-    pub pattern_solid: JsValue,
     // Playing area static draw
     // grid: ShapesPool,
 }
@@ -181,33 +167,15 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
     let document_element = document
         .document_element()
         .ok_or("should have a document element")?;
-    let style = window
+    let styles = window
         .get_computed_style(&document_element)
         .unwrap()
         .unwrap();
 
-    let worksheet_color = style.get_property_value("--canvas-worksheet-color")?;
-    let dimension_color = style.get_property_value("--canvas-dimension-color")?;
-    let geohelper_color = style.get_property_value("--canvas-geohelper-color")?;
-    let origin_color = style.get_property_value("--canvas-origin-color")?;
-    let grid_color = style.get_property_value("--canvas-grid-color")?;
-    let selection_color = style.get_property_value("--canvas-selection-color")?;
-    let selected_color = style.get_property_value("--canvas-selected-color")?;
-    let background_color = style.get_property_value("--canvas-background-color")?;
-    let fill_color = style.get_property_value("--canvas-fill-color")?;
-    let highlight_color = style.get_property_value("--canvas-highlight-color")?;
-    let dash_pattern = Array::new();
-    let solid_pattern = Array::new();
-    dash_pattern.push(&JsValue::from_f64(3.0));
-    dash_pattern.push(&JsValue::from_f64(3.0));
-
     // Calculation starting parameters
     let (canvas_width, canvas_height) = { (canvas.width() as f64, canvas.height() as f64) };
     // let head_position = WXY { wx: 10., wy: 10. };
-    let working_area = WPos {
-        wx: 1000.,
-        wy: 500.,
-    };
+    let working_area = WPos { wx: 500., wy: 500. };
     settings_width_input.set_value(&working_area.wx.to_string());
     settings_height_input.set_value(&working_area.wy.to_string());
 
@@ -238,6 +206,7 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
         apply_settings_button,
         settings_width_input,
         settings_height_input,
+        draw_styles: DrawStyles::build(styles)?,
         mouse_worksheet_position,
         _viewgrid_element: viewgrid_element,
         _snapgrid_element: snapgrid_element,
@@ -247,14 +216,15 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
         size_handle: 5.,
 
         pick_pos: WPos::default(),
+        pick_pos_ms_dwn: WPos::default(),
         show_pick_point: false,
 
         icon_selected: "icon-arrow",
         selection_area: None,
         keys_states: KeysStates::default(),
         mouse_state: MouseState::NoButton,
-        mouse_previous_pos_canvas: CPos::default(),
-        pick_pos_ms_dwn: WPos::default(),
+
+        canvas_mouse_pos_ms_dwn: CPos::default(),
 
         // Real word dimensions
         working_area,
@@ -262,23 +232,9 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
         // Zoom
         global_scale,
         canvas_offset,
+        canvas_offset_ms_dwn: CPos::default(),
         working_area_visual_grid,
         working_area_snap_grid,
-
-        // Drawing colors
-        worksheet_color,
-        dimension_color,
-        geohelper_color,
-        origin_color,
-        grid_color,
-        selection_color,
-        selected_color,
-        background_color,
-        fill_color,
-        highlight_color,
-
-        pattern_dashed: JsValue::from(dash_pattern),
-        pattern_solid: JsValue::from(solid_pattern),
     }));
 
     init_window(playing_area.clone())?;
@@ -844,19 +800,23 @@ fn on_mouse_down(pa: RefArea, event: Event) {
             let scale = pa_mut.global_scale;
             let offset = pa_mut.canvas_offset;
             let snap_grid = pa_mut.working_area_snap_grid;
+
             // Get mouse position relative to the canvas
             let rect = pa_mut.canvas.get_bounding_client_rect();
-            let mouse_pos_canvas = CPos {
+            let canvas_mouse_pos = CPos {
                 cx: mouse_event.client_x() as f64 - rect.left(),
                 cy: mouse_event.client_y() as f64 - rect.top(),
             };
 
-            pa_mut.pick_pos = mouse_pos_canvas.to_world(scale, offset);
-            pa_mut.pick_pos.snap(snap_grid);
+            // Save canvas offset for move
+            pa_mut.canvas_offset_ms_dwn = pa_mut.canvas_offset;
+            pa_mut.canvas_mouse_pos_ms_dwn = canvas_mouse_pos;
 
+            pa_mut.pick_pos = canvas_mouse_pos.to_world(scale, offset);
             pa_mut.pick_pos_ms_dwn = pa_mut.pick_pos;
-
             let pick_pos = pa_mut.pick_pos;
+            //pa_mut.pick_pos.snap(snap_grid);
+
             let _shift_pressed = pa_mut.keys_states.shift_pressed;
             let grab_handle_precision = pa_mut.grab_handle_precision;
 
@@ -873,7 +833,7 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                 "icon-line" => {
                     pa_mut.shapes_pool.clear_shapes_selections();
                     // pick_pos.snap(snap_grid);
-                    let mut shape = Box::new(Shape::create(ShapeTypes::Line(
+                    let mut shape = Box::new(Shape::create(ShapeTypes::Segment(
                         pick_pos,
                         pick_pos + snap_grid,
                     )));
@@ -908,7 +868,7 @@ fn on_mouse_down(pa: RefArea, event: Event) {
                     // pick_pos.snap(snap_grid);
                     let mut shape = Box::new(Shape::create(ShapeTypes::Rectangle(
                         pick_pos,
-                        pick_pos + snap_grid,
+                        pick_pos + 10. * snap_grid,
                     )));
                     shape.set_selected(true);
                     pa_mut.shapes_pool.insert_shape(shape);
@@ -960,20 +920,29 @@ fn on_mouse_move(pa: RefArea, event: Event) {
 
         // Get mouse position relative to the canvas
         let rect = pa_mut.canvas.get_bounding_client_rect();
-        let mouse_pos_canvas = CPos {
+        let canvas_mouse_pos = CPos {
             cx: mouse_event.client_x() as f64 - rect.left(),
             cy: mouse_event.client_y() as f64 - rect.top(),
         };
+        let canvas_offset_ms_dwn = pa_mut.canvas_offset_ms_dwn;
 
         let scale = pa_mut.global_scale;
         let offset = pa_mut.canvas_offset;
         let snap_grid = pa_mut.working_area_snap_grid;
         let magnet_distance = pa_mut.magnet_distance;
 
-        let mouse_delta_canvas = mouse_pos_canvas - pa_mut.mouse_previous_pos_canvas;
-        pa_mut.pick_pos = mouse_pos_canvas.to_world(scale, offset);
-        let mut pick_delta_pos = pa_mut.pick_pos - pa_mut.pick_pos_ms_dwn;
-        pick_delta_pos.snap(snap_grid);
+        let canvas_mouse_pos_ms_dwn = pa_mut.canvas_mouse_pos_ms_dwn;
+        pa_mut.pick_pos = canvas_mouse_pos.to_world(scale, offset);
+        let pick_pos = pa_mut.pick_pos;
+        let pick_pos_ms_dwn = pa_mut.pick_pos_ms_dwn;
+
+        let mut delta_pick_pos = pick_pos - pick_pos_ms_dwn;
+        // log!(
+        //     "delta_pick_pos: ({:.2},{:.2})",
+        //     delta_pick_pos.wx,
+        //     delta_pick_pos.wy
+        // );
+        //pick_delta_pos.snap(snap_grid);
 
         if let MouseState::LeftDown = mouse_state {
             match pa_mut.icon_selected {
@@ -981,30 +950,29 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                     if pa_mut.shapes_pool.is_any_shape_selected() {
                         pa_mut
                             .shapes_pool
-                            .move_selection(&pick_delta_pos, magnet_distance);
+                            .move_selection(&delta_pick_pos, magnet_distance);
                     } else {
                         // Move Canvas if no selection
-                        pa_mut.canvas_offset += mouse_delta_canvas;
+                        pa_mut.canvas_offset =
+                            (canvas_mouse_pos - canvas_mouse_pos_ms_dwn) + canvas_offset_ms_dwn;
                     }
                 }
                 "icon-selection" => {
                     if let Some(sa) = pa_mut.selection_area.as_mut() {
-                        sa[1] = pick_delta_pos
+                        sa[1] = delta_pick_pos
                     }
                 }
                 "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
                 | "icon-rectangle" => pa_mut
                     .shapes_pool
-                    .move_selection(&pick_delta_pos, magnet_distance),
+                    .move_selection(&delta_pick_pos, magnet_distance),
                 _ => (),
             }
-            pa_mut.pick_pos = pick_delta_pos;
         } else {
-            pick_delta_pos.snap(snap_grid);
+            delta_pick_pos.snap(snap_grid);
             pa_mut
                 .shapes_pool
-                .magnet_to_point(&mut pick_delta_pos, None, magnet_distance);
-            pa_mut.pick_pos = pick_delta_pos;
+                .magnet_to_point(&mut delta_pick_pos, None, magnet_distance);
         }
 
         // Display: update mouse world position
@@ -1013,22 +981,21 @@ fn on_mouse_move(pa: RefArea, event: Event) {
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                    pick_delta_pos.wx.round() as i32,
-                    pick_delta_pos.wy.round() as i32,
-                    (pick_delta_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
-                    (pick_delta_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
+                    delta_pick_pos.wx.round() as i32,
+                    delta_pick_pos.wy.round() as i32,
+                    (delta_pick_pos.wx - pa_mut.pick_pos_ms_dwn.wx).round() as i32,
+                    (delta_pick_pos.wy - pa_mut.pick_pos_ms_dwn.wy).round() as i32
                 )));
         } else {
             pa_mut
                 .mouse_worksheet_position
                 .set_text_content(Some(&format!(
                     "( {:?} , {:?} )",
-                    pick_delta_pos.wx.round() as i32,
-                    pick_delta_pos.wy.round() as i32
+                    delta_pick_pos.wx.round() as i32,
+                    delta_pick_pos.wy.round() as i32
                 )));
         }
 
-        pa_mut.mouse_previous_pos_canvas = mouse_pos_canvas;
         drop(pa_mut);
         render(pa.clone());
     }
@@ -1079,7 +1046,7 @@ fn on_mouse_wheel(pa: RefArea, event: Event) {
 
         // Get mouse position relative to the canvas
         let rect = pa_ref.canvas.get_bounding_client_rect();
-        let mouse_pos_canvas = CPos {
+        let canvas_mouse_pos = CPos {
             cx: wheel_event.client_x() as f64 - rect.left(),
             cy: wheel_event.client_y() as f64 - rect.top(),
         };
@@ -1094,9 +1061,9 @@ fn on_mouse_wheel(pa: RefArea, event: Event) {
         };
 
         let new_canvas_offset_x = pa_ref.canvas_offset.cx
-            - (new_scale - old_scale) * (mouse_pos_canvas.cx - pa_ref.canvas_offset.cx) / old_scale;
+            - (new_scale - old_scale) * (canvas_mouse_pos.cx - pa_ref.canvas_offset.cx) / old_scale;
         let new_canvas_offset_y = pa_ref.canvas_offset.cy
-            - (new_scale - old_scale) * (mouse_pos_canvas.cy - pa_ref.canvas_offset.cy) / old_scale;
+            - (new_scale - old_scale) * (canvas_mouse_pos.cy - pa_ref.canvas_offset.cy) / old_scale;
 
         pa_ref.canvas_offset = CPos {
             cx: new_canvas_offset_x,
@@ -1497,289 +1464,252 @@ fn render(pa: RefArea) {
 }
 
 fn draw_all(pa: RefArea) {
-    // draw_grid(pa.clone());
-    // draw_working_area(pa.clone());
+    draw_grid(pa.clone());
+    draw_working_area(pa.clone());
     draw_content(pa.clone());
-    // draw_selection_area(pa.clone());
+    draw_selection_area(pa.clone());
 }
 
-// fn draw_working_area(pa: RefArea) {
-//     use ConstructionType::*;
-//     let pa_ref = pa.borrow();
-//     // Draw working area
-//     let mut cst = Vec::new();
-//     let wa = pa_ref.working_area;
-//     cst.push(Layer(LayerType::Worksheet));
-//     // Title
-//     cst.push(Text(
-//         WPos {
-//             wx: wa.wx / 3.,
-//             wy: -20.,
-//         },
-//         "Working sheet".into(),
-//     ));
-//     // Arrows
-//     cst.push(Move(WPos { wx: 0., wy: -10. }));
-//     cst.push(Line(WPos { wx: 100., wy: -10. }));
-//     cst.push(Line(WPos { wx: 90., wy: -15. }));
-//     cst.push(Line(WPos { wx: 90., wy: -5. }));
-//     cst.push(Line(WPos { wx: 100., wy: -10. }));
-//     cst.push(Move(WPos { wx: -10., wy: 0. }));
-//     cst.push(Line(WPos { wx: -10., wy: 100. }));
-//     cst.push(Line(WPos { wx: -15., wy: 90. }));
-//     cst.push(Line(WPos { wx: -5., wy: 90. }));
-//     cst.push(Line(WPos { wx: -10., wy: 100. }));
-//     cst.push(Text(WPos { wx: 40., wy: -20. }, "X".into()));
-//     cst.push(Text(WPos { wx: -30., wy: 50. }, "Y".into()));
-//     // Border
-//     cst.push(Move(WPos { wx: 0., wy: 0. }));
-//     cst.push(Line(WPos { wx: 0., wy: wa.wy }));
-//     cst.push(Line(WPos {
-//         wx: wa.wx,
-//         wy: wa.wy,
-//     }));
-//     cst.push(Line(WPos { wx: wa.wx, wy: 0. }));
-//     cst.push(Line(WPos { wx: 0., wy: 0. }));
-//     raw_draw(&pa_ref, &cst);
-// }
+fn draw_working_area(pa: RefArea) {
+    use ConstructionType::*;
+    let pa_ref = pa.borrow();
+    // Draw working area
+    let mut cst = Vec::new();
+    let wa = pa_ref.working_area;
+    // Title
+    cst.push(Text(WPos::new(wa.wx / 3., -20.), "Working sheet".into()));
 
-// fn draw_grid(pa: RefArea) {
-//     use ConstructionType::*;
-//     let pa_ref = pa.borrow();
-//     let wa = pa_ref.working_area;
-//     let w_grid_spacing = pa_ref.working_area_visual_grid;
-//     let mut cst = Vec::new();
-//     cst.push(Layer(LayerType::Grid));
-//     // Vertical grid lines
-//     let mut wx = 0.;
-//     while wx <= wa.wx {
-//         cst.push(Move(WPos { wx: wx, wy: 0. }));
-//         cst.push(Line(WPos { wx: wx, wy: wa.wy }));
-//         raw_draw(&pa_ref, &cst);
-//         wx += w_grid_spacing
-//     }
-//     // Horizontal grid lines
-//     let mut cst = Vec::new();
-//     let mut wy = 0.;
-//     while wy <= wa.wy {
-//         cst.push(Move(WPos { wx: 0., wy: wy }));
-//         cst.push(Line(WPos { wx: wa.wx, wy: wy }));
-//         raw_draw(&pa_ref, &cst);
-//         wy += w_grid_spacing;
-//     }
-// }
+    // Arrows
+    let mut pos = WPos::new(0., -10.);
+    prefab::arrow_right(pos, 100., &mut cst);
+    cst.push(Text(WPos { wx: 40., wy: -20. }, "X".into()));
+
+    pos = WPos::new(-10., 0.);
+    prefab::arrow_down(pos, 100., &mut cst);
+    cst.push(Text(WPos { wx: -30., wy: 50. }, "Y".into()));
+
+    // Border
+    use ConstructionPattern::*;
+    pos = WPos::zero();
+    cst.push(Segment(NoSelection, pos, pos.addxy(0., wa.wy)));
+    cst.push(Segment(NoSelection, pos, pos.addxy(wa.wx, 0.)));
+    pos = WPos::new(wa.wx, wa.wy);
+    cst.push(Segment(NoSelection, pos, pos.addxy(-wa.wx, 0.)));
+    cst.push(Segment(NoSelection, pos, pos.addxy(0., -wa.wy)));
+
+    raw_draw(&pa_ref, &cst, ConstructionLayer::Worksheet);
+}
+
+fn draw_grid(pa: RefArea) {
+    use ConstructionType::*;
+    let pa_ref = pa.borrow();
+    let wa = pa_ref.working_area;
+    let w_grid_spacing = pa_ref.working_area_visual_grid;
+    let mut cst = Vec::new();
+    // Vertical grid lines
+    let mut wx = 0.;
+    while wx <= wa.wx {
+        // cst.push(Move(WPos { wx: wx, wy: 0. }));
+        cst.push(Segment(
+            ConstructionPattern::NoSelection,
+            WPos::new(wx, 0.),
+            WPos::new(wx, wa.wy),
+        ));
+        raw_draw(&pa_ref, &cst, ConstructionLayer::Grid);
+        wx += w_grid_spacing
+    }
+    // Horizontal grid lines
+    let mut cst = Vec::new();
+    let mut wy = 0.;
+    while wy <= wa.wy {
+        // cst.push(Move(WPos { wx: 0., wy: wy }));
+        cst.push(Segment(
+            ConstructionPattern::NoSelection,
+            WPos::new(0., wy),
+            WPos::new(wa.wx, wy),
+        ));
+        raw_draw(&pa_ref, &cst, ConstructionLayer::Grid);
+        wy += w_grid_spacing;
+    }
+}
 
 fn draw_content(pa: RefArea) {
     let pa_ref = pa.borrow();
     let size_handle = pa_ref.size_handle;
-    let scale = pa_ref.global_scale;
-    let offset = pa_ref.canvas_offset;
 
     // Draw all shapes
-    for (sh_id, shape) in pa_ref.shapes_pool.iter() {
+    for (_, shape) in pa_ref.shapes_pool.iter() {
         // Draw the shape without the handles
         let mut cst = vec![];
-        cst.push(ConstructionType::Layer(LayerType::Worksheet));
         shape.get_bss_constructions(&mut cst);
-        raw_draw(&pa_ref, &cst);
+        raw_draw(&pa_ref, &cst, ConstructionLayer::Worksheet);
 
         if shape.is_selected() {
             // Draw the handles point
             let mut cst = vec![];
-            cst.push(ConstructionType::Layer(LayerType::Worksheet));
             shape.get_handles_construction(&mut cst, size_handle);
-            raw_draw(&pa_ref, &cst);
+            raw_draw(&pa_ref, &cst, ConstructionLayer::Handle);
 
             // Draw the geometry helpers
             let mut cst = vec![];
-            cst.push(ConstructionType::Layer(LayerType::GeometryHelpers));
             shape.get_helpers_construction(&mut cst);
-            raw_draw(&pa_ref, &cst);
+            raw_draw(&pa_ref, &cst, ConstructionLayer::GeometryHelpers);
         }
     }
 
     // Show pick point if requested
     if pa_ref.show_pick_point {
         let mut cst = vec![];
-        cst.push(ConstructionType::Layer(LayerType::Worksheet));
         let (pt, _) = Point::new(&pa_ref.pick_pos, false, false, false);
         push_handle(&mut cst, &pt, size_handle);
-        raw_draw(&pa_ref, &cst);
+        raw_draw(&pa_ref, &cst, ConstructionLayer::Worksheet);
     }
 }
 
-// fn draw_selection_area(pa: RefArea) {
-//     use ConstructionType::*;
-//     let pa_ref = pa.borrow();
-//     if let Some(sa) = pa_ref.selection_area {
-//         let bl = sa[0];
-//         let tr = sa[1];
-//         if bl.wx != tr.wx && bl.wy != tr.wy {
-//             let mut cst = Vec::new();
-//             cst.push(Layer(LayerType::SelectionTool));
-//             cst.push(Move(WPos {
-//                 wx: bl.wx,
-//                 wy: bl.wy,
-//             }));
-//             cst.push(Line(WPos {
-//                 wx: bl.wx,
-//                 wy: tr.wy,
-//             }));
-//             cst.push(Line(WPos {
-//                 wx: tr.wx,
-//                 wy: tr.wy,
-//             }));
-//             cst.push(Line(WPos {
-//                 wx: tr.wx,
-//                 wy: bl.wy,
-//             }));
-//             cst.push(Line(WPos {
-//                 wx: bl.wx,
-//                 wy: bl.wy,
-//             }));
-//             raw_draw(&pa_ref, &cst);
-//         }
-//     }
-// }
+fn draw_selection_area(pa: RefArea) {
+    use ConstructionPattern::*;
+    use ConstructionType::*;
+    let pa_ref = pa.borrow();
+    if let Some(sa) = pa_ref.selection_area {
+        let bl = sa[0];
+        let tr = sa[1];
+        if bl.wx != tr.wx && bl.wy != tr.wy {
+            let tl = WPos::new(bl.wx, tr.wy);
+            let br = WPos::new(tr.wx, bl.wy);
 
-fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>) {
+            let mut cst = Vec::new();
+            // cst.push(Move(bl));
+            cst.push(Segment(NoSelection, bl, tl));
+            cst.push(Segment(NoSelection, tl, tr));
+            cst.push(Segment(NoSelection, tr, br));
+            cst.push(Segment(NoSelection, br, bl));
+            raw_draw(&pa_ref, &cst, ConstructionLayer::SelectionTool);
+        }
+    }
+}
+
+fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: ConstructionLayer) {
     let p = Path2d::new().unwrap();
     let scale = pa_ref.global_scale;
     let offset = pa_ref.canvas_offset;
+    let size_handle = pa_ref.size_handle;
+
+    let (fill_color, stroke_color, stroke_style, stroke_width) =
+        pa_ref.draw_styles.get_default_styles(layer);
+
+    pa_ref.ctx.set_font("20px sans-serif");
+    pa_ref.ctx.set_line_dash(stroke_style).unwrap();
+    pa_ref.ctx.set_line_width(stroke_width);
+    pa_ref.ctx.set_stroke_style(&stroke_color.into());
+    pa_ref.ctx.set_fill_style(&fill_color.into());
+
+    pa_ref.ctx.begin_path();
     for prim in cst.iter() {
+        use ConstructionPattern::*;
         use ConstructionType::*;
         match prim {
-            Layer(layer_type) => {
-                use LayerType::*;
-                let (fill_color, color, line_dash, line_width) = match layer_type {
-                    Worksheet => (
-                        &pa_ref.fill_color,
-                        &pa_ref.worksheet_color,
-                        &pa_ref.pattern_solid,
-                        2.,
-                    ),
-                    Dimension => (
-                        &pa_ref.fill_color,
-                        &pa_ref.dimension_color,
-                        &pa_ref.pattern_solid,
-                        1.,
-                    ),
-                    GeometryHelpers => (
-                        &pa_ref.fill_color,
-                        &pa_ref.geohelper_color,
-                        &pa_ref.pattern_dashed,
-                        1.,
-                    ),
-                    Origin => (
-                        &pa_ref.fill_color,
-                        &pa_ref.origin_color,
-                        &pa_ref.pattern_solid,
-                        1.,
-                    ),
-                    Grid => (
-                        &pa_ref.fill_color,
-                        &pa_ref.grid_color,
-                        &pa_ref.pattern_solid,
-                        1.,
-                    ),
-                    SelectionTool => (
-                        &pa_ref.fill_color,
-                        &pa_ref.selection_color,
-                        &pa_ref.pattern_dashed,
-                        1.,
-                    ),
-                    Selected => (
-                        &pa_ref.fill_color,
-                        &pa_ref.selected_color,
-                        &pa_ref.pattern_solid,
-                        2.,
-                    ),
-                    Handle(_) => (
-                        &pa_ref.fill_color,
-                        &pa_ref.worksheet_color,
-                        &pa_ref.pattern_solid,
-                        1.,
-                    ),
-                    Highlight => (
-                        &pa_ref.highlight_color,
-                        &pa_ref.worksheet_color,
-                        &pa_ref.pattern_solid,
-                        1.,
-                    ),
-                };
-                pa_ref.ctx.set_line_dash(line_dash).unwrap();
-                pa_ref.ctx.set_line_width(line_width);
-                pa_ref.ctx.set_stroke_style(&color.into());
-                pa_ref.ctx.set_fill_style(&fill_color.into());
+            Move(w_pos) => {
+                let c_pos = w_pos.to_canvas(scale, offset);
+                pa_ref.ctx.move_to(c_pos.cx, c_pos.cy);
             }
 
-            Move(w_end) => {
+            Segment(pat, w_start, w_end) => {
+                let c_start = w_start.to_canvas(scale, offset);
                 let c_end = w_end.to_canvas(scale, offset);
-                p.move_to(c_end.cx, c_end.cy);
+
+                match pat {
+                    NoSelection => pa_ref.ctx.set_stroke_style(&stroke_color.into()),
+                    _ => pa_ref
+                        .ctx
+                        .set_stroke_style(&pa_ref.draw_styles.get_selected_color().into()),
+                };
+
+                pa_ref.ctx.move_to(c_start.cx, c_start.cy);
+                pa_ref.ctx.line_to(c_end.cx, c_end.cy);
             }
-            Point(w_end) => {
-                let c_end = w_end.to_canvas(scale, offset);
-                p.move_to(c_end.cx, c_end.cy);
-            }
-            Segment(w_end) => {
-                let c_end = w_end.to_canvas(scale, offset);
-                p.line_to(c_end.cx, c_end.cy);
-            }
-            QBezier(w_ctrl, w_end) => {
-                let c_ctrl = w_ctrl.to_canvas(scale, offset);
-                let c_end = w_end.to_canvas(scale, offset);
-                p.quadratic_curve_to(c_ctrl.cx, c_ctrl.cy, c_end.cx, c_end.cy);
-            }
-            CBezier(w_ctrl1, w_crtl2, w_end) => {
-                let c_ctrl1 = w_ctrl1.to_canvas(scale, offset);
-                let c_ctrl2 = w_crtl2.to_canvas(scale, offset);
-                let c_end = w_end.to_canvas(scale, offset);
-                p.bezier_curve_to(
-                    c_ctrl1.cx, c_ctrl1.cy, c_ctrl2.cx, c_ctrl2.cy, c_end.cx, c_end.cy,
-                );
-            }
-            ArcEllipse(w_center, radius, rotation, start_angle, end_angle, fill) => {
+
+            ArcEllipse(pat, w_center, radius, start_angle, end_angle) => {
                 let c_center = w_center.to_canvas(scale, offset);
-                if *fill {
-                    pa_ref.ctx.begin_path();
-                    let _ = pa_ref.ctx.ellipse(
-                        c_center.cx,
-                        c_center.cy,
-                        radius.wx * scale,
-                        radius.wy * scale,
-                        *rotation,
-                        *start_angle,
-                        *end_angle - 0.01,
-                    );
+                let fill = match pat {
+                    NoSelection => false,
+                    _ => true,
+                };
+                pa_ref.ctx.begin_path();
+                _ = pa_ref.ctx.ellipse(
+                    c_center.cx,
+                    c_center.cy,
+                    radius.wx * scale,
+                    radius.wy * scale,
+                    0.,
+                    *start_angle,
+                    *end_angle - 0.01,
+                );
+                if fill {
                     pa_ref.ctx.fill();
                 } else {
-                    let _ = p.ellipse(
-                        c_center.cx,
-                        c_center.cy,
-                        radius.wx * scale,
-                        radius.wy * scale,
-                        *rotation,
-                        *start_angle,
-                        *end_angle - 0.01,
-                    );
+                    pa_ref.ctx.stroke();
                 }
+                pa_ref.ctx.close_path();
             }
             Text(w_pos, txt) => {
                 let c_pos = w_pos.to_canvas(scale, offset);
-                pa_ref.ctx.set_font("20px sans-serif");
-                pa_ref.ctx.set_fill_style(&"black".into());
+                pa_ref.ctx.save();
+                pa_ref.ctx.set_fill_style(&stroke_color.into());
                 pa_ref.ctx.fill_text(txt, c_pos.cx, c_pos.cy).unwrap();
+                pa_ref.ctx.restore();
             }
+            Point(pat, w_pos) => {
+                let c_pos = w_pos.to_canvas(scale, offset);
+                let fill = match pat {
+                    ConstructionPattern::NoSelection => false,
+                    _ => true,
+                };
+                pa_ref.ctx.begin_path();
+                p.move_to(c_pos.cx, c_pos.cy);
+                _ = pa_ref.ctx.ellipse(
+                    c_pos.cx,
+                    c_pos.cy,
+                    size_handle / 2. * scale,
+                    size_handle / 2. * scale,
+                    0.,
+                    0.,
+                    2. * PI - 0.01,
+                );
+                if fill {
+                    pa_ref.ctx.fill();
+                } else {
+                    pa_ref.ctx.stroke();
+                }
+                pa_ref.ctx.close_path();
+            } // QBezier(pat, w_start, w_ctrl, w_end) => {
+              //     let c_start = w_start.to_canvas(scale, offset);
+              //     let c_ctrl = w_ctrl.to_canvas(scale, offset);
+              //     let c_end = w_end.to_canvas(scale, offset);
+              //     p.move_to(c_start.cx, c_start.cy);
+              //     p.quadratic_curve_to(c_ctrl.cx, c_ctrl.cy, c_end.cx, c_end.cy);
+              // }
+              // CBezier(pat, w_start, w_ctrl1, w_crtl2, w_end) => {
+              //     let c_start = w_start.to_canvas(scale, offset);
+              //     let c_ctrl1 = w_ctrl1.to_canvas(scale, offset);
+              //     let c_ctrl2 = w_crtl2.to_canvas(scale, offset);
+              //     let c_end = w_end.to_canvas(scale, offset);
+              //     p.move_to(c_start.cx, c_start.cy);
+              //     p.bezier_curve_to(
+              //         c_ctrl1.cx, c_ctrl1.cy, c_ctrl2.cx, c_ctrl2.cy, c_end.cx, c_end.cy,
+              //     );
+              // }
         }
     }
-    pa_ref.ctx.begin_path(); // Begin a new path
-    pa_ref.ctx.stroke_with_path(&p);
+    pa_ref.ctx.close_path();
+    pa_ref.ctx.stroke();
 }
 
 fn raw_draw_clear_canvas(pa_ref: &Ref<'_, PlayingArea>) {
     pa_ref.ctx.set_stroke_style(&"#F00".into());
-    let background_color = &pa_ref.background_color;
-    pa_ref.ctx.set_fill_style(&background_color.into());
+    let background_color = pa_ref.draw_styles.get_background_color();
+    pa_ref
+        .ctx
+        .set_fill_style(&background_color.to_string().into());
 
     pa_ref.ctx.fill();
     let (canvas_width, canvas_height) =

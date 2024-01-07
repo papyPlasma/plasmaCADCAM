@@ -1,5 +1,9 @@
-#[cfg(not(test))]
-use web_sys::console;
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
 
 use crate::types::*;
 use std::f64::consts::PI;
@@ -12,20 +16,16 @@ pub fn is_aligned_vert(pt1: &WPos, pt2: &WPos) -> bool {
     (pt1.wx - pt2.wx).abs() == 0.
 }
 pub fn helper_vertical(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionPattern::*;
     use ConstructionType::*;
-    use Pattern::*;
     let y1 = 2. * pt1.wy - pt2.wy;
     let y2 = 2. * pt2.wy - pt1.wy;
     if full {
-        cst.push(Move(*pt1));
         cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y1)));
-        cst.push(Move(*pt1));
         cst.push(Segment(NoSelection, *pt1, *pt2));
         cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y2)));
     } else {
-        cst.push(Move(*pt1));
         cst.push(Segment(NoSelection, *pt1, WPos::new(pt1.wx, y1)));
-        cst.push(Move(*pt2));
         cst.push(Segment(NoSelection, *pt2, WPos::new(pt1.wx, y2)));
     }
 }
@@ -35,20 +35,16 @@ pub fn is_aligned_hori(pt1: &WPos, pt2: &WPos) -> bool {
     (pt1.wy - pt2.wy).abs() == 0.
 }
 pub fn helper_horizontal(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionPattern::*;
     use ConstructionType::*;
-    use Pattern::*;
     let x1 = 2. * pt1.wx - pt2.wx;
     let x2 = 2. * pt2.wx - pt1.wx;
     if full {
-        cst.push(Move(*pt1));
         cst.push(Segment(NoSelection, *pt1, WPos::new(x1, pt1.wy)));
-        cst.push(Move(*pt1));
-        cst.push(Segment(Pattern::NoSelection, *pt1, *pt2));
+        cst.push(Segment(ConstructionPattern::NoSelection, *pt1, *pt2));
         cst.push(Segment(NoSelection, *pt1, WPos::new(x2, pt1.wy)));
     } else {
-        cst.push(Move(*pt1));
         cst.push(Segment(NoSelection, *pt1, WPos::new(x1, pt1.wy)));
-        cst.push(Move(*pt2));
         cst.push(Segment(NoSelection, *pt2, WPos::new(x2, pt1.wy)));
     }
 }
@@ -64,34 +60,36 @@ pub fn is_aligned_45_or_135(pt1: &WPos, pt2: &WPos) -> bool {
         false
     }
 }
-// pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
-//     if full {
-//         use ConstructionType::*;
-//         cst.push(Move(*pt1));
-//         cst.push(Line(WPos {
-//             wx: 2. * pt1.wx - pt2.wx,
-//             wy: 2. * pt1.wy - pt2.wy,
-//         }));
-//         cst.push(Move(*pt1));
-//         cst.push(Line(*pt2));
-//         cst.push(Line(WPos {
-//             wx: 2. * pt2.wx - pt1.wx,
-//             wy: 2. * pt2.wy - pt1.wy,
-//         }));
-//     } else {
-//         use ConstructionType::*;
-//         cst.push(Move(*pt1));
-//         cst.push(Line(WPos {
-//             wx: 2. * pt1.wx - pt2.wx,
-//             wy: 2. * pt1.wy - pt2.wy,
-//         }));
-//         cst.push(Move(*pt2));
-//         cst.push(Line(WPos {
-//             wx: 2. * pt2.wx - pt1.wx,
-//             wy: 2. * pt2.wy - pt1.wy,
-//         }));
-//     }
-// }
+pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<ConstructionType>) {
+    use ConstructionPattern::*;
+    use ConstructionType::*;
+    let x1 = 2. * pt1.wx - pt2.wx;
+    let y1 = 2. * pt1.wy - pt2.wy;
+
+    let x2 = 2. * pt2.wx - pt1.wx;
+    let y2 = 2. * pt2.wy - pt1.wy;
+
+    if full {
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x1, y1)));
+        cst.push(Segment(NoSelection, *pt1, *pt2));
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x2, y2)));
+    } else {
+        cst.push(Segment(NoSelection, *pt1, WPos::new(x1, y1)));
+        cst.push(Segment(NoSelection, *pt2, WPos::new(x2, y2)));
+    }
+}
+pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
+    use ConstructionPattern::*;
+    use ConstructionType::*;
+    let radius = WPos::default() + size_handle / 2.;
+    let pattern = if pt.selected {
+        SimpleSelection
+    } else {
+        NoSelection
+    };
+    cst.push(Move(pt.wpos));
+    cst.push(Point(pattern, pt.wpos));
+}
 
 fn _is_between(pt: &WPos, pt1: &WPos, pt2: &WPos) -> bool {
     let dot_product = (pt.wx - pt1.wx) * (pt2.wx - pt1.wx) + (pt.wy - pt1.wy) * (pt2.wy - pt1.wy);
@@ -221,8 +219,6 @@ pub fn magnet_to_45(angle: &mut f64, radius_pos: &WPos, magnet_distance: f64) {
     let b = radius_pos.wy * angle.cos();
     let dangle = magnet_distance / (a * a + b * b).sqrt();
     if *angle < PI / 4. + dangle && *angle > PI / 4. - dangle {
-        #[cfg(not(test))]
-        console::log_1(&"ddd".into());
         *angle = PI / 4.;
     }
 }
@@ -252,28 +248,165 @@ pub fn magnet_to_xy(pos: &mut WPos, ref_pos: &WPos, magnet_distance: f64) {
     }
 }
 
+pub fn apply_cstr_direction(pt_to_modif: &mut Point, pt_moved: &Point) {
+    let (x1old, y1old) = (pt_moved.saved_wpos.wx, pt_moved.saved_wpos.wy);
+    let (x2old, y2old) = (pt_to_modif.saved_wpos.wx, pt_to_modif.saved_wpos.wy);
+    let (x1, y1) = (pt_moved.wpos.wx, pt_moved.wpos.wy);
+    let (x2, y2) = (pt_to_modif.wpos.wx, pt_to_modif.wpos.wy);
+    // Calculate the first line ( (den_a1)*y = (num_a1)*(x-x1) + (den_a1)*y1)
+    let num_a1 = y2old - y1old;
+    let den_a1 = x2old - x1old;
+    // Calculate the second line ( (den_a2)*y = (num_a2)*(x-x2) + (den_a2)*y2)
+    let num_a2 = y1 - y1old;
+    let den_a2 = x1 - x1old;
+
+    let den = den_a1 * num_a2 - den_a2 * num_a1;
+    if den != 0. {
+        let x3_num = den_a1 * den_a2 * y1 - den_a1 * den_a2 * y2 + den_a1 * num_a2 * x2
+            - den_a2 * num_a1 * x1;
+        let y3_num = den_a1 * num_a2 * y1 - den_a2 * num_a1 * y2 - num_a1 * num_a2 * x1
+            + num_a1 * num_a2 * x2;
+        pt_to_modif.wpos = WPos::new(x3_num / den, y3_num / den)
+    }
+}
+
+/// We have two lines that must stay parallels
+/// The point moved
+///
+pub fn apply_cstr_parallel(
+    pt_id: &PointId,
+    bs1_pts: &(Point, Point),
+    bs2_pts: &(Point, Point),
+) -> ((Point, Point), (Point, Point)) {
+    let mut bs1_pts = *bs1_pts;
+    let mut bs2_pts = *bs2_pts;
+    match (
+        bs1_pts.0.id == *pt_id,
+        bs1_pts.1.id == *pt_id,
+        bs2_pts.0.id == *pt_id,
+        bs2_pts.1.id == *pt_id,
+    ) {
+        // Pt doesn't belong to the lines
+        (false, false, false, false) => (),
+        // Pt belong to bs1.0, move bs1.1 according to perpendicular of bs2 direction
+        (true, false, false, false) => {
+            // line parallel to bs2 that contains bs1.0
+            let na1 = bs2_pts.1.wpos.wy - bs2_pts.0.wpos.wy;
+            let da1 = bs2_pts.1.wpos.wx - bs2_pts.0.wpos.wx;
+            let x1 = bs1_pts.0.wpos.wx;
+            let y1 = bs1_pts.0.wpos.wy;
+            // line perp to bs2 that contains bs1.1
+            let na2 = -da1;
+            let da2 = na1;
+            let x2 = bs1_pts.1.saved_wpos.wx;
+            let y2 = bs1_pts.1.saved_wpos.wy;
+            // Intersection of the two lines
+            let den = da1 * na2 - da2 * na1;
+            if den != 0. {
+                let x = (da1 * da2 * y1 - da1 * da2 * y2 + da1 * na2 * x2 - da2 * na1 * x1) / den;
+                let y = (da1 * na2 * y1 - da2 * na1 * y2 - na1 * na2 * x1 + na1 * na2 * x2) / den;
+                bs1_pts.1.wpos = WPos::new(x, y);
+            }
+        }
+        // Pt belong to bs1.1, move bs1.0 according to perpendicular of bs2 direction
+        (false, true, false, false) => {
+            // log!("XXXXXXXXXXXXXXXXXXXXXX");
+            // line parallel to bs2 that contains bs1.1
+            let na1 = bs2_pts.1.wpos.wy - bs2_pts.0.wpos.wy;
+            let da1 = bs2_pts.1.wpos.wx - bs2_pts.0.wpos.wx;
+            let x1 = bs1_pts.1.wpos.wx;
+            let y1 = bs1_pts.1.wpos.wy;
+            // line perp to bs2 that contains bs1.0
+            let na2 = -da1;
+            let da2 = na1;
+            let x2 = bs1_pts.0.wpos.wx;
+            let y2 = bs1_pts.0.wpos.wy;
+            // Intersection of the two lines
+            let den = da1 * na2 - da2 * na1;
+            if den != 0. {
+                let x = (da1 * da2 * y1 - da1 * da2 * y2 + da1 * na2 * x2 - da2 * na1 * x1) / den;
+                let y = (da1 * na2 * y1 - da2 * na1 * y2 - na1 * na2 * x1 + na1 * na2 * x2) / den;
+                bs1_pts.0.wpos = WPos::new(x, y);
+            }
+        }
+        // Pt belong to bs2.0, move bs2.1 according to perpendicular of bs1 direction
+        (false, false, true, false) => {
+            // log!("XXXXXXXXXXXXXXXXXXXXXX");
+            // line parallel to bs1 that contains bs2.0
+            let na1 = bs1_pts.1.wpos.wy - bs1_pts.0.wpos.wy;
+            let da1 = bs1_pts.1.wpos.wx - bs1_pts.0.wpos.wx;
+            let x1 = bs2_pts.0.wpos.wx;
+            let y1 = bs2_pts.0.wpos.wy;
+            // line perp to bs1 that contains bs2.1
+            let na2 = -da1;
+            let da2 = na1;
+            let x2 = bs2_pts.1.wpos.wx;
+            let y2 = bs2_pts.1.wpos.wy;
+            // Intersection of the two lines
+            let den = da1 * na2 - da2 * na1;
+            if den != 0. {
+                let x = (da1 * da2 * y1 - da1 * da2 * y2 + da1 * na2 * x2 - da2 * na1 * x1) / den;
+                let y = (da1 * na2 * y1 - da2 * na1 * y2 - na1 * na2 * x1 + na1 * na2 * x2) / den;
+                bs2_pts.1.wpos = WPos::new(x, y);
+            }
+        }
+        // Pt belong to bs2.1, move bs2.0 according to perpendicular of bs1 direction
+        (false, false, false, true) => {
+            // log!("XXXXXXXXXXXXXXXXXXXXXX");
+            // line parallel to bs1 that contains bs2.1
+            let na1 = bs1_pts.1.wpos.wy - bs1_pts.0.wpos.wy;
+            let da1 = bs1_pts.1.wpos.wx - bs1_pts.0.wpos.wx;
+            let x1 = bs2_pts.1.wpos.wx;
+            let y1 = bs2_pts.1.wpos.wy;
+            // line perp to bs1 that contains bs2.0
+            let na2 = -da1;
+            let da2 = na1;
+            let x2 = bs2_pts.0.wpos.wx;
+            let y2 = bs2_pts.0.wpos.wy;
+            // Intersection of the two lines
+            let den = da1 * na2 - da2 * na1;
+            if den != 0. {
+                let x = (da1 * da2 * y1 - da1 * da2 * y2 + da1 * na2 * x2 - da2 * na1 * x1) / den;
+                let y = (da1 * na2 * y1 - da2 * na1 * y2 - na1 * na2 * x1 + na1 * na2 * x2) / den;
+                bs2_pts.0.wpos = WPos::new(x, y);
+            }
+        }
+        _ => (),
+    }
+    (bs1_pts, bs2_pts)
+}
+
+/// We have two lines that must stay parallels
+/// The point moved
+///
+pub fn apply_cstr_perpendicular(
+    pt_id: &PointId,
+    bs1_pts: &(Point, Point),
+    bs2_pts: &(Point, Point),
+) -> ((Point, Point), (Point, Point)) {
+    let mut bs1_pts = *bs1_pts;
+    let mut bs2_pts = *bs2_pts;
+    match (
+        bs1_pts.0.id == *pt_id,
+        bs1_pts.1.id == *pt_id,
+        bs2_pts.0.id == *pt_id,
+        bs2_pts.1.id == *pt_id,
+    ) {
+        // Pt doesn't belong to the lines
+        (false, false, false, false) => (),
+        // Pt belongs to at least one line
+        _ => {
+            if bs1_pts.0.id == *pt_id {
+                //
+            }
+        }
+    }
+    (bs1_pts, bs2_pts)
+}
+
 // pub fn snap_to_snap_grid(pos: &WPos, snap_distance: f64) -> WPos {
 //     (*pos / snap_distance).round() * snap_distance
 // }
-
-pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
-    let radius = WPos::default() + size_handle / 2.;
-    let pattern = if pt.selected {
-        Pattern::SimpleSelection
-    } else {
-        Pattern::NoSelection
-    };
-    cst.push(ConstructionType::Move(
-        pt.wpos + WPos::default().addxy(size_handle / 2., 0.),
-    ));
-    cst.push(ConstructionType::ArcEllipse(
-        pattern,
-        pt.wpos,
-        radius,
-        0.,
-        2. * PI,
-    ));
-}
 
 //     magnet_geometry(&br, &mut p, self.snap_distance);
 //     snap_to_snap_grid(&mut p, self.snap_distance);

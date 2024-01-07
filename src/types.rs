@@ -5,7 +5,9 @@
 //     }
 // }
 
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::ops::Add;
 use std::ops::AddAssign;
 use std::ops::Div;
@@ -18,6 +20,122 @@ use std::ops::SubAssign;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use js_sys::Array;
+use wasm_bindgen::prelude::*;
+use web_sys::CssStyleDeclaration;
+
+use crate::math::*;
+
+pub struct DrawStyles {
+    // Drawing colors
+    worksheet_color: String,
+    dimension_color: String,
+    geohelper_color: String,
+    origin_color: String,
+    grid_color: String,
+    selection_color: String,
+    selected_color: String,
+    background_color: String,
+    fill_color: String,
+    highlight_color: String,
+    // line patterns
+    pattern_dashed: JsValue,
+    pattern_solid: JsValue,
+}
+impl DrawStyles {
+    pub fn build(style: CssStyleDeclaration) -> Result<DrawStyles, JsValue> {
+        let worksheet_color = style.get_property_value("--canvas-worksheet-color")?;
+        let dimension_color = style.get_property_value("--canvas-dimension-color")?;
+        let geohelper_color = style.get_property_value("--canvas-geohelper-color")?;
+        let origin_color = style.get_property_value("--canvas-origin-color")?;
+        let grid_color = style.get_property_value("--canvas-grid-color")?;
+        let selection_color = style.get_property_value("--canvas-selection-color")?;
+        let selected_color = style.get_property_value("--canvas-selected-color")?;
+        let background_color = style.get_property_value("--canvas-background-color")?;
+        let fill_color = style.get_property_value("--canvas-fill-color")?;
+        let highlight_color = style.get_property_value("--canvas-highlight-color")?;
+        let dash_pattern = Array::new();
+        dash_pattern.push(&JsValue::from_f64(3.0));
+        dash_pattern.push(&JsValue::from_f64(3.0));
+        let solid_pattern = Array::new();
+        Ok(DrawStyles {
+            worksheet_color,
+            dimension_color,
+            geohelper_color,
+            origin_color,
+            grid_color,
+            selection_color,
+            selected_color,
+            background_color,
+            fill_color,
+            highlight_color,
+            pattern_dashed: JsValue::from(dash_pattern),
+            pattern_solid: JsValue::from(solid_pattern),
+        })
+    }
+    pub fn get_default_styles(&self, layer: ConstructionLayer) -> (&str, &str, &JsValue, f64) {
+        use ConstructionLayer::*;
+        let (fill_color, color, line_dash, line_width) = match layer {
+            Worksheet => (
+                &self.fill_color,
+                &self.worksheet_color,
+                &self.pattern_solid,
+                1.,
+            ),
+            Dimension => (
+                &self.fill_color,
+                &self.dimension_color,
+                &self.pattern_solid,
+                1.,
+            ),
+            GeometryHelpers => (
+                &self.fill_color,
+                &self.geohelper_color,
+                &self.pattern_dashed,
+                1.,
+            ),
+            Origin => (
+                &self.fill_color,
+                &self.origin_color,
+                &self.pattern_solid,
+                1.,
+            ),
+            Grid => (&self.fill_color, &self.grid_color, &self.pattern_solid, 1.),
+            SelectionTool => (
+                &self.fill_color,
+                &self.selection_color,
+                &self.pattern_dashed,
+                1.,
+            ),
+            Selected => (
+                &self.fill_color,
+                &self.selected_color,
+                &self.pattern_solid,
+                2.,
+            ),
+            Handle => (
+                &self.fill_color,
+                &self.selected_color,
+                &self.pattern_solid,
+                1.,
+            ),
+            Highlight => (
+                &self.highlight_color,
+                &self.highlight_color,
+                &self.pattern_solid,
+                1.,
+            ),
+        };
+        (fill_color, color, line_dash, line_width)
+    }
+    pub fn get_background_color(&self) -> &str {
+        &self.background_color
+    }
+    pub fn get_selected_color(&self) -> &str {
+        &self.selected_color
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub struct ShapeParameters {
@@ -25,16 +143,9 @@ pub struct ShapeParameters {
     pub highlight_size: f64,
 }
 
-pub enum BasicShapeType {
-    Segment,
-    QBezier,
-    CBezier,
-    ArcEllipse,
-}
-
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
-pub enum LayerType {
+pub enum ConstructionLayer {
     Worksheet,
     Dimension,
     GeometryHelpers,
@@ -43,42 +154,46 @@ pub enum LayerType {
     SelectionTool,
     Selected,
     Highlight,
-    Handle(bool),
+    Handle,
 }
 
-pub enum Pattern {
+pub enum ConstructionPattern {
     NoSelection,
     SimpleSelection,
     DoubleSelection,
 }
 pub enum ConstructionType {
-    Layer(LayerType),
     Move(WPos),
-    Point(Pattern, WPos),
-    Segment(Pattern, WPos, WPos),
-    QBezier(Pattern, WPos, WPos, WPos),
-    CBezier(Pattern, WPos, WPos, WPos, WPos),
-    ArcEllipse(Pattern, WPos, WPos, f64, f64),
+    Point(ConstructionPattern, WPos),
+    Segment(ConstructionPattern, WPos, WPos),
+    // QBezier(ConstructionPattern, WPos, WPos, WPos),
+    // CBezier(ConstructionPattern, WPos, WPos, WPos, WPos),
+    ArcEllipse(ConstructionPattern, WPos, WPos, f64, f64),
     Text(WPos, String),
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum PointType {
-    Start,
-    End,
-    Center,
-    Radius,
-    StartAngle,
-    EndAngle,
-    Ctrl,
-    Ctrl1,
-    Ctrl2,
-}
+// #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+// pub enum PointType {
+//     Start,
+//     End,
+//     Center,
+//     Radius,
+//     StartAngle,
+//     EndAngle,
+//     Ctrl,
+//     Ctrl1,
+//     Ctrl2,
+// }
 
 pub enum PointConstraint {
     Equal,
     VerticalAlign,
     HorizontalAlign,
+    Direction,
+}
+pub enum ShapeConstraint {
+    Parallel,
+    Perpendicular,
 }
 
 static COUNTER_GROUPS: AtomicUsize = AtomicUsize::new(0);
@@ -97,26 +212,6 @@ impl Deref for GroupId {
     }
 }
 impl DerefMut for GroupId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-static COUNTER_BASIC_SHAPES: AtomicUsize = AtomicUsize::new(0);
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BasicShapeId(usize);
-impl BasicShapeId {
-    pub fn new_id() -> BasicShapeId {
-        BasicShapeId(COUNTER_BASIC_SHAPES.fetch_add(1, Ordering::Relaxed))
-    }
-}
-impl Deref for BasicShapeId {
-    type Target = usize;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for BasicShapeId {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -162,10 +257,31 @@ impl DerefMut for PointId {
     }
 }
 
+static COUNTER_BASIC_SHAPES: AtomicUsize = AtomicUsize::new(0);
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct BasicShapeId(usize);
+impl BasicShapeId {
+    pub fn new_id() -> BasicShapeId {
+        BasicShapeId(COUNTER_BASIC_SHAPES.fetch_add(1, Ordering::Relaxed))
+    }
+}
+impl Deref for BasicShapeId {
+    type Target = usize;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for BasicShapeId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Point {
     pub id: PointId,
     pub wpos: WPos,
+    pub saved_wpos: WPos,
     pub magnetic: bool,
     pub draggable: bool,
     pub selected: bool,
@@ -177,12 +293,148 @@ impl Point {
             Point {
                 id,
                 wpos: *wpos,
+                saved_wpos: *wpos,
                 magnetic,
                 draggable,
                 selected,
             },
             id,
         )
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum BasicShapeType {
+    Line,
+    QBezier,
+    CBezier,
+    ArcEllipse,
+}
+impl BasicShapeType {
+    pub fn segment_get_points(
+        &self,
+        hpts: &HashSet<PointId>,
+        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
+    ) -> Option<(Point, Point)> {
+        if let BasicShapeType::Line = self {
+            let pts_id: Vec<_> = hpts.into_iter().collect();
+            if let Some(pt1_id) = pts_id.get(0) {
+                if let Some(pt2_id) = pts_id.get(1) {
+                    if let Some((pt1, _)) = pts.get(pt1_id) {
+                        if let Some((pt2, _)) = pts.get(pt2_id) {
+                            return Some((*pt1, *pt2));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    pub fn s_dist(
+        &self,
+        pos: &WPos,
+        hpts: &HashSet<PointId>,
+        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
+    ) -> Option<f64> {
+        use BasicShapeType::*;
+        match self {
+            Line => {
+                if let Some((pt1, pt2)) = self.segment_get_points(hpts, pts) {
+                    Some(pos.s_dist_seg(&pt1.wpos, &pt2.wpos))
+                } else {
+                    // Something when wrong, return None
+                    None
+                }
+            }
+            QBezier => None,    //TODO
+            CBezier => None,    //TODO
+            ArcEllipse => None, //TODO
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BasicShape {
+    pub id: BasicShapeId,
+    pub bs_typ: BasicShapeType,
+    pub selected: bool,
+}
+impl BasicShape {
+    pub fn new(bs_typ: BasicShapeType, selected: bool) -> (BasicShape, BasicShapeId) {
+        let id = BasicShapeId::new_id();
+        (
+            BasicShape {
+                id,
+                bs_typ,
+                selected,
+            },
+            id,
+        )
+    }
+    pub fn s_dist(
+        &self,
+        pos: &WPos,
+        hpts: &HashSet<PointId>,
+        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
+    ) -> Option<f64> {
+        self.bs_typ.s_dist(pos, hpts, pts)
+    }
+    pub fn get_bss_constructions(
+        &self,
+        cst: &mut Vec<ConstructionType>,
+        parent_selected: bool,
+        hpts: &HashSet<PointId>,
+        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
+    ) -> Option<ConstructionType> {
+        use BasicShapeType::*;
+        match self.bs_typ {
+            Line => {
+                if let Some((pt1, pt2)) = self.bs_typ.segment_get_points(hpts, pts) {
+                    let pattern = if parent_selected {
+                        if self.selected {
+                            ConstructionPattern::DoubleSelection
+                        } else {
+                            ConstructionPattern::SimpleSelection
+                        }
+                    } else {
+                        ConstructionPattern::NoSelection
+                    };
+                    Some(ConstructionType::Segment(pattern, pt1.wpos, pt2.wpos))
+                } else {
+                    // Something when wrong, return None
+                    None
+                }
+            }
+            QBezier => None,    //TODO
+            CBezier => None,    //TODO
+            ArcEllipse => None, //TODO
+        }
+    }
+    pub fn get_helpers_construction(
+        &self,
+        cst: &mut Vec<ConstructionType>,
+        hpts: &HashSet<PointId>,
+        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
+    ) {
+        use BasicShapeType::*;
+        match self.bs_typ {
+            Line => {
+                if let Some((pt1, pt2)) = self.bs_typ.segment_get_points(hpts, pts) {
+                    if is_aligned_vert(&pt1.wpos, &pt2.wpos) {
+                        helper_vertical(&pt1.wpos, &pt2.wpos, true, cst)
+                    }
+                    if is_aligned_hori(&pt1.wpos, &pt2.wpos) {
+                        helper_horizontal(&pt1.wpos, &pt2.wpos, true, cst)
+                    }
+                    if is_aligned_45_or_135(&pt1.wpos, &pt2.wpos) {
+                        helper_45_135(&pt1.wpos, &pt2.wpos, true, cst)
+                    }
+                }
+            }
+            QBezier => (),    //TODO
+            CBezier => (),    //TODO
+            ArcEllipse => (), //TODO
+        }
     }
 }
 
@@ -288,7 +540,9 @@ impl WPos {
             }
         }
     }
-
+    pub fn tup(&self) -> (f64, f64) {
+        (self.wx, self.wy)
+    }
     // // Find the projection of a point onto a line segment defined by two points
     // pub fn project_to_seg(&self, pos1: &WPos, pos2: &WPos) -> WPos {
     //     let pos_v = self - pos1;

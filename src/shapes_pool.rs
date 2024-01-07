@@ -62,32 +62,20 @@ impl ShapesPool {
             shape.set_selected(selection)
         }
     }
-    pub fn _get_shape_under_pos(
-        &self,
-        pick_pos: &WPos,
-        grab_handle_precision: f64,
-    ) -> Option<ShapeId> {
-        for (sh_id, shape) in self.iter() {
-            if shape.is_shape_under_pos(pick_pos, grab_handle_precision) {
-                return Some(*sh_id);
-            }
-        }
-        None
-    }
 
     pub fn select_all_under_pos(&mut self, pick_pos: &WPos, grab_handle_precision: f64) {
         for shape in self.values_mut() {
-            if shape.is_shape_under_pos(pick_pos, grab_handle_precision) {
-                shape.set_selected(true);
+            if shape.select_shape_under_pos(pick_pos, grab_handle_precision) {
                 shape.select_point_under_pos(pick_pos, grab_handle_precision);
+                break;
             }
         }
     }
 
-    pub fn move_selection(&mut self, pick_delta_pos: &WPos, _magnet_distance: f64) {
+    pub fn move_selection(&mut self, delta_pick_pos: &WPos, _magnet_distance: f64) {
         for shape in self.values_mut() {
             if shape.is_selected() {
-                shape.move_elements(&pick_delta_pos);
+                shape.move_elements(&delta_pick_pos);
             }
         }
     }
