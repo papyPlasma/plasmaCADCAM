@@ -5,9 +5,11 @@
 //     }
 // }
 
+use ordered_float::OrderedFloat;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Add;
 use std::ops::AddAssign;
 use std::ops::Div;
@@ -21,6 +23,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use js_sys::Array;
+use js_sys::Math::atan2;
 use wasm_bindgen::prelude::*;
 use web_sys::CssStyleDeclaration;
 
@@ -156,7 +159,6 @@ pub enum ConstructionLayer {
     Highlight,
     Handle,
 }
-
 pub enum ConstructionPattern {
     NoSelection,
     SimpleSelection,
@@ -172,28 +174,252 @@ pub enum ConstructionType {
     Text(WPos, String),
 }
 
-// #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-// pub enum PointType {
-//     Start,
-//     End,
-//     Center,
-//     Radius,
-//     StartAngle,
-//     EndAngle,
-//     Ctrl,
-//     Ctrl1,
-//     Ctrl2,
-// }
-
-pub enum PointConstraint {
-    Equal,
-    VerticalAlign,
-    HorizontalAlign,
-    Direction,
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PointUnaryConstraint {
+    FreeToMove,
+    Fixed,
 }
-pub enum ShapeConstraint {
-    Parallel,
-    Perpendicular,
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PointsBinaryConstraint {
+    Binded,
+    Angle(OrderedFloat<f64>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PrimitiveConstraint {
+    Unconstrained,
+    SegVertical,
+    SegHorizontal,
+    // Relative to another segment
+    SegParallel(OrderedFloat<f64>),
+    // Relative to another segment
+    SegPerpendicular(OrderedFloat<f64>),
+    // Relative to another segment
+    SegVerticalParallel(OrderedFloat<f64>),
+    // Relative to another segment
+    SegHorizontalPerpendicular(OrderedFloat<f64>),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PrimitiveType {
+    Segment(PointId, PointId),
+    QBezier(PointId, PointId, PointId),
+    CBezier(PointId, PointId, PointId, PointId),
+    ArcEllipse(PointId, PointId, PointId, PointId),
+}
+impl PrimitiveType {
+    pub fn get_angle(&self, points: &HashMap<PointId, Point>) -> Option<f64> {
+        if let PrimitiveType::Segment(pt1_id, pt2_id) = self {
+            if let Some(pt1) = points.get(pt1_id) {
+                if let Some(pt2) = points.get(pt2_id) {
+                    return Some(atan2(pt2.wpos.wy - pt1.wpos.wy, pt2.wpos.wx - pt1.wpos.wx));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Primitive {
+    pub id: PrimitiveId,
+    pub prim_type: PrimitiveType,
+    pub prim_cstr: PrimitiveConstraint,
+    pub selected: bool,
+}
+impl Primitive {
+    pub fn new(prim_type: &PrimitiveType, selected: bool) -> (Primitive, PrimitiveId) {
+        let id = PrimitiveId::new_id();
+        (
+            Primitive {
+                id,
+                prim_type: *prim_type,
+                prim_cstr: PrimitiveConstraint::Unconstrained,
+                selected,
+            },
+            id,
+        )
+    }
+    pub fn set_constraint(&mut self, prim_cstr: &PrimitiveConstraint) {
+        self.prim_cstr = prim_cstr.clone();
+    }
+    pub fn get_point_master_constraint(&self, dpos: &mut WPos) {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(_, _) => (),
+            QBezier(_, _, _) => (),       //TODO
+            CBezier(_, _, _, _) => (),    //TODO
+            ArcEllipse(_, _, _, _) => (), //TODO
+        }
+    }
+    pub fn get_point_slave_constraint(&self, dpos: &mut WPos) {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(_, _) => (),
+            QBezier(_, _, _) => (),       //TODO
+            CBezier(_, _, _, _) => (),    //TODO
+            ArcEllipse(_, _, _, _) => (), //TODO
+        }
+    }
+    pub fn move_points(&mut self, points: &mut HashMap<PointId, Point>, delta_pick_pos: &WPos) {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(pt1_id, pt2_id) => {
+                if let Some(pt1) = points.get_mut(&pt1_id) {
+                    pt1.wpos = pt1.saved_wpos + *delta_pick_pos;
+                }
+                if let Some(pt2) = points.get_mut(&pt2_id) {
+                    pt2.wpos = pt2.saved_wpos + *delta_pick_pos;
+                }
+            }
+            QBezier(_, _, _) => (),       //TODO
+            CBezier(_, _, _, _) => (),    //TODO
+            ArcEllipse(_, _, _, _) => (), //TODO
+        }
+    }
+    pub fn s_dist(&self, pos: &WPos, points: &HashMap<PointId, Point>) -> f64 {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(pt1_id, pt2_id) => {
+                if let Some(pt1) = points.get(&pt1_id) {
+                    if let Some(pt2) = points.get(&pt2_id) {
+                        pos.s_dist_seg(&pt1.wpos, &pt2.wpos)
+                    } else {
+                        0.
+                    }
+                } else {
+                    0.
+                }
+            }
+            QBezier(_, _, _) => 0.,       //TODO
+            CBezier(_, _, _, _) => 0.,    //TODO
+            ArcEllipse(_, _, _, _) => 0., //TODO
+        }
+    }
+    pub fn get_bss_constructions(
+        &self,
+        cst: &mut Vec<ConstructionType>,
+        points: &HashMap<PointId, Point>,
+        parent_selected: bool,
+    ) {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(pt1_id, pt2_id) => {
+                let pattern = if parent_selected {
+                    if self.selected {
+                        ConstructionPattern::DoubleSelection
+                    } else {
+                        ConstructionPattern::SimpleSelection
+                    }
+                } else {
+                    ConstructionPattern::NoSelection
+                };
+                if let Some(pt1) = points.get(&pt1_id) {
+                    if let Some(pt2) = points.get(&pt2_id) {
+                        cst.push(ConstructionType::Segment(pattern, pt1.wpos, pt2.wpos));
+                    }
+                }
+            }
+            QBezier(_, _, _) => (),       //TODO
+            CBezier(_, _, _, _) => (),    //TODO
+            ArcEllipse(_, _, _, _) => (), //TODO
+        }
+    }
+    pub fn get_helpers_constructions(
+        &self,
+        cst: &mut Vec<ConstructionType>,
+        points: &HashMap<PointId, Point>,
+    ) {
+        use PrimitiveType::*;
+        match self.prim_type {
+            Segment(pt1_id, pt2_id) => {
+                if let Some(pt1) = points.get(&pt1_id) {
+                    if let Some(pt2) = points.get(&pt2_id) {
+                        if is_aligned_vert(&pt1.wpos, &pt2.wpos) {
+                            helper_vertical(&pt1.wpos, &pt2.wpos, true, cst)
+                        }
+                        if is_aligned_hori(&pt1.wpos, &pt2.wpos) {
+                            helper_horizontal(&pt1.wpos, &pt2.wpos, true, cst)
+                        }
+                        if is_aligned_45_or_135(&pt1.wpos, &pt2.wpos) {
+                            helper_45_135(&pt1.wpos, &pt2.wpos, true, cst)
+                        }
+                    }
+                }
+            }
+            QBezier(_, _, _) => (),       //TODO
+            CBezier(_, _, _, _) => (),    //TODO
+            ArcEllipse(_, _, _, _) => (), //TODO
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Point {
+    pub id: PointId,
+    pub wpos: WPos,
+    pub saved_wpos: WPos,
+    pub csrt: PointUnaryConstraint,
+    pub magnetic: bool,
+    pub draggable: bool,
+    pub selected: bool,
+}
+impl Point {
+    pub fn new(wpos: &WPos, magnetic: bool, draggable: bool, selected: bool) -> (Point, PointId) {
+        let id = PointId::new_id();
+        (
+            Point {
+                id,
+                wpos: *wpos,
+                saved_wpos: *wpos,
+                csrt: PointUnaryConstraint::FreeToMove,
+                magnetic,
+                draggable,
+                selected,
+            },
+            id,
+        )
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PointIdCouple(pub PointId, pub PointId);
+impl PartialEq<Self> for PointIdCouple {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0 && self.1 == other.1 || self.0 == other.1 && self.1 == other.0
+    }
+}
+impl Eq for PointIdCouple {}
+impl Hash for PointIdCouple {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if *self.0 <= *self.1 {
+            self.0.hash(state);
+            self.1.hash(state);
+        } else {
+            self.1.hash(state);
+            self.0.hash(state);
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PrimitiveIdCouple(pub PrimitiveId, pub PrimitiveId);
+impl PartialEq<Self> for PrimitiveIdCouple {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0 && self.1 == other.1 || self.0 == other.1 && self.1 == other.0
+    }
+}
+impl Eq for PrimitiveIdCouple {}
+impl Hash for PrimitiveIdCouple {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if *self.0 <= *self.1 {
+            self.0.hash(state);
+            self.1.hash(state);
+        } else {
+            self.1.hash(state);
+            self.0.hash(state);
+        }
+    }
 }
 
 static COUNTER_GROUPS: AtomicUsize = AtomicUsize::new(0);
@@ -237,12 +463,32 @@ impl DerefMut for ShapeId {
     }
 }
 
-static COUNTER_POINTS: AtomicUsize = AtomicUsize::new(0);
+static COUNTER_BASIC_SHAPES: AtomicUsize = AtomicUsize::new(0);
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PrimitiveId(usize);
+impl PrimitiveId {
+    pub fn new_id() -> PrimitiveId {
+        PrimitiveId(COUNTER_BASIC_SHAPES.fetch_add(1, Ordering::Relaxed))
+    }
+}
+impl Deref for PrimitiveId {
+    type Target = usize;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for PrimitiveId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+static COUNTER_ATOM_ELEMS: AtomicUsize = AtomicUsize::new(0);
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PointId(usize);
 impl PointId {
     pub fn new_id() -> PointId {
-        PointId(COUNTER_POINTS.fetch_add(1, Ordering::Relaxed))
+        PointId(COUNTER_ATOM_ELEMS.fetch_add(1, Ordering::Relaxed))
     }
 }
 impl Deref for PointId {
@@ -254,187 +500,6 @@ impl Deref for PointId {
 impl DerefMut for PointId {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-static COUNTER_BASIC_SHAPES: AtomicUsize = AtomicUsize::new(0);
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BasicShapeId(usize);
-impl BasicShapeId {
-    pub fn new_id() -> BasicShapeId {
-        BasicShapeId(COUNTER_BASIC_SHAPES.fetch_add(1, Ordering::Relaxed))
-    }
-}
-impl Deref for BasicShapeId {
-    type Target = usize;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for BasicShapeId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Point {
-    pub id: PointId,
-    pub wpos: WPos,
-    pub saved_wpos: WPos,
-    pub magnetic: bool,
-    pub draggable: bool,
-    pub selected: bool,
-}
-impl Point {
-    pub fn new(wpos: &WPos, magnetic: bool, draggable: bool, selected: bool) -> (Point, PointId) {
-        let id = PointId::new_id();
-        (
-            Point {
-                id,
-                wpos: *wpos,
-                saved_wpos: *wpos,
-                magnetic,
-                draggable,
-                selected,
-            },
-            id,
-        )
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum BasicShapeType {
-    Line,
-    QBezier,
-    CBezier,
-    ArcEllipse,
-}
-impl BasicShapeType {
-    pub fn segment_get_points(
-        &self,
-        hpts: &HashSet<PointId>,
-        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    ) -> Option<(Point, Point)> {
-        if let BasicShapeType::Line = self {
-            let pts_id: Vec<_> = hpts.into_iter().collect();
-            if let Some(pt1_id) = pts_id.get(0) {
-                if let Some(pt2_id) = pts_id.get(1) {
-                    if let Some((pt1, _)) = pts.get(pt1_id) {
-                        if let Some((pt2, _)) = pts.get(pt2_id) {
-                            return Some((*pt1, *pt2));
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-    pub fn s_dist(
-        &self,
-        pos: &WPos,
-        hpts: &HashSet<PointId>,
-        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    ) -> Option<f64> {
-        use BasicShapeType::*;
-        match self {
-            Line => {
-                if let Some((pt1, pt2)) = self.segment_get_points(hpts, pts) {
-                    Some(pos.s_dist_seg(&pt1.wpos, &pt2.wpos))
-                } else {
-                    // Something when wrong, return None
-                    None
-                }
-            }
-            QBezier => None,    //TODO
-            CBezier => None,    //TODO
-            ArcEllipse => None, //TODO
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct BasicShape {
-    pub id: BasicShapeId,
-    pub bs_typ: BasicShapeType,
-    pub selected: bool,
-}
-impl BasicShape {
-    pub fn new(bs_typ: BasicShapeType, selected: bool) -> (BasicShape, BasicShapeId) {
-        let id = BasicShapeId::new_id();
-        (
-            BasicShape {
-                id,
-                bs_typ,
-                selected,
-            },
-            id,
-        )
-    }
-    pub fn s_dist(
-        &self,
-        pos: &WPos,
-        hpts: &HashSet<PointId>,
-        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    ) -> Option<f64> {
-        self.bs_typ.s_dist(pos, hpts, pts)
-    }
-    pub fn get_bss_constructions(
-        &self,
-        cst: &mut Vec<ConstructionType>,
-        parent_selected: bool,
-        hpts: &HashSet<PointId>,
-        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    ) -> Option<ConstructionType> {
-        use BasicShapeType::*;
-        match self.bs_typ {
-            Line => {
-                if let Some((pt1, pt2)) = self.bs_typ.segment_get_points(hpts, pts) {
-                    let pattern = if parent_selected {
-                        if self.selected {
-                            ConstructionPattern::DoubleSelection
-                        } else {
-                            ConstructionPattern::SimpleSelection
-                        }
-                    } else {
-                        ConstructionPattern::NoSelection
-                    };
-                    Some(ConstructionType::Segment(pattern, pt1.wpos, pt2.wpos))
-                } else {
-                    // Something when wrong, return None
-                    None
-                }
-            }
-            QBezier => None,    //TODO
-            CBezier => None,    //TODO
-            ArcEllipse => None, //TODO
-        }
-    }
-    pub fn get_helpers_construction(
-        &self,
-        cst: &mut Vec<ConstructionType>,
-        hpts: &HashSet<PointId>,
-        pts: &HashMap<PointId, (Point, HashSet<BasicShapeId>)>,
-    ) {
-        use BasicShapeType::*;
-        match self.bs_typ {
-            Line => {
-                if let Some((pt1, pt2)) = self.bs_typ.segment_get_points(hpts, pts) {
-                    if is_aligned_vert(&pt1.wpos, &pt2.wpos) {
-                        helper_vertical(&pt1.wpos, &pt2.wpos, true, cst)
-                    }
-                    if is_aligned_hori(&pt1.wpos, &pt2.wpos) {
-                        helper_horizontal(&pt1.wpos, &pt2.wpos, true, cst)
-                    }
-                    if is_aligned_45_or_135(&pt1.wpos, &pt2.wpos) {
-                        helper_45_135(&pt1.wpos, &pt2.wpos, true, cst)
-                    }
-                }
-            }
-            QBezier => (),    //TODO
-            CBezier => (),    //TODO
-            ArcEllipse => (), //TODO
-        }
     }
 }
 

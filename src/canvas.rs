@@ -186,7 +186,7 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
         cx: (canvas_width - working_area.wx) / 2.,
         cy: (canvas_height - working_area.wy) / 2.,
     };
-    let global_scale = 1.;
+    let global_scale = 1.0;
 
     let shapes_pool = ShapesPool::new();
 
@@ -1309,11 +1309,11 @@ fn resize_area(pa: RefArea) {
     // Calculation starting parameters
     let working_area = pa_ref.working_area;
     let canvas_offset = CPos {
-        cx: (canvas_width as f64 - working_area.wx).abs() / 2.,
-        cy: (canvas_height as f64 - working_area.wy).abs() / 2.,
+        cx: (canvas_width as f64 - working_area.wx).abs() / 4.,
+        cy: (canvas_height as f64 - working_area.wy).abs() / 3.,
     };
-    let dx = canvas_width as f64 / working_area.wx / 1.2;
-    let dy = canvas_height as f64 / working_area.wy / 1.2;
+    let dx = canvas_width as f64 / working_area.wx / 0.3;
+    let dy = canvas_height as f64 / working_area.wy / 0.3;
     pa_ref.canvas_offset = canvas_offset;
     pa_ref.global_scale = dx.min(dy);
 }
@@ -1547,7 +1547,7 @@ fn draw_content(pa: RefArea) {
         if shape.is_selected() {
             // Draw the handles point
             let mut cst = vec![];
-            shape.get_handles_construction(&mut cst, size_handle);
+            shape.get_handles_construction(&mut cst);
             raw_draw(&pa_ref, &cst, ConstructionLayer::Handle);
 
             // Draw the geometry helpers
@@ -1561,7 +1561,7 @@ fn draw_content(pa: RefArea) {
     if pa_ref.show_pick_point {
         let mut cst = vec![];
         let (pt, _) = Point::new(&pa_ref.pick_pos, false, false, false);
-        push_handle(&mut cst, &pt, size_handle);
+        push_handle(&mut cst, &pt);
         raw_draw(&pa_ref, &cst, ConstructionLayer::Worksheet);
     }
 }
@@ -1669,8 +1669,8 @@ fn raw_draw(pa_ref: &Ref<'_, PlayingArea>, cst: &Vec<ConstructionType>, layer: C
                 _ = pa_ref.ctx.ellipse(
                     c_pos.cx,
                     c_pos.cy,
-                    size_handle / 2. * scale,
-                    size_handle / 2. * scale,
+                    size_handle,
+                    size_handle,
                     0.,
                     0.,
                     2. * PI - 0.01,

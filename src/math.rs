@@ -5,6 +5,8 @@ macro_rules! log {
     }
 }
 
+use js_sys::Math::atan2;
+
 use crate::types::*;
 use std::f64::consts::PI;
 
@@ -78,10 +80,9 @@ pub fn helper_45_135(pt1: &WPos, pt2: &WPos, full: bool, cst: &mut Vec<Construct
         cst.push(Segment(NoSelection, *pt2, WPos::new(x2, y2)));
     }
 }
-pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point, size_handle: f64) {
+pub fn push_handle(cst: &mut Vec<ConstructionType>, pt: &Point) {
     use ConstructionPattern::*;
     use ConstructionType::*;
-    let radius = WPos::default() + size_handle / 2.;
     let pattern = if pt.selected {
         SimpleSelection
     } else {
@@ -404,6 +405,21 @@ pub fn apply_cstr_perpendicular(
     (bs1_pts, bs2_pts)
 }
 
+pub fn pos_to_polar(pos1: &WPos, pos2: &WPos) -> (WPos, f64) {
+    let (x1, y1) = (pos1.wx, pos1.wy);
+    let (x2, y2) = (pos2.wx, pos2.wy);
+
+    let angle = (y2 - y1).atan2(x2 - x1);
+    let rho = if x2 != x1 {
+        let b = (y1 * x2 - x1 * y2) / (x2 - x1);
+        let m = (y2 - y1) / (x2 - x1);
+        WPos::new(-m / (m * m + 1.) * b, b / (m * m + 1.))
+    } else {
+        WPos::new(0., 0.)
+    };
+
+    (rho, angle)
+}
 // pub fn snap_to_snap_grid(pos: &WPos, snap_distance: f64) -> WPos {
 //     (*pos / snap_distance).round() * snap_distance
 // }

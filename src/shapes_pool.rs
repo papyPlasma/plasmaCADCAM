@@ -72,10 +72,10 @@ impl ShapesPool {
         }
     }
 
-    pub fn move_selection(&mut self, delta_pick_pos: &WPos, _magnet_distance: f64) {
+    pub fn move_selection(&mut self, dpos: &WPos, _magnet_distance: f64) {
         for shape in self.values_mut() {
             if shape.is_selected() {
-                shape.move_elements(&delta_pick_pos);
+                shape.move_elements(&dpos);
             }
         }
     }

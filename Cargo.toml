@@ -14,6 +14,7 @@ wasm-bindgen = "0.2.87"
 svg = "0.14"
 lazy_static = { version = "1.4", default-features = false }
 fxhash = "0.2.1"
+ordered-float = "4.2.0"
 
 [profile.release]
 strip = true
