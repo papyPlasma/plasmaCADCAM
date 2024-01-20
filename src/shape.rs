@@ -295,83 +295,84 @@ impl Shape {
         // First get all points binded to this point (PointsBinaryConstraint::Binded)
         // Hence, all those points are required to move the same way
         // pts_to_move contains also pt_id
-        let mut pts_to_move = HashMap::new();
-        self.get_binded_pts(pt_id, &mut pts_to_move);
+        // let mut pts_to_move = HashMap::new();
+        // self.get_binded_pts(pt_id, &mut pts_to_move);
 
-        // Second, for pts_to_move check for fixed point, if there is any fixed point, stop
-        for pt_id in pts_to_move.keys() {
-            if let Some(pt) = self.points.get(pt_id) {
-                if let PointUnaryConstraint::Fixed = pt.csrt {
-                    // This point can't be moved, hence neither the binded points, stop
-                    return;
-                }
-            }
-        }
+        // // Second, for pts_to_move check for fixed point, if there is any fixed point, stop
+        // for pt_id in pts_to_move.keys() {
+        //     if let Some(pt) = self.points.get(pt_id) {
+        //         if let PointUnaryConstraint::Fixed = pt.csrt {
+        //             // This point can't be moved, hence neither the binded points, stop
+        //             return;
+        //         }
+        //     }
+        // }
 
-        // Third, for pts_to_move get the points constraints from the primitives they belong to
-        // For each point of pts_to_move, get its unique primitive (if any) and check the constraint on
-        // this primitive. Regarding the constraint, it is possible that other points belonging
-        // to the primitive has to be moved
-        for (pt_id, csrt) in pts_to_move.iter_mut() {
-            if let Some(prim_id) = self.point_to_primitive.get(pt_id) {
-                if let Some(prim) = self.primitives.get(prim_id) {
-                    use PrimitiveConstraint::*;
-                    use PrimitiveType::*;
-                    match prim.prim_type {
-                        Segment(pt1_id, pt2_id) => match prim.prim_cstr {
-                            Unconstrained =>
-                            // The segment is unconstrained, hence the point remains FreeToMove
-                            {
-                                ()
-                            }
-                            _ =>
-                            // The segment is constrained, hence its move will depend of
-                            // the other point constraint, let's check this other point,
-                            {
-                                let other_pt_id = if *pt_id == pt1_id { pt2_id } else { pt1_id };
-                                if let Some(other_pt) = self.points.get(&other_pt_id) {
-                                    if let PointUnaryConstraint::Fixed = other_pt.csrt {
-                                        // This point can't be moved, since segment is constrained,
-                                        // No DOF remains and the pt_id can't be moved neither, stop
-                                        return;
-                                    }
-                                    // Check if this other_pt point is binded to third point
-                                    let mut other_pt_binds = HashSet::new();
-                                    for (c, other_pt_csrt) in self.points_constraints.iter() {
-                                        if c.0 == other_pt_id {
-                                            if let PointsBinaryConstraint::Binded = other_pt_csrt {
-                                                other_pt_binds.insert(c.1);
-                                            };
-                                        }
-                                        if c.1 == other_pt_id {
-                                            if let PointsBinaryConstraint::Binded = other_pt_csrt {
-                                                other_pt_binds.insert(c.0);
-                                            }
-                                        }
-                                    }
-                                    // Check constraints of other_pt_binds points
-                                    for third_pt_id in other_pt_binds.iter() {
-                                        if let Some(third_pt) = self.points.get(third_pt_id) {
-                                            if let PointUnaryConstraint::Fixed = third_pt.csrt {
-                                                // This point can't be moved, hence neither the related points, stop
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        QBezier(_, _, _) => (),       //TODO
-                        CBezier(_, _, _, _) => (),    //TODO
-                        ArcEllipse(_, _, _, _) => (), //TODO
-                    }
-                }
-            }
-        }
+        // // Third, for pts_to_move get the points constraints from the primitives they belong to
+        // // For each point of pts_to_move, get its unique primitive (if any) and check the constraint on
+        // // this primitive. Regarding the constraint, it is possible that other points belonging
+        // // to the primitive has to be moved
+        // for (pt_id, csrt) in pts_to_move.iter_mut() {
+        //     if let Some(prim_id) = self.point_to_primitive.get(pt_id) {
+        //         if let Some(prim) = self.primitives.get(prim_id) {
+        //             use PrimitiveConstraint::*;
+        //             use PrimitiveType::*;
+        //             match prim.prim_type {
+        //                 Segment(pt1_id, pt2_id) => match prim.prim_cstr {
+        //                     Unconstrained =>
+        //                     // The segment is unconstrained, hence the point remains FreeToMove
+        //                     {
+        //                         ()
+        //                     }
+        //                     _ =>
+        //                     // The segment is constrained, hence its move will depend of
+        //                     // the other point constraint, let's check this other point,
+        //                     {
+        //                         let other_pt_id = if *pt_id == pt1_id { pt2_id } else { pt1_id };
+        //                         if let Some(other_pt) = self.points.get(&other_pt_id) {
+        //                             if let PointUnaryConstraint::Fixed = other_pt.csrt {
+        //                                 // This point can't be moved, since segment is constrained,
+        //                                 // No DOF remains and the pt_id can't be moved neither, stop
+        //                                 return;
+        //                             }
+        //                             // Check if this other_pt point is binded to third point
+        //                             let mut other_pt_binds = HashSet::new();
+        //                             for (c, other_pt_csrt) in self.points_constraints.iter() {
+        //                                 if c.0 == other_pt_id {
+        //                                     if let PointsBinaryConstraint::Binded = other_pt_csrt {
+        //                                         other_pt_binds.insert(c.1);
+        //                                     };
+        //                                 }
+        //                                 if c.1 == other_pt_id {
+        //                                     if let PointsBinaryConstraint::Binded = other_pt_csrt {
+        //                                         other_pt_binds.insert(c.0);
+        //                                     }
+        //                                 }
+        //                             }
+        //                             // Check constraints of other_pt_binds points
+        //                             for third_pt_id in other_pt_binds.iter() {
+        //                                 if let Some(third_pt) = self.points.get(third_pt_id) {
+        //                                     if let PointUnaryConstraint::Fixed = third_pt.csrt {
+        //                                         // This point can't be moved, hence neither the related points, stop
+        //                                         return;
+        //                                     }
+        //                                 }
+        //                             }
+        //                         }
+        //                     }
+        //                 },
+        //                 QBezier(_, _, _) => (),       //TODO
+        //                 CBezier(_, _, _, _) => (),    //TODO
+        //                 ArcEllipse(_, _, _, _) => (), //TODO
+        //             }
+        //         }
+        //     }
+        // }
 
-        // Resolve constraints
+        // // Resolve constraints
 
         if let Some(pt) = self.points.get_mut(pt_id) {
+            tst_cstr(&mut pt.wpos);
             pt.wpos = pt.saved_wpos + *delta_pick_pos;
         }
     }

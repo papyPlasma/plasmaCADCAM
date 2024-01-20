@@ -5,13 +5,71 @@ macro_rules! log {
     }
 }
 
+use gomez::nalgebra as na;
+use gomez::{Domain, Problem, SolverDriver, System};
+use kurbo::{Circle, Shape, Vec2};
+use na::{Dyn, IsContiguous};
+
 use js_sys::Math::atan2;
 
 use crate::types::*;
 use std::f64::consts::PI;
+use std::ops::Add;
 
 pub const EPSILON: f64 = 1e-2; // Some small value
 pub const MAX_ITERATIONS: usize = 100; // Or some other reasonable upper bound
+
+struct Rosenbrock {
+    a: f64,
+    b: f64,
+}
+
+impl Problem for Rosenbrock {
+    type Field = f64;
+
+    fn domain(&self) -> Domain<Self::Field> {
+        Domain::unconstrained(2)
+    }
+}
+
+impl System for Rosenbrock {
+    fn eval<Sx, Srx>(
+        &self,
+        x: &na::Vector<Self::Field, Dyn, Sx>,
+        rx: &mut na::Vector<Self::Field, Dyn, Srx>,
+    ) where
+        Sx: na::storage::Storage<Self::Field, Dyn> + IsContiguous,
+        Srx: na::storage::StorageMut<Self::Field, Dyn>,
+    {
+        rx[0] = (self.a - x[0]).powi(2);
+        rx[1] = self.b * (x[1] - x[0].powi(2)).powi(2);
+    }
+}
+
+pub fn tst_cstr(pos: &mut WPos) -> Result<(), String> {
+    let mut circle = Circle::new((pos.wx, pos.wy), 380.0);
+    circle = circle.add(Vec2::new(1., 1.));
+    let r = Rosenbrock {
+        a: circle.center.x,
+        b: pos.wy,
+    };
+    let mut solver = SolverDriver::builder(&r)
+        .with_initial(vec![10.0, -5.0])
+        .build();
+
+    let tolerance = 1e-6;
+
+    let (_, norm) = solver
+        .find(|state| state.norm() <= tolerance || state.iter() >= 100)
+        .map_err(|error| format!("{error}"))?;
+
+    if norm <= tolerance {
+        pos.wx = norm;
+        Ok(())
+    } else {
+        Err("did not converge".to_string())
+    }
+}
 
 pub fn is_aligned_vert(pt1: &WPos, pt2: &WPos) -> bool {
     // I can do this because of snaping
@@ -686,23 +744,19 @@ pub fn _get_atan2(point: &WPos) -> f64 {
 // fn find_t_for_point_on_quad_bezier(p: &WPos, start: &WPos, ctrl: &WPos, end: &WPos) -> Option<f64> {
 //     let mut t_min = 0.0;
 //     let mut t_max = 1.0;
-
 //     for _ in 0..MAX_ITERATIONS {
 //         let t_mid = (t_min + t_max) / 2.0;
 //         let mid_point = get_point_on_quad_bezier(t_mid, start, ctrl, end);
-
 //         let dist = mid_point.dist(p);
 //         if dist < EPSILON {
 //             return Some(t_mid);
 //         }
-
 //         if get_point_on_quad_bezier((t_min + t_mid) / 2.0, start, ctrl, end).dist(p) < dist {
 //             t_max = t_mid;
 //         } else {
 //             t_min = t_mid;
 //         }
 //     }
-
 //     None
 // }
 #[allow(dead_code)]
