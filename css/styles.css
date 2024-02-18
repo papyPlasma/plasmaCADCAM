@@ -1,15 +1,15 @@
 
 :root {
-    --canvas-background-color: #cfcccc;
+    --canvas-background-color: #dddddd;
     --canvas-worksheet-color: #000;
     --canvas-dimension-color: #552;
-    --canvas-geohelper-color: #0000007f;
+    --canvas-geohelper-color: #5901017f;
     --canvas-origin-color: #e0e;
     --canvas-grid-color: #c1c0c0;
     --canvas-selection-color: rgb(255, 255, 0);
-    --canvas-selected-color:  #208800;
-    --canvas-highlight-color:  #3fecf9;
-    --canvas-fill-color: rgb(41, 177, 0);
+    --canvas-selected-color:  #ff0000;
+    --canvas-highlight-color:  #ffb700;
+    --canvas-fill-color: rgb(0, 0, 0);
 }
 
 body, html {
@@ -250,6 +250,9 @@ canvas {
 }
 #icon-scissors {
     background-image: url('../assets/icon-scissors.png');
+}
+#icon-text-fix {
+    background-image: url('../assets/fix.png');
 }
 #icon-cog {
     background-image: url('../assets/icon-cog.png');

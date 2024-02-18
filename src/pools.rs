@@ -5,20 +5,55 @@ macro_rules! log {
     }
 }
 
+use kurbo::Point;
+
+use crate::bindings::*;
 use crate::math::*;
 use crate::shape::*;
 use crate::types::*;
 use std::collections::HashMap;
-use std::collections::HashSet;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
-pub struct ShapesPool(HashMap<ShapeId, Box<Shape>>);
-impl std::ops::Deref for ShapesPool {
-    type Target = HashMap<ShapeId, Box<Shape>>;
+pub struct VerticesPool(HashMap<VertexId, Vertex>);
+impl Deref for VerticesPool {
+    type Target = HashMap<VertexId, Vertex>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl std::ops::DerefMut for ShapesPool {
+impl DerefMut for VerticesPool {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl VerticesPool {
+    pub fn new() -> VerticesPool {
+        VerticesPool(HashMap::new())
+    }
+    pub fn add(&mut self, pt: Point) -> Vertex {
+        let id = VertexId::new_id();
+        let v = Vertex {
+            id,
+            pt,
+            saved_pt: pt,
+            magnetic: true,
+            draggable: true,
+            selected: false,
+        };
+        self.insert(id, v);
+        v
+    }
+}
+
+pub struct ShapesPool(HashMap<ShapeId, Shapes>);
+impl Deref for ShapesPool {
+    type Target = HashMap<ShapeId, Shapes>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for ShapesPool {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -26,16 +61,15 @@ impl std::ops::DerefMut for ShapesPool {
 
 impl ShapesPool {
     pub fn new() -> ShapesPool {
-        log!("Creating datapools");
+        log!("Creating shapes_pool");
         ShapesPool(HashMap::new())
     }
-
-    pub fn insert_shape(&mut self, shape: Box<Shape>) -> ShapeId {
-        let sh_id = ShapeId::new_id();
-        self.insert(sh_id, shape);
-        sh_id
+    pub fn add_line(&mut self, va: &Vertex, vb: &Vertex) -> LineShape {
+        let id: ShapeId = ShapeId::new_id();
+        let line = LineShape::new(id, va, vb);
+        self.insert(id, Shapes::STLine(line.clone()));
+        line
     }
-
     pub fn is_any_shape_selected(&mut self) -> bool {
         let mut selected = false;
         for shape in self.values_mut() {
@@ -46,41 +80,11 @@ impl ShapesPool {
         }
         selected
     }
-
-    pub fn clear_shapes_selections(&mut self) {
-        for shape in self.values_mut() {
-            shape.set_selected(false);
-            shape.set_all_bss_selection(false);
-            shape.clear_all_pts_selection();
-        }
-    }
     pub fn delete_selected_shapes(&mut self) {
         self.retain(|_, shape| !shape.is_selected());
     }
-    pub fn _set_shape_selected(&mut self, sh_id: &ShapeId, selection: bool) {
-        if let Some(shape) = self.get_mut(sh_id) {
-            shape.set_selected(selection)
-        }
-    }
-
-    pub fn select_all_under_pos(&mut self, pick_pos: &WPos, grab_handle_precision: f64) {
-        for shape in self.values_mut() {
-            if shape.select_shape_under_pos(pick_pos, grab_handle_precision) {
-                shape.select_point_under_pos(pick_pos, grab_handle_precision);
-                break;
-            }
-        }
-    }
-
-    pub fn move_selection(&mut self, dpos: &WPos, _magnet_distance: f64) {
-        for shape in self.values_mut() {
-            if shape.is_selected() {
-                shape.move_elements(&dpos);
-            }
-        }
-    }
-    pub fn select_shapes_bounded_by_rectangle(&mut self, bb_outer: [WPos; 2]) {
-        for (sh_id, shape) in self.iter_mut() {
+    pub fn select_shapes_bounded_by_rectangle(&mut self, bb_outer: [Point; 2]) {
+        for (_sh_id, shape) in self.iter_mut() {
             let bb_inner = shape.get_bounded_rectangle();
             if is_box_inside(&bb_outer, &bb_inner) {
                 // shape.set_selected(true);
@@ -99,12 +103,9 @@ impl ShapesPool {
     //     self.groups_pool.get(gr_id)
     // }
 
-    // pub fn _get_shape_position(&self, sh_id: &ShapeId) -> WPos {
-    //     self.shapes_pool.get(sh_id).unwrap().get_pos()
-    // }
     pub fn magnet_to_point(
         &self,
-        pick_pos: &mut WPos,
+        pick_pos: &mut Point,
         excluded_sh_id: Option<ShapeId>,
         magnet_distance: f64,
     ) {
@@ -131,7 +132,7 @@ impl ShapesPool {
     //     other_sh_id: &ShapeId,
     //     r_a: f64,
     //     r_b: f64,
-    // ) -> Option<WPos> {
+    // ) -> Option<Point> {
     //     let shape = self.shapes_pool.get(&sh_id).unwrap();
     //     let other_shape = self.shapes_pool.get(&other_sh_id).unwrap();
     //     let stepping_r = shape.get_step_r(EPSILON);
@@ -153,10 +154,10 @@ impl ShapesPool {
     // fn seek_intersection(
     //     &self,
     //     sh_id: &ShapeId,
-    //     pos_init: &WPos,
+    //     pos_init: &Point,
     //     stepping: f64,
     //     dir: bool,
-    // ) -> Option<WPos> {
+    // ) -> Option<Point> {
     //     let shape = self.shapes_pool.get(&sh_id).unwrap();
     //     let r_init = shape.get_ratio_from_pos(pos_init);
     //     let stepping_r = shape.get_step_r(stepping);
@@ -206,7 +207,7 @@ impl ShapesPool {
     //     None
     // }
 
-    // pub fn cut_shape(&mut self, sh_id: &ShapeId, pick_pos: &WPos, grab_handle_precision: f64) {
+    // pub fn cut_shape(&mut self, sh_id: &ShapeId, pick_pos: &Point, grab_handle_precision: f64) {
     //     let pos = self
     //         .shapes_pool
     //         .get(&sh_id)
@@ -221,9 +222,9 @@ impl ShapesPool {
     //     );
     //     let stepping = grab_handle_precision / 10.;
     //     // Search intersection with another shape in the first direction
-    //     let o_pos_p: Option<WPos> = self.seek_intersection(&sh_id, &pos, stepping, true);
+    //     let o_pos_p: Option<Point> = self.seek_intersection(&sh_id, &pos, stepping, true);
     //     // Search intersection with another shape in the second direction
-    //     let o_pos_n: Option<WPos> = self.seek_intersection(&sh_id, &pos, stepping, false);
+    //     let o_pos_n: Option<Point> = self.seek_intersection(&sh_id, &pos, stepping, false);
     //     if let Some(pos_p) = o_pos_p {
     //         log!("pos_p: ({:.0},{:.0})", pos_p.wx, pos_p.wy);
     //     } else {
@@ -264,6 +265,104 @@ impl ShapesPool {
     //     // Suppress the original shape from the pool
     //     self.shapes_pool.remove(&sh_id);
     // }
+}
+
+#[derive(Clone, Debug)]
+pub struct BindingsPool(HashMap<BindingId, Binding>);
+impl Deref for BindingsPool {
+    type Target = HashMap<BindingId, Binding>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for BindingsPool {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[allow(dead_code)]
+impl BindingsPool {
+    pub fn new() -> BindingsPool {
+        BindingsPool(HashMap::new())
+    }
+    pub fn add_bind_fixed(&mut self, v: &Vertex) -> BindFixed {
+        let id = BindingId::new_id();
+        let bind = BindFixed {
+            id,
+            fixed_value: v.pt,
+            v_id: v.id,
+        };
+        self.insert(id, Binding::Fixed(bind.clone()));
+        bind
+    }
+    pub fn add_bind_fixed_x(&mut self, v: &Vertex) -> BindFixedX {
+        let id = BindingId::new_id();
+        let bind = BindFixedX {
+            id,
+            fixed_value: v.pt.x,
+            v_id: v.id,
+        };
+        self.insert(id, Binding::FixedX(bind.clone()));
+        bind
+    }
+    pub fn add_bind_fixed_y(&mut self, v: &Vertex) -> BindFixedY {
+        let id = BindingId::new_id();
+        let bind = BindFixedY {
+            id,
+            fixed_value: v.pt.y,
+            v_id: v.id,
+        };
+        self.insert(id, Binding::FixedY(bind.clone()));
+        bind
+    }
+    pub fn add_bind_vertical(&mut self, seg: (&Vertex, &Vertex)) -> BindVertical {
+        let id = BindingId::new_id();
+        let bind = BindVertical {
+            id,
+            va_id: seg.0.id,
+            vb_id: seg.1.id,
+        };
+        self.insert(id, Binding::Vertical(bind.clone()));
+        bind
+    }
+    pub fn add_bind_horizontal(&mut self, seg: (&Vertex, &Vertex)) -> BindHorizontal {
+        let id = BindingId::new_id();
+        let bind = BindHorizontal {
+            id,
+            va_id: seg.0.id,
+            vb_id: seg.1.id,
+        };
+        self.insert(id, Binding::Horizontal(bind.clone()));
+        bind
+    }
+    pub fn add_bind_parallel(
+        &mut self,
+        seg1: (&Vertex, &Vertex),
+        seg2: (&Vertex, &Vertex),
+    ) -> BindParallel {
+        let id = BindingId::new_id();
+        let bind = BindParallel {
+            id,
+            l1va_id: seg1.0.id,
+            l1vb_id: seg1.1.id,
+            l2va_id: seg2.0.id,
+            l2vb_id: seg2.1.id,
+        };
+        self.insert(id, Binding::Parallel(bind.clone()));
+        bind
+    }
+    pub fn add_bind_distance(&mut self, seg: (&Vertex, &Vertex)) -> BindDistance {
+        let id = BindingId::new_id();
+        let bind = BindDistance {
+            id,
+            sq_distance_value: seg.0.dist_sq(seg.1),
+            va_id: seg.0.id,
+            vb_id: seg.1.id,
+        };
+        self.insert(id, Binding::Distance(bind.clone()));
+        bind
+    }
 }
 
 // pub struct GroupsPool(HashMap<GroupId, Vec<ShapeId>>);

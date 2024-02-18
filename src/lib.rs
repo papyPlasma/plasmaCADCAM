@@ -1,15 +1,10 @@
+pub mod bindings;
 mod canvas;
 mod math;
+mod pools;
+pub mod prefab;
 pub mod shape;
-mod shapes_pool;
 pub mod types;
-pub mod basic_shapes {
-    // pub mod arc_ellipse;
-    // pub mod cubic_bezier;
-    // pub mod quad_bezier;
-    pub mod prefab;
-    pub mod segment;
-}
 
 use canvas::create_playing_area;
 use wasm_bindgen::prelude::*;
