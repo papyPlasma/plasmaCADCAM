@@ -59,6 +59,7 @@ impl DerefMut for ShapesPool {
     }
 }
 
+#[allow(dead_code)]
 impl ShapesPool {
     pub fn new() -> ShapesPool {
         log!("Creating shapes_pool");
@@ -105,9 +106,9 @@ impl ShapesPool {
 
     pub fn magnet_to_point(
         &self,
-        pick_pos: &mut Point,
-        excluded_sh_id: Option<ShapeId>,
-        magnet_distance: f64,
+        _pick_pos: &mut Point,
+        _excluded_sh_id: Option<ShapeId>,
+        _magnet_distance: f64,
     ) {
         // // Test all all shapes points but not the one that is excluded
         // for (sh_id, shape) in self.shapes_pool.iter() {
@@ -268,9 +269,9 @@ impl ShapesPool {
 }
 
 #[derive(Clone, Debug)]
-pub struct BindingsPool(HashMap<BindingId, Binding>);
+pub struct BindingsPool(HashMap<VIds, Binding>);
 impl Deref for BindingsPool {
-    type Target = HashMap<BindingId, Binding>;
+    type Target = HashMap<VIds, Binding>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -286,53 +287,55 @@ impl BindingsPool {
     pub fn new() -> BindingsPool {
         BindingsPool(HashMap::new())
     }
+    pub fn add_bind(&mut self, bind: &Binding) {
+        use Binding::*;
+        match bind {
+            Fixed(fixed) => self.insert(fixed.id, Binding::Fixed(*fixed)),
+            FixedX(fixed_x) => self.insert(fixed_x.id, Binding::FixedX(*fixed_x)),
+            FixedY(fixed_y) => self.insert(fixed_y.id, Binding::FixedY(*fixed_y)),
+            Vertical(vertical) => self.insert(vertical.id, Binding::Vertical(*vertical)),
+            Horizontal(horizontal) => self.insert(horizontal.id, Binding::Horizontal(*horizontal)),
+            Parallel(parallel) => self.insert(parallel.id, Binding::Parallel(*parallel)),
+            SamePos(same_pos) => self.insert(same_pos.id, Binding::SamePos(*same_pos)),
+            Distance(distance) => self.insert(distance.id, Binding::Distance(*distance)),
+        };
+    }
     pub fn add_bind_fixed(&mut self, v: &Vertex) -> BindFixed {
-        let id = BindingId::new_id();
+        let id = VIds(v.id, v.id, v.id, v.id);
         let bind = BindFixed {
             id,
             fixed_value: v.pt,
-            v_id: v.id,
         };
         self.insert(id, Binding::Fixed(bind.clone()));
         bind
     }
     pub fn add_bind_fixed_x(&mut self, v: &Vertex) -> BindFixedX {
-        let id = BindingId::new_id();
+        let id = VIds(v.id, v.id, v.id, v.id);
         let bind = BindFixedX {
             id,
             fixed_value: v.pt.x,
-            v_id: v.id,
         };
         self.insert(id, Binding::FixedX(bind.clone()));
         bind
     }
     pub fn add_bind_fixed_y(&mut self, v: &Vertex) -> BindFixedY {
-        let id = BindingId::new_id();
+        let id = VIds(v.id, v.id, v.id, v.id);
         let bind = BindFixedY {
             id,
             fixed_value: v.pt.y,
-            v_id: v.id,
         };
         self.insert(id, Binding::FixedY(bind.clone()));
         bind
     }
     pub fn add_bind_vertical(&mut self, seg: (&Vertex, &Vertex)) -> BindVertical {
-        let id = BindingId::new_id();
-        let bind = BindVertical {
-            id,
-            va_id: seg.0.id,
-            vb_id: seg.1.id,
-        };
+        let id = VIds(seg.0.id, seg.1.id, seg.0.id, seg.1.id);
+        let bind = BindVertical { id };
         self.insert(id, Binding::Vertical(bind.clone()));
         bind
     }
     pub fn add_bind_horizontal(&mut self, seg: (&Vertex, &Vertex)) -> BindHorizontal {
-        let id = BindingId::new_id();
-        let bind = BindHorizontal {
-            id,
-            va_id: seg.0.id,
-            vb_id: seg.1.id,
-        };
+        let id = VIds(seg.0.id, seg.1.id, seg.0.id, seg.1.id);
+        let bind = BindHorizontal { id };
         self.insert(id, Binding::Horizontal(bind.clone()));
         bind
     }
@@ -341,24 +344,22 @@ impl BindingsPool {
         seg1: (&Vertex, &Vertex),
         seg2: (&Vertex, &Vertex),
     ) -> BindParallel {
-        let id = BindingId::new_id();
-        let bind = BindParallel {
-            id,
-            l1va_id: seg1.0.id,
-            l1vb_id: seg1.1.id,
-            l2va_id: seg2.0.id,
-            l2vb_id: seg2.1.id,
-        };
+        let id = VIds(seg1.0.id, seg1.1.id, seg2.0.id, seg2.1.id);
+        let bind = BindParallel { id };
         self.insert(id, Binding::Parallel(bind.clone()));
         bind
     }
+    pub fn add_bind_same_pos(&mut self, seg: (&Vertex, &Vertex)) -> BindSamePos {
+        let id = VIds(seg.0.id, seg.1.id, seg.0.id, seg.1.id);
+        let bind = BindSamePos { id };
+        self.insert(id, Binding::SamePos(bind.clone()));
+        bind
+    }
     pub fn add_bind_distance(&mut self, seg: (&Vertex, &Vertex)) -> BindDistance {
-        let id = BindingId::new_id();
+        let id = VIds(seg.0.id, seg.1.id, seg.0.id, seg.1.id);
         let bind = BindDistance {
             id,
             sq_distance_value: seg.0.dist_sq(seg.1),
-            va_id: seg.0.id,
-            vb_id: seg.1.id,
         };
         self.insert(id, Binding::Distance(bind.clone()));
         bind

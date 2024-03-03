@@ -1,9 +1,9 @@
 // A macro to provide `println!(..)`-style syntax for `console.log` logging.
-macro_rules! log {
-    ( $( $t:tt )* ) => {
-        web_sys::console::log_1(&format!( $( $t )* ).into());
-    }
-}
+// macro_rules! log {
+//     ( $( $t:tt )* ) => {
+//         web_sys::console::log_1(&format!( $( $t )* ).into());
+//     }
+// }
 
 use crate::types::*;
 use kurbo::{BezPath, Line, ParamCurveNearest, Point, Shape};
@@ -21,7 +21,7 @@ pub trait ApiShapes {
         v_pool: &HashMap<VertexId, Vertex>,
     ) -> bool;
     fn get_vertices_ids(&self) -> Vec<VertexId>;
-    fn get_vextex_construction(&self) -> VertexId;
+    fn get_vextex_creation(&self) -> VertexId;
     fn get_bounded_rectangle(&self) -> [Point; 2];
 }
 
@@ -71,10 +71,10 @@ impl ApiShapes for Shapes {
             STLine(line_shape) => line_shape.get_vertices_ids(),
         }
     }
-    fn get_vextex_construction(&self) -> VertexId {
+    fn get_vextex_creation(&self) -> VertexId {
         use Shapes::*;
         match self {
-            STLine(line_shape) => line_shape.get_vextex_construction(),
+            STLine(line_shape) => line_shape.get_vextex_creation(),
         }
     }
     fn get_bounded_rectangle(&self) -> [Point; 2] {
@@ -87,7 +87,7 @@ impl ApiShapes for Shapes {
 pub struct LineShape {
     id: ShapeId,
     selected: bool,
-    highlighted: bool,
+    _highlighted: bool,
     va_id: VertexId,
     vb_id: VertexId,
 }
@@ -96,7 +96,7 @@ impl LineShape {
         LineShape {
             id,
             selected: false,
-            highlighted: false,
+            _highlighted: false,
             va_id: va.id,
             vb_id: vb.id,
         }
@@ -144,7 +144,7 @@ impl ApiShapes for LineShape {
         v.push(self.vb_id);
         v
     }
-    fn get_vextex_construction(&self) -> VertexId {
+    fn get_vextex_creation(&self) -> VertexId {
         self.vb_id
     }
     fn get_bounded_rectangle(&self) -> [Point; 2] {

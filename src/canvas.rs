@@ -6,19 +6,22 @@ macro_rules! log {
     }
 }
 
+use crate::bindings::BindSamePos;
+use crate::bindings::Binding;
+use crate::bindings::Eq2DConstraints;
 use crate::math::*;
 use crate::pools::BindingsPool;
 use crate::pools::ShapesPool;
 use crate::pools::VerticesPool;
 use crate::prefab;
 use crate::shape::ApiShapes;
-use crate::shape::Shapes;
 use crate::types::*;
 
 use kurbo::{BezPath, PathEl, Point};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 
+use std::collections::HashSet;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -29,16 +32,16 @@ use web_sys::{
 pub type RefPA = Rc<RefCell<PlayingArea>>;
 pub type ElementCallback = Box<dyn Fn(RefPA, Event) + 'static>;
 
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 #[repr(u16)]
 enum JSMouseState {
     JSNoButton = 0,
     JSLeftDown = 1,
-    #[allow(dead_code)]
     JSRightDown = 2,
-    #[allow(dead_code)]
     JSMiddleDown = 4,
 }
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 enum MouseState {
     NoButton,
@@ -56,13 +59,18 @@ struct KeysStates {
     shift_pressed: bool,
 }
 
+#[allow(dead_code)]
 pub struct PlayingArea {
     v_pool: VerticesPool,
     sh_pool: ShapesPool,
     b_pool: BindingsPool,
-    geos_selected: Vec<Geobjects>,
-    geo_highlighted: Option<Geobjects>,
-    geo_on_construction: Option<Geobjects>,
+    binding_allowed: bool,
+    binding_requested: Option<Binding>,
+    v_under_mouse: Option<VertexId>,
+    sh_under_mouse: Option<ShapeId>,
+    geo_on_creation: Option<Geobject>,
+    //
+    v_from_geo_selected: HashSet<VertexId>,
     //
     draw_vertex: Option<VertexId>,
     //
@@ -73,7 +81,6 @@ pub struct PlayingArea {
     pub ctx: CanvasRenderingContext2d,
 
     // DOM
-    #[allow(dead_code)]
     contex_menu: HtmlElement,
     user_icons: HashMap<&'static str, Option<Element>>,
     tooltip: HtmlElement,
@@ -115,33 +122,29 @@ impl PlayingArea {
     pub fn add_vertex(&mut self, pos: &Point) -> Vertex {
         self.v_pool.add(*pos)
     }
-    pub fn move_vertex(&mut self, v_id: &VertexId, dpos: &Point) {
-        let v = self.v_pool.get_mut(&v_id).unwrap();
-        v.pt = v.saved_pt + (dpos.x, dpos.y);
-    }
-    pub fn end_move_vertex(&mut self, v_id: &VertexId) {
-        let v = self.v_pool.get_mut(&v_id).unwrap();
-        v.saved_pt = v.pt;
-    }
     pub fn remove_vertex(&mut self, v_id: &VertexId) {
         self.v_pool.remove(v_id);
     }
-    // pub fn get_vs_selected(&mut self) {
-    //     self.vs_selected = vec![];
-    //     for v in self.v_pool.values() {
-    //         if v.selected {
-    //             self.vs_selected.push(v.id);
-    //         }
-    //     }
-    // }
-    // pub fn get_ss_selected(&mut self) {
-    //     self.shs_selected = vec![];
-    //     for s in self.sh_pool.values() {
-    //         if s.is_selected() {
-    //             self.shs_selected.push(s.get_id());
-    //         }
-    //     }
-    // }
+    pub fn check_for_binding(&mut self, bind_v_id: &VertexId) {
+        self.binding_requested = None;
+        let v_bind = self.v_pool.get(bind_v_id).unwrap();
+        for (v_id, v) in self.v_pool.iter() {
+            if v_id != bind_v_id {
+                if v.is_near_pos(&v_bind.pt, self.grab_handle_precision) {
+                    self.binding_requested = Some(Binding::SamePos(BindSamePos {
+                        id: VIds(*v_id, *bind_v_id, *v_id, *bind_v_id),
+                    }));
+                    // log!("Bindings: {:?}", self.binding_requested);
+                    // log!(
+                    //     "eq: {:?}",
+                    //     VIds(*v_id, *bind_v_id, *v_id, *bind_v_id)
+                    //         == VIds(*v_id, *bind_v_id, *v_id, *bind_v_id)
+                    // );
+                    break;
+                }
+            }
+        }
+    }
     pub fn clear_shapes_selections(&mut self) {
         for s in self.sh_pool.values_mut() {
             s.set_selected(false);
@@ -152,85 +155,188 @@ impl PlayingArea {
             }
         }
     }
-    fn no_geobject_under_pos(&self) -> bool {
-        let mut nothing = true;
-        for v in self.v_pool.values() {
-            if v.is_near_pos(&self.pos, self.grab_handle_precision) {
-                nothing = false;
-                break;
-            }
-        }
-        if nothing {
-            for sh in self.sh_pool.values() {
-                if sh.is_near_pos(&self.pos, self.grab_handle_precision, &self.v_pool) {
-                    nothing = false;
-                    break;
-                }
-            }
-        }
-        nothing
-    }
-    pub fn geobject_under_pos(&mut self) -> Option<Geobjects> {
-        if self.no_geobject_under_pos() {
-            return None;
-        }
-        for sh in self.sh_pool.values() {
-            if sh.is_near_pos(&self.pos, self.grab_handle_precision, &self.v_pool) {
-                return Some(Geobjects::Shape(sh.get_id()));
-            }
-        }
+    // fn no_geobject_under_mouse(&self) -> bool {
+    //     let mut nothing = true;
+    //     for v in self.v_pool.values() {
+    //         if v.is_near_pos(&self.pos, self.grab_handle_precision) {
+    //             nothing = false;
+    //             break;
+    //         }
+    //     }
+    //     if nothing {
+    //         for sh in self.sh_pool.values() {
+    //             if sh.is_near_pos(&self.pos, self.grab_handle_precision, &self.v_pool) {
+    //                 nothing = false;
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     nothing
+    // }
+    pub fn v_under_mouse(&mut self) -> bool {
         for v in self.v_pool.values_mut() {
             if v.is_near_pos(&self.pos, self.grab_handle_precision) {
-                return Some(Geobjects::Vertex(v.id));
+                self.v_under_mouse = Some(v.id);
+                return true;
             }
         }
-        None
+        false
     }
-    pub fn highlight_geobject_under_pos(&mut self) {
-        self.geo_highlighted = self.geobject_under_pos();
-    }
-    pub fn toggle_geobject_selection(&mut self, geo: &Geobjects) {
-        match geo {
-            Geobjects::Vertex(v_id) => {
-                let v = self.v_pool.get_mut(v_id).unwrap();
-                v.selected = !v.selected;
-            }
-            Geobjects::Shape(sh_id) => {
-                let sh = self.sh_pool.get_mut(sh_id).unwrap();
-                sh.set_selected(!sh.is_selected());
+    pub fn sh_under_mouse(&mut self) -> bool {
+        for sh in self.sh_pool.values_mut() {
+            if sh.is_near_pos(&self.pos, self.grab_handle_precision, &self.v_pool) {
+                self.sh_under_mouse = Some(sh.get_id());
+                return true;
             }
         }
+        false
     }
-    pub fn move_geobject_construction(&mut self, dpos: &Point) {
-        if let Some(geo) = self.geo_on_construction.clone() {
-            match geo {
-                Geobjects::Vertex(v_id) => {
-                    self.move_vertex(&v_id, dpos);
-                }
-                Geobjects::Shape(sh_id) => {
-                    self.move_vertex(
-                        &self.sh_pool.get(&sh_id).unwrap().get_vextex_construction(),
-                        dpos,
-                    );
-                }
+    pub fn update_under_mouse(&mut self) {
+        self.v_under_mouse = None;
+        self.sh_under_mouse = None;
+        if !self.v_under_mouse() {
+            self.sh_under_mouse();
+        }
+    }
+    // pub fn highlight_geobject_under_pos(&mut self) {
+    //     self.v_under_mouse = self.geobject_under_mouse();
+    // }
+    // pub fn toggle_geobject_selection(&mut self, geo: &Geobject) {
+    //     match geo {
+    //         Geobject::Vertex(v_id) => {
+    //             let v = self.v_pool.get_mut(v_id).unwrap();
+    //             v.selected = !v.selected;
+    //         }
+    //         Geobject::Shape(sh_id) => {
+    //             let sh = self.sh_pool.get_mut(sh_id).unwrap();
+    //             sh.set_selected(!sh.is_selected());
+    //         }
+    //     }
+    // }
+    // fn get_v_from_geo(&self, hvs: &mut HashSet<VertexId>, geo: &Geobject) {
+    //     match geo {
+    //         Geobject::Vertex(v_id) => _ = hvs.insert(*v_id),
+    //         Geobject::Shape(sh_id) => {
+    //             self.sh_pool
+    //                 .get(&sh_id)
+    //                 .unwrap()
+    //                 .get_vertices_ids()
+    //                 .iter()
+    //                 .for_each(|v_id| _ = hvs.insert(*v_id));
+    //         }
+    //     }
+    // }
+    // fn get_v_from_geo_selected(&mut self) {
+    //     self.v_from_geo_selected = HashSet::new();
+    //     for v in self.v_pool.values() {
+    //         if v.selected {
+    //             self.v_from_geo_selected.insert(v.id);
+    //         }
+    //     }
+    //     for sh in self.sh_pool.values() {
+    //         if sh.is_selected() {
+    //             for v_id in sh.get_vertices_ids().iter() {
+    //                 self.v_from_geo_selected.insert(*v_id);
+    //             }
+    //         }
+    //     }
+    // }
+    pub fn move_geobjects(&mut self, dpos: &Point) -> bool {
+        if let Some(v_id) = self.v_under_mouse {
+            self.v_pool.get_mut(&v_id).unwrap().move_pt(dpos);
+            self.check_for_binding(&v_id);
+            true
+        } else {
+            if let Some(sh_id) = self.sh_under_mouse {
+                self.sh_pool
+                    .get_mut(&sh_id)
+                    .unwrap()
+                    .get_vertices_ids()
+                    .iter()
+                    .for_each(|v_id| {
+                        self.v_pool.get_mut(&v_id).unwrap().move_pt(dpos);
+                        self.check_for_binding(&v_id);
+                    });
+                true
+            } else {
+                false
             }
-        };
-    }
-    pub fn end_move_geobject_construction(&mut self) {
-        if let Some(geo) = self.geo_on_construction.clone() {
-            match geo {
-                Geobjects::Vertex(v_id) => {
-                    self.end_move_vertex(&v_id);
-                }
-                Geobjects::Shape(sh_id) => {
-                    self.end_move_vertex(
-                        &self.sh_pool.get(&sh_id).unwrap().get_vextex_construction(),
-                    );
-                }
-            }
-        };
-    }
+        }
 
+        // if nb_v_selected == 1 {
+        //     self.check_for_binding(&v.id);
+        // }
+
+        // if self.b_pool.len() > 0 {
+        //     self.solve_constraints();
+        // }
+    }
+    pub fn end_move_geobjects(&mut self) {
+        if let Some(v_id) = self.v_under_mouse {
+            self.v_pool.get_mut(&v_id).unwrap().save_pt();
+        } else {
+            if let Some(sh_id) = self.sh_under_mouse {
+                self.sh_pool
+                    .get_mut(&sh_id)
+                    .unwrap()
+                    .get_vertices_ids()
+                    .iter()
+                    .for_each(|v_id| self.v_pool.get_mut(&v_id).unwrap().save_pt());
+            }
+        }
+    }
+    pub fn move_selected(&mut self, dpos: &Point) {
+        let mut _nb_v_selected = 0;
+        self.v_pool.values_mut().for_each(|v| {
+            if v.selected {
+                _nb_v_selected += 1;
+                v.move_pt(dpos);
+            }
+        });
+
+        // if nb_v_selected == 1 {
+        //     self.check_for_binding(&v.id);
+        // }
+
+        // if self.b_pool.len() > 0 {
+        //     self.solve_constraints();
+        // }
+    }
+    pub fn end_move_selected(&mut self) {
+        self.v_pool.values_mut().for_each(|v| {
+            if v.selected {
+                v.save_pt();
+            }
+        });
+    }
+    // pub fn move_geobject_creation(&mut self, dpos: &Point) {
+    //     if let Some(geo) = self.geo_on_creation.clone() {
+    //         match geo {
+    //             Geobject::Vertex(v_id) => {
+    //                 let v = self.v_pool.get_mut(&v_id).unwrap();
+    //                 self.move_vertex(v, dpos);
+    //             }
+    //             Geobject::Shape(sh_id) => {
+    //                 let sh = self.sh_pool.get(&sh_id).unwrap();
+    //                 let v_id = sh.get_vextex_creation();
+    //                 let v = self.v_pool.get_mut(&v_id).unwrap();
+    //                 self.move_vertex(v, dpos);
+    //             }
+    //         }
+    //     };
+    // }
+    // pub fn end_move_geobject_creation(&mut self) {
+    //     if let Some(geo) = self.geo_on_creation.clone() {
+    //         match geo {
+    //             Geobject::Vertex(v_id) => {
+    //                 self.end_move_vertex(&v_id);
+    //             }
+    //             Geobject::Shape(sh_id) => {
+    //                 self.end_move_vertex(&self.sh_pool.get(&sh_id).unwrap().get_vextex_creation());
+    //             }
+    //         }
+    //     };
+    // }
     pub fn pos_magnet_to_vertex(&mut self, v_id_excl: &VertexId) {
         for (v_id, v) in self.v_pool.iter() {
             if v_id != v_id_excl {
@@ -241,69 +347,87 @@ impl PlayingArea {
             }
         }
     }
-    pub fn get_geobject_construction_pattern(&self, geo: Geobjects) -> ConstructionPattern {
-        if let Some(geo_cst) = self.geo_on_construction.clone() {
+    pub fn get_geobject_construction_pattern(&self, geo: Geobject) -> ConstructionPattern {
+        use Geobject::*;
+
+        if let Some(geo_cst) = self.geo_on_creation.clone() {
             match geo_cst {
-                Geobjects::Vertex(v_id_cst) => match geo {
-                    Geobjects::Vertex(v_id) => {
+                Vertex(v_id_cst) => match geo {
+                    Vertex(v_id) => {
                         if v_id == v_id_cst {
-                            return ConstructionPattern::OnConstruction;
+                            return ConstructionPattern::OnCreation;
                         }
                     }
-                    Geobjects::Shape(_) => (),
+                    Shape(_) => (),
                 },
-                Geobjects::Shape(sh_id_cst) => match geo {
-                    Geobjects::Vertex(_) => (),
-                    Geobjects::Shape(sh_id) => {
+                Shape(sh_id_cst) => match geo {
+                    Vertex(_) => (),
+                    Shape(sh_id) => {
                         if sh_id == sh_id_cst {
-                            return ConstructionPattern::OnConstruction;
+                            return ConstructionPattern::OnCreation;
                         }
                     }
                 },
             }
         }
-        let cst_ptrn = if let Some(geo_high) = self.geo_highlighted.clone() {
-            match geo_high {
-                Geobjects::Vertex(v_id_high) => match geo {
-                    Geobjects::Vertex(v_id) => {
-                        if v_id == v_id_high {
-                            ConstructionPattern::Highlighted
-                        } else {
-                            ConstructionPattern::Normal
-                        }
+
+        let mut cst = match geo {
+            Vertex(v_id) => {
+                if let Some(under_mouse_v_id) = self.v_under_mouse.clone() {
+                    if v_id == under_mouse_v_id {
+                        ConstructionPattern::Highlighted
+                    } else {
+                        ConstructionPattern::Normal
                     }
-                    Geobjects::Shape(_) => ConstructionPattern::Normal,
-                },
-                Geobjects::Shape(sh_id_high) => match geo {
-                    Geobjects::Vertex(_) => ConstructionPattern::Normal,
-                    Geobjects::Shape(sh_id) => {
-                        if sh_id == sh_id_high {
-                            ConstructionPattern::Highlighted
-                        } else {
-                            ConstructionPattern::Normal
-                        }
-                    }
-                },
+                } else {
+                    ConstructionPattern::Normal
+                }
             }
-        } else {
-            ConstructionPattern::Normal
+
+            Shape(sh_id) => {
+                if let Some(under_mouse_sh_id) = self.sh_under_mouse.clone() {
+                    if sh_id == under_mouse_sh_id {
+                        ConstructionPattern::Highlighted
+                    } else {
+                        ConstructionPattern::Normal
+                    }
+                } else {
+                    ConstructionPattern::Normal
+                }
+            }
         };
 
-        match geo {
-            Geobjects::Vertex(v_id) => {
+        cst = match geo {
+            Vertex(v_id) => {
                 if self.v_pool.get(&v_id).unwrap().selected {
                     ConstructionPattern::Selected
                 } else {
-                    cst_ptrn
+                    // if let MouseState::LeftDownMoved = self.mouse_state {
+                    //     ConstructionPattern::Normal
+                    // } else {
+                    cst
+                    // }
                 }
             }
-            Geobjects::Shape(sh_id) => {
+            Shape(sh_id) => {
                 if self.sh_pool.get(&sh_id).unwrap().is_selected() {
+                    log!("rrr");
                     ConstructionPattern::Selected
                 } else {
-                    cst_ptrn
+                    // if let MouseState::LeftDownMoved = self.mouse_state {
+                    // ConstructionPattern::Normal
+                    // } else {
+                    cst
+                    // }
                 }
             }
+        };
+        cst
+    }
+    pub fn solve_constraints(&mut self) {
+        let mut cst = Eq2DConstraints::new(&mut self.b_pool, &mut self.v_pool);
+        if let Err(e) = cst.solve(&mut self.v_pool) {
+            log!("Error resolving constraints: {}", e);
         }
     }
 }
@@ -407,9 +531,12 @@ pub fn create_playing_area(window: Window) -> Result<(), JsValue> {
         v_pool,
         sh_pool: s_pool,
         b_pool,
-        geos_selected: vec![],
-        geo_highlighted: None,
-        geo_on_construction: None,
+        binding_allowed: false,
+        binding_requested: None,
+        v_under_mouse: None,
+        sh_under_mouse: None,
+        geo_on_creation: None,
+        v_from_geo_selected: HashSet::new(),
         draw_vertex: None,
         window,
         document,
@@ -496,25 +623,25 @@ fn init_window(pa: RefPA) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_settings_panel(pa: RefPA) -> Result<(), JsValue> {
-    let pa_ref = pa.borrow_mut();
+    let pam = pa.borrow_mut();
     set_callback(
         pa.clone(),
         "click".into(),
-        &pa_ref.apply_settings_button,
+        &pam.apply_settings_button,
         Box::new(on_apply_settings_click),
     )?;
     set_callback(
         pa.clone(),
         "click".into(),
-        &pa_ref.modal_backdrop,
+        &pam.modal_backdrop,
         Box::new(on_modal_backdrop_click),
     )?;
     Ok(())
 }
 fn init_icons(pa: RefPA) -> Result<(), JsValue> {
-    let mut pa_ref = pa.borrow_mut();
-    let document = pa_ref.document.clone();
-    for (element_name, element_to_set) in pa_ref.user_icons.iter_mut() {
+    let mut pam = pa.borrow_mut();
+    let document = pam.document.clone();
+    for (element_name, element_to_set) in pam.user_icons.iter_mut() {
         if let Some(element) = get_element(&document, element_name).ok() {
             *element_to_set = Some(element);
             set_callback(
@@ -541,8 +668,8 @@ fn init_icons(pa: RefPA) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_context_menu(pa: RefPA) -> Result<(), JsValue> {
-    let pa_ref = pa.borrow_mut();
-    let document = pa_ref.document.clone();
+    let pam = pa.borrow_mut();
+    let document = pam.document.clone();
     let ctx_menu_bind_vertex_to = document
         .get_element_by_id("ctx-menu-bind-vertex-to")
         .unwrap();
@@ -569,7 +696,7 @@ fn init_context_menu(pa: RefPA) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_canvas(pa: RefPA) -> Result<(), JsValue> {
-    let mut element = &pa.borrow().canvas;
+    let mut element = &pa.borrow_mut().canvas;
     set_callback(
         pa.clone(),
         "contextmenu".into(),
@@ -622,8 +749,8 @@ fn init_canvas(pa: RefPA) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_menu(pa: RefPA) -> Result<(), JsValue> {
-    let pa_mut = pa.borrow_mut();
-    let document = pa_mut.document.clone();
+    let pam = pa.borrow_mut();
+    let document = pam.document.clone();
 
     let load_element = document.get_element_by_id("load-option").unwrap();
     let load_element: HtmlElement = load_element.dyn_into::<HtmlElement>()?;
@@ -650,7 +777,7 @@ fn init_menu(pa: RefPA) -> Result<(), JsValue> {
     save_element.add_event_listener_with_callback("click", on_save.as_ref().unchecked_ref())?;
     on_save.forget(); // Leaks memory, but we need to do this to keep the callback alive
 
-    drop(pa_mut);
+    drop(pam);
     // Set up an event listener to handle file selection
     let on_file_select = Closure::wrap(Box::new(move || {
         let pa_clone = pa.clone();
@@ -693,8 +820,8 @@ fn init_menu(pa: RefPA) -> Result<(), JsValue> {
     Ok(())
 }
 fn init_status(pa: RefPA) -> Result<(), JsValue> {
-    let pa_ref = pa.borrow_mut();
-    let _document = pa_ref.document.clone();
+    let pam = pa.borrow_mut();
+    let _document = pam.document.clone();
 
     Ok(())
 }
@@ -729,9 +856,9 @@ fn set_callback(
     Ok(())
 }
 fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
-    let mut pa_mut = pa.borrow_mut();
-    // let grp_id = pa_mut.data_pools.create_group_id();
-    pa_mut.clear_shapes_selections();
+    let mut pam = pa.borrow_mut();
+    // let grp_id = pam.data_pools.create_group_id();
+    pam.clear_shapes_selections();
 
     // for event in svg::parser::Parser::new(&svg_data).into_iter() {
     //     match event {
@@ -777,9 +904,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //             };
     //                              //             if let Some(shape) = Line::new(&current_position, &new_position)
     //                              //             {
-    //                              //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //                 let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //             }
 
     //                              //             current_position = new_position;
@@ -799,9 +926,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //             Position::Relative => current_position + end_point,
     //                              //         };
     //                              //         if let Some(shape) = Line::new(&current_position, &new_position) {
-    //                              //             let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //             pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //             pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //             let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //             pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //             pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //         }
 
     //                              //         current_position = new_position;
@@ -820,9 +947,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //             Position::Relative => current_position + end_point,
     //                              //         };
     //                              //         if let Some(shape) = Line::new(&current_position, &new_position) {
-    //                              //             let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //             pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //             pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //             let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //             pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //             pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //         }
 
     //                              //         current_position = new_position;
@@ -854,9 +981,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //                 &control_point,
     //                              //                 &new_position,
     //                              //             ) {
-    //                              //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //                 let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //             }
 
     //                              //             current_position = new_position;
@@ -888,9 +1015,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //                 &control_point,
     //                              //                 &new_position,
     //                              //             ) {
-    //                              //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //                 let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //             }
 
     //                              //             current_position = new_position;
@@ -929,10 +1056,10 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //                 &control_point2,
     //                              //                 &new_position,
     //                              //             ) {
-    //                              //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //                 let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //             }
     //                              //             current_position = new_position;
     //                              //             last_quad_control_point = None;
@@ -971,10 +1098,10 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              //                 &control_point2,
     //                              //                 &new_position,
     //                              //             ) {
-    //                              //                 let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //                 pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //                 let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //                 pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //             }
 
     //                              //             current_position = new_position;
@@ -986,9 +1113,9 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
     //                              // Command::EllipticalArc(_postype, _params) => {}
     //                              // Command::Close => {
     //                              //     if let Some(shape) = Line::new(&current_position, &start_position) {
-    //                              //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-    //                              //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
-    //                              //         pa_mut.data_pools.set_shape_group(&grp_id, &sh_id);
+    //                              //         let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+    //                              //         pam.data_pools.set_shape_selected(&sh_id, true);
+    //                              //         pam.data_pools.set_shape_group(&grp_id, &sh_id);
     //                              //     }
 
     //                              //     current_position = start_position;
@@ -1006,10 +1133,10 @@ fn convert_svg_to_shapes(pa: RefPA, _svg_data: String) {
 ///////////////
 // Canvas events: mouse, keyboard and context menu
 fn on_mouse_down(pa: RefPA, event: Event) {
-    let mut pa_mut = pa.borrow_mut();
+    let mut pam = pa.borrow_mut();
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
         if mouse_event.buttons() == JSMouseState::JSLeftDown as u16 {
-            if let Some(context_menu) = pa_mut.document.get_element_by_id("contextMenu") {
+            if let Some(context_menu) = pam.document.get_element_by_id("contextMenu") {
                 if let Some(html_element) =
                     wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
                 {
@@ -1022,84 +1149,82 @@ fn on_mouse_down(pa: RefPA, event: Event) {
             }
 
             // Get mouse position relative to the canvas
-            let rect = pa_mut.canvas.get_bounding_client_rect();
+            let rect = pam.canvas.get_bounding_client_rect();
             let canvas_mouse_pos = Point {
                 x: mouse_event.client_x() as f64 - rect.left(),
                 y: mouse_event.client_y() as f64 - rect.top(),
             };
 
             // Save canvas offset for move
-            pa_mut.canvas_offset_ms_dwn = pa_mut.canvas_offset;
-            pa_mut.canvas_mouse_pos_ms_dwn = canvas_mouse_pos;
+            pam.canvas_offset_ms_dwn = pam.canvas_offset;
+            pam.canvas_mouse_pos_ms_dwn = canvas_mouse_pos;
 
-            pa_mut.pos = to_world(
-                &canvas_mouse_pos,
-                pa_mut.global_scale,
-                &pa_mut.canvas_offset,
-            );
-            pa_mut.pos_dwn = pa_mut.pos;
+            pam.pos = to_world(&canvas_mouse_pos, pam.global_scale, &pam.canvas_offset);
+            pam.pos_dwn = pam.pos;
 
             // Remove the pick point if any
-            if let Some(v_id) = pa_mut.draw_vertex {
-                pa_mut.remove_vertex(&v_id);
-                pa_mut.draw_vertex = None;
+            if let Some(v_id) = pam.draw_vertex {
+                pam.remove_vertex(&v_id);
+                pam.draw_vertex = None;
             }
 
-            match pa_mut.icon_selected {
+            match pam.icon_selected {
                 "icon-arrow" => {}
-                "icon-selection" => pa_mut.selection_area = Some([pa_mut.pos, pa_mut.pos]),
+                "icon-selection" => pam.selection_area = Some([pam.pos, pam.pos]),
                 "icon-line" => {
-                    pa_mut.clear_shapes_selections();
-                    let pos = pa_mut.pos;
-                    let snap_grid = pa_mut.working_area_snap_grid;
-                    let va = pa_mut.add_vertex(&pos);
-                    let vb = pa_mut.add_vertex(&(pos + (snap_grid, snap_grid)));
-                    let sh_id = pa_mut.sh_pool.add_line(&va, &vb).get_id();
+                    pam.clear_shapes_selections();
+                    let pos = pam.pos;
+                    let snap_grid = pam.working_area_snap_grid;
+                    let va = pam.add_vertex(&pos);
+                    let mut vb = pam.add_vertex(&(pos + (snap_grid, snap_grid)));
+                    vb.selected = true;
+                    let sh_id = pam.sh_pool.add_line(&va, &vb).get_id();
+                    pam.v_under_mouse = Some(vb.id);
                     // The shape is in construction state, special case
-                    pa_mut.geo_on_construction = Some(Geobjects::Shape(sh_id));
+                    pam.geo_on_creation = Some(Geobject::Shape(sh_id));
                 }
                 // "icon-quadbezier" => {
-                //     pa_mut.data_pools.clear_shapes_selection();
+                //     pam.data_pools.clear_shapes_selection();
                 //     if let Some(shape) = QuadBezier::new(
                 //         &pick_pos,
                 //         &(pick_pos + snap_grid),
                 //         &(pick_pos + 2. * snap_grid),
                 //     ) {
-                //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                //         let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+                //         pam.data_pools.set_shape_selected(&sh_id, true);
                 //     }
                 // }
                 // "icon-cubicbezier" => {
-                //     pa_mut.data_pools.clear_shapes_selection();
+                //     pam.data_pools.clear_shapes_selection();
                 //     if let Some(shape) = CubicBezier::new(
                 //         &pick_pos,
                 //         &(pick_pos + snap_grid),
                 //         &(pick_pos + 2. * snap_grid),
                 //         &(pick_pos + 3. * snap_grid),
                 //     ) {
-                //         let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                //         pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                //         let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+                //         pam.data_pools.set_shape_selected(&sh_id, true);
                 //     }
                 // }
                 "icon-rectangle" => {
-                    pa_mut.clear_shapes_selections();
+                    pam.clear_shapes_selections();
                     //
                 }
                 // "icon-ellipse" => {
-                //     pa_mut.data_pools.clear_shapes_selection();
+                //     pam.data_pools.clear_shapes_selection();
                 //     let shape = EllipticArc::new(&pick_pos, &pick_pos, 0., 2. * PI, snap_grid);
-                //     let sh_id = pa_mut.data_pools.insert_shape(Box::new(shape));
-                //     pa_mut.data_pools.set_shape_selected(&sh_id, true);
+                //     let sh_id = pam.data_pools.insert_shape(Box::new(shape));
+                //     pam.data_pools.set_shape_selected(&sh_id, true);
                 // }
                 "icon-scissors" => {
-                    pa_mut.clear_shapes_selections();
-                    pa_mut.geobject_under_pos();
-                    // if let Some((sh_id, bs_id)) = pa_mut
+                    pam.clear_shapes_selections();
+                    // pam.geobject_under_mouse();
+                    // if let Some((sh_id, bs_id)) = pam
                     //     .s_pool
                     //     .get_shape_under_pos(&pick_pos, grab_handle_precision)
                     // {
                     //     log!("Picked some shape id: {:?}", sh_id);
-                    //     // pa_mut
+                    //     // pam
                     //     //     .data_pools
                     //     //     .cut_shape(&sh_id, &pick_pos, grab_handle_precision);
                     // }
@@ -1107,158 +1232,168 @@ fn on_mouse_down(pa: RefPA, event: Event) {
                 _ => (),
             }
             // Update display mouse world position
-            pa_mut
-                .mouse_worksheet_position
-                .set_text_content(Some(&format!(
-                    "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                    pa_mut.pos.x.round() as i32,
-                    pa_mut.pos.y.round() as i32,
-                    (pa_mut.pos.x - pa_mut.pos_dwn.x).round() as i32,
-                    (pa_mut.pos.y - pa_mut.pos_dwn.y).round() as i32
-                )));
+            pam.mouse_worksheet_position.set_text_content(Some(&format!(
+                "( {:?} , {:?} ) - ( {:?} , {:?} )",
+                pam.pos.x.round() as i32,
+                pam.pos.y.round() as i32,
+                (pam.pos.x - pam.pos_dwn.x).round() as i32,
+                (pam.pos.y - pam.pos_dwn.y).round() as i32
+            )));
 
-            pa_mut.mouse_state = MouseState::LeftDown;
+            pam.mouse_state = MouseState::LeftDown;
         }
     }
-    drop(pa_mut);
+    drop(pam);
     render(pa.clone());
 }
 fn on_mouse_move(pa: RefPA, event: Event) {
-    let mut pa_mut = pa.borrow_mut();
+    let mut pam = pa.borrow_mut();
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
-        // let mouse_state = pa_mut.mouse_state.clone();
-
         // Get mouse position relative to the canvas
-        let rect = pa_mut.canvas.get_bounding_client_rect();
+        let rect = pam.canvas.get_bounding_client_rect();
         let canvas_mouse_pos = Point {
             x: mouse_event.client_x() as f64 - rect.left(),
             y: mouse_event.client_y() as f64 - rect.top(),
         };
 
-        pa_mut.pos = to_world(
-            &canvas_mouse_pos,
-            pa_mut.global_scale,
-            &pa_mut.canvas_offset,
-        );
+        pam.pos = to_world(&canvas_mouse_pos, pam.global_scale, &pam.canvas_offset);
 
-        let delta_pick_pos = pa_mut.pos - (pa_mut.pos_dwn.x, pa_mut.pos_dwn.y);
+        let delta_pick_pos = pam.pos - (pam.pos_dwn.x, pam.pos_dwn.y);
 
-        // log!(
-        //     "delta_pick_pos: ({:.2},{:.2})",
-        //     delta_pick_pos.x,
-        //     delta_pick_pos.y
-        // );
-        //pick_delta_pos.snap(snap_grid);
-        pa_mut.highlight_geobject_under_pos();
-
-        match pa_mut.mouse_state {
+        match pam.mouse_state {
             MouseState::LeftDown | MouseState::LeftDownMoved => {
-                match pa_mut.icon_selected {
-                    "icon-arrow" => {
-                        // Move Canvas if no selection
-                        pa_mut.canvas_offset = (canvas_mouse_pos
-                            - (
-                                pa_mut.canvas_mouse_pos_ms_dwn.x,
-                                pa_mut.canvas_mouse_pos_ms_dwn.y,
-                            ))
-                            + (pa_mut.canvas_offset_ms_dwn.x, pa_mut.canvas_offset_ms_dwn.y);
-                    }
+                match pam.icon_selected {
                     "icon-selection" => {
-                        if let Some(sa) = pa_mut.selection_area.as_mut() {
+                        if let Some(sa) = pam.selection_area.as_mut() {
                             sa[1] = delta_pick_pos
                         }
                     }
-                    "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
-                    | "icon-rectangle" => {
-                        if let Some(_) = pa_mut.geo_on_construction {
-                            pa_mut.move_geobject_construction(&delta_pick_pos);
+                    "icon-arrow" | "icon-line" | "icon-quadbezier" | "icon-cubicbezier"
+                    | "icon-ellipse" | "icon-rectangle" => {
+                        // Whatever the number of geoobjects selected, we move them only
+                        // if the mouse is over a geoobject
+                        if None != pam.v_under_mouse || None != pam.sh_under_mouse {
+                            pam.move_geobjects(&delta_pick_pos);
+                        } else {
+                            // Move Canvas if no selection or highlight
+                            pam.canvas_offset = (canvas_mouse_pos
+                                - (pam.canvas_mouse_pos_ms_dwn.x, pam.canvas_mouse_pos_ms_dwn.y))
+                                + (pam.canvas_offset_ms_dwn.x, pam.canvas_offset_ms_dwn.y);
                         }
                     }
                     _ => (),
                 }
-                pa_mut.mouse_state = MouseState::LeftDownMoved;
+                pam.mouse_state = MouseState::LeftDownMoved;
             }
             _ => {
-                if let Some(v_id) = pa_mut.draw_vertex {
-                    pa_mut.pos_magnet_to_vertex(&v_id);
-                    let pos = pa_mut.pos;
-                    let v = pa_mut.v_pool.get_mut(&v_id).unwrap();
+                pam.update_under_mouse();
+
+                if let Some(v_id) = pam.draw_vertex {
+                    pam.pos_magnet_to_vertex(&v_id);
+                    let pos = pam.pos;
+                    let v = pam.v_pool.get_mut(&v_id).unwrap();
                     v.pt = pos;
                 }
             }
         }
 
         // Display: update mouse world position
-        if let MouseState::LeftDownMoved = pa_mut.mouse_state.clone() {
-            pa_mut
-                .mouse_worksheet_position
-                .set_text_content(Some(&format!(
-                    "( {:?} , {:?} ) - ( {:?} , {:?} )",
-                    delta_pick_pos.x.round() as i32,
-                    delta_pick_pos.y.round() as i32,
-                    (delta_pick_pos.x - pa_mut.pos_dwn.x).round() as i32,
-                    (delta_pick_pos.y - pa_mut.pos_dwn.y).round() as i32
-                )));
+        if let MouseState::LeftDownMoved = pam.mouse_state.clone() {
+            pam.mouse_worksheet_position.set_text_content(Some(&format!(
+                "( {:?} , {:?} ) - ( {:?} , {:?} )",
+                delta_pick_pos.x.round() as i32,
+                delta_pick_pos.y.round() as i32,
+                (delta_pick_pos.x - pam.pos_dwn.x).round() as i32,
+                (delta_pick_pos.y - pam.pos_dwn.y).round() as i32
+            )));
         } else {
-            pa_mut
-                .mouse_worksheet_position
-                .set_text_content(Some(&format!(
-                    "( {:?} , {:?} )",
-                    delta_pick_pos.x.round() as i32,
-                    delta_pick_pos.y.round() as i32
-                )));
+            pam.mouse_worksheet_position.set_text_content(Some(&format!(
+                "( {:?} , {:?} )",
+                delta_pick_pos.x.round() as i32,
+                delta_pick_pos.y.round() as i32
+            )));
         }
     }
-    drop(pa_mut);
+    drop(pam);
     render(pa.clone());
 }
 fn on_mouse_up(pa: RefPA, event: Event) {
-    let mut pa_mut = pa.borrow_mut();
-    if let Ok(_mouse_event) = event.clone().dyn_into::<MouseEvent>() {
-        match pa_mut.icon_selected {
+    let mut pam = pa.borrow_mut();
+    if let Ok(_) = event.clone().dyn_into::<MouseEvent>() {
+        match pam.icon_selected {
+            "icon-arrow" => {
+                match pam.mouse_state {
+                    // This state represent a Simple click without move
+                    MouseState::LeftDown => {
+                        // Toogle object selection if simple click on vertex
+                        if let Some(v_id) = pam.v_under_mouse.clone() {
+                            let v = pam.v_pool.get_mut(&v_id).unwrap();
+                            v.selected = !v.selected;
+                        } else {
+                            if let Some(sh_id) = pam.sh_under_mouse.clone() {
+                                let sh = pam.sh_pool.get_mut(&sh_id).unwrap();
+                                sh.set_selected(!sh.is_selected());
+                            } else {
+                                // If no geoobject under mouse when clicked, then clear
+                                // all selection
+                                pam.clear_shapes_selections();
+                            }
+                        }
+                    }
+                    // This state represent a mouse down then a move a finally a mouse up
+                    MouseState::LeftDownMoved => {
+                        pam.end_move_geobjects();
+                        // If at the end of move there is some binding requested
+                        // then add this binding on the binding pool
+                        if let Some(bind) = pam.binding_requested {
+                            pam.b_pool.add_bind(&bind);
+                            pam.binding_requested = None;
+                        }
+                    }
+                    _ => (),
+                }
+            }
             "icon-selection" => {
-                let selection_area = pa_mut.selection_area.clone();
+                let selection_area = pam.selection_area.clone();
                 if let Some(sa_raw) = selection_area {
                     let mut bb_outer = sa_raw;
                     reorder_corners(&mut bb_outer);
-                    pa_mut.sh_pool.select_shapes_bounded_by_rectangle(bb_outer);
+                    pam.sh_pool.select_shapes_bounded_by_rectangle(bb_outer);
                 }
-                pa_mut.selection_area = None;
-            }
-            "icon-arrow" => {
-                if let Some(geo) = pa_mut.geo_highlighted.clone() {
-                    // If simple click
-                    if let MouseState::LeftDown = pa_mut.mouse_state {
-                        pa_mut.toggle_geobject_selection(&geo);
-                    }
-                }
+                pam.selection_area = None;
             }
             "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
             | "icon-rectangle" => {
-                if let Some(_) = pa_mut.geo_on_construction {
-                    pa_mut.end_move_geobject_construction();
+                if let Some(_) = pam.geo_on_creation {
+                    pam.end_move_geobjects();
                     // No more construction shape to process
-                    pa_mut.geo_on_construction = None
+                    pam.geo_on_creation = None;
+                    // If at the end of move there is some binding requested
+                    // then add this binding on the binding pool
+                    if let Some(bind) = pam.binding_requested {
+                        pam.b_pool.add_bind(&bind);
+                        pam.binding_requested = None;
+                    }
                 }
             }
             _ => (),
         }
-        go_to_arrow_tool(&mut pa_mut);
+        go_to_arrow_tool(&mut pam);
     }
-    pa_mut.mouse_state = MouseState::NoButton;
-    drop(pa_mut);
+    pam.mouse_state = MouseState::NoButton;
+    drop(pam);
     render(pa.clone());
 }
 fn on_mouse_wheel(pa: RefPA, event: Event) {
     if let Ok(wheel_event) = event.dyn_into::<WheelEvent>() {
         wheel_event.prevent_default();
-        let mut pa_ref = pa.borrow_mut();
+        let mut pam = pa.borrow_mut();
         let zoom_factor = 0.05;
 
-        let old_scale = pa_ref.global_scale;
+        let old_scale = pam.global_scale;
 
         // Get mouse position relative to the canvas
-        let rect = pa_ref.canvas.get_bounding_client_rect();
+        let rect = pam.canvas.get_bounding_client_rect();
         let canvas_mouse_pos = Point {
             x: wheel_event.client_x() as f64 - rect.left(),
             y: wheel_event.client_y() as f64 - rect.top(),
@@ -1273,106 +1408,106 @@ fn on_mouse_wheel(pa: RefPA, event: Event) {
             (old_scale / (1.0 + zoom_factor)).max(0.2)
         };
 
-        let new_canvas_offset_x = pa_ref.canvas_offset.x
-            - (new_scale - old_scale) * (canvas_mouse_pos.x - pa_ref.canvas_offset.x) / old_scale;
-        let new_canvas_offset_y = pa_ref.canvas_offset.y
-            - (new_scale - old_scale) * (canvas_mouse_pos.y - pa_ref.canvas_offset.y) / old_scale;
+        let new_canvas_offset_x = pam.canvas_offset.x
+            - (new_scale - old_scale) * (canvas_mouse_pos.x - pam.canvas_offset.x) / old_scale;
+        let new_canvas_offset_y = pam.canvas_offset.y
+            - (new_scale - old_scale) * (canvas_mouse_pos.y - pam.canvas_offset.y) / old_scale;
 
-        pa_ref.canvas_offset = Point {
+        pam.canvas_offset = Point {
             x: new_canvas_offset_x,
             y: new_canvas_offset_y,
         };
-        pa_ref.global_scale = new_scale;
-        drop(pa_ref);
+        pam.global_scale = new_scale;
+        drop(pam);
         render(pa);
     }
 }
 fn on_mouse_enter(pa: RefPA, _event: Event) {
-    let mut pa_ref = pa.borrow_mut();
-    pa_ref.mouse_state = MouseState::NoButton;
+    let mut pam = pa.borrow_mut();
+    pam.mouse_state = MouseState::NoButton;
 }
 fn on_mouse_leave(pa: RefPA, _event: Event) {
-    let mut pa_ref = pa.borrow_mut();
-    pa_ref.mouse_state = MouseState::NoButton;
+    let mut pam = pa.borrow_mut();
+    pam.mouse_state = MouseState::NoButton;
 }
 fn on_keydown(pa: RefPA, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
-        let mut pa_mut = pa.borrow_mut();
+        let mut pam = pa.borrow_mut();
 
         if keyboard_event.key() == "Delete" || keyboard_event.key() == "Backspace" {
-            pa_mut.sh_pool.delete_selected_shapes();
+            pam.sh_pool.delete_selected_shapes();
         }
         // if keyboard_event.key() == "Escape" {
         //     console::log_1(&"ddd".into());
-        //     if pa_mut.icon_selected == "icon-line"
-        //         || pa_mut.icon_selected == "icon-quadbezier"
-        //         || pa_mut.icon_selected == "icon-cubicbezier"
-        //         || pa_mut.icon_selected == "icon-rectangle"
-        //         || pa_mut.icon_selected == "icon-ellipse"
+        //     if pam.icon_selected == "icon-line"
+        //         || pam.icon_selected == "icon-quadbezier"
+        //         || pam.icon_selected == "icon-cubicbezier"
+        //         || pam.icon_selected == "icon-rectangle"
+        //         || pam.icon_selected == "icon-ellipse"
         //     {
         //         console::log_1(&"eee".into());
-        //         if let Some(shape_id) = pa_mut.cur_draw_item {
-        //             pa_mut.pool.delete_shape(&shape_id);
+        //         if let Some(shape_id) = pam.cur_draw_item {
+        //             pam.pool.delete_shape(&shape_id);
         //         }
-        //         deselect_icons(&pa_mut);
-        //         select_icon(&pa_mut, &"icon-arrow");
-        //         pa_mut.icon_selected = "icon-arrow";
-        //         pa_mut.show_pick_point = false;
+        //         deselect_icons(&pam);
+        //         select_icon(&pam, &"icon-arrow");
+        //         pam.icon_selected = "icon-arrow";
+        //         pam.show_pick_point = false;
         //     }
-        //     pa_mut.cur_sel_shapes_ids.clear();
+        //     pam.cur_sel_shapes_ids.clear();
         // }
         if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
-            pa_mut.keys_states.crtl_pressed = true;
+            pam.keys_states.crtl_pressed = true;
         }
         if keyboard_event.key() == "Shift" {
-            pa_mut.keys_states.shift_pressed = true;
+            pam.keys_states.shift_pressed = true;
         }
         // if keyboard_event.key() == "s" {
-        //     if let ToolSelected::Arrow = pa_ref.icon_selected {
-        //         pa_ref.icon_selected = ToolSelected::Selection;
-        //         deselect_icons(&pa_ref);
-        //         select_icon(&pa_ref, &"icon-selection");
+        //     if let ToolSelected::Arrow = pam.icon_selected {
+        //         pam.icon_selected = ToolSelected::Selection;
+        //         deselect_icons(&pam);
+        //         select_icon(&pam, &"icon-selection");
         //     }
         // }
         // if keyboard_event.key() == "l" {
-        //     if let ToolSelected::Arrow = pa_ref.icon_selected {
-        //         pa_ref.icon_selected = ToolSelected::DrawLine;
-        //         deselect_icons(&pa_ref);
-        //         select_icon(&pa_ref, &"icon-line");
+        //     if let ToolSelected::Arrow = pam.icon_selected {
+        //         pam.icon_selected = ToolSelected::DrawLine;
+        //         deselect_icons(&pam);
+        //         select_icon(&pam, &"icon-line");
         //     }
         // }
         // if keyboard_event.key() == "c" {
-        //     if pa_ref.ctrl_or_meta_pressed {
-        //         let copy = pa_ref
+        //     if pam.ctrl_or_meta_pressed {
+        //         let copy = pam
         //             .shapes
         //             .iter()
         //             .filter(|shape| shape.get_handle_selected() < -1)
         //             .cloned()
         //             .collect();
-        //         pa_ref.shape_buffer_copy_paste = copy;
+        //         pam.shape_buffer_copy_paste = copy;
         //     }
         // }
-        drop(pa_mut);
+        drop(pam);
         render(pa.clone());
     }
 }
 fn on_keyup(pa: RefPA, event: Event) {
     if let Ok(keyboard_event) = event.dyn_into::<KeyboardEvent>() {
-        let mut pa_mut = pa.borrow_mut();
+        let mut pam = pa.borrow_mut();
         if keyboard_event.key() == "Control" || keyboard_event.key() == "Meta" {
-            pa_mut.keys_states.crtl_pressed = false;
+            pam.keys_states.crtl_pressed = false;
         }
         if keyboard_event.key() == "Shift" {
-            pa_mut.keys_states.shift_pressed = false;
+            pam.keys_states.shift_pressed = false;
         }
     }
 }
 fn on_context_menu(pa: RefPA, event: Event) {
-    let pa_ref = pa.borrow();
+    let pam = pa.borrow_mut();
     // Prevent the default context menu from appearing
     event.prevent_default();
     if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
-        if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+        if let Some(context_menu) = pam.document.get_element_by_id("contextMenu") {
             if let Ok(html_element) = context_menu.dyn_into::<web_sys::HtmlElement>() {
                 // Position the context menu at the right-click position
                 html_element
@@ -1393,13 +1528,13 @@ fn on_context_menu(pa: RefPA, event: Event) {
     }
 }
 fn on_context_menu_bind_vertex_to(pa: RefPA, _event: Event) {
-    let mut pa_ref = pa.borrow_mut();
-    if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+    let pam = pa.borrow_mut();
+    if let Some(context_menu) = pam.document.get_element_by_id("contextMenu") {
         if let Some(html_element) =
             wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
         {
             // Update the list of vertex selected
-            //pa_ref.get_vs_selected();
+            //pam.get_vs_selected();
 
             // Hide the context afer click
             html_element
@@ -1410,8 +1545,8 @@ fn on_context_menu_bind_vertex_to(pa: RefPA, _event: Event) {
     }
 }
 fn on_context_menu_group_click(pa: RefPA, _event: Event) {
-    let pa_ref = pa.borrow_mut();
-    if let Some(context_menu) = pa_ref.document.get_element_by_id("contextMenu") {
+    let pam = pa.borrow_mut();
+    if let Some(context_menu) = pam.document.get_element_by_id("contextMenu") {
         if let Some(html_element) =
             wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
         {
@@ -1424,8 +1559,8 @@ fn on_context_menu_group_click(pa: RefPA, _event: Event) {
     }
 }
 fn on_context_menu_delete_click(pa: RefPA, _event: Event) {
-    let mut pa_mut = pa.borrow_mut();
-    if let Some(context_menu) = pa_mut.document.get_element_by_id("contextMenu") {
+    let mut pam = pa.borrow_mut();
+    if let Some(context_menu) = pam.document.get_element_by_id("contextMenu") {
         if let Some(html_element) =
             wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&context_menu)
         {
@@ -1434,8 +1569,8 @@ fn on_context_menu_delete_click(pa: RefPA, _event: Event) {
                 .style()
                 .set_property("display", "none")
                 .unwrap();
-            pa_mut.clear_shapes_selections();
-            drop(pa_mut);
+            pam.clear_shapes_selections();
+            drop(pam);
             render(pa.clone());
         }
     }
@@ -1444,75 +1579,69 @@ fn on_context_menu_delete_click(pa: RefPA, _event: Event) {
 ///////////////
 /// Settings panel events
 fn on_apply_settings_click(pa: RefPA, _event: Event) {
-    let mut pa_ref = pa.borrow_mut();
+    let mut pam = pa.borrow_mut();
 
-    let width_str = pa_ref.settings_width_input.value();
-    let height_str = pa_ref.settings_height_input.value();
+    let width_str = pam.settings_width_input.value();
+    let height_str = pam.settings_height_input.value();
     let width: f64 = width_str.parse().unwrap_or(0.0);
     let height: f64 = height_str.parse().unwrap_or(0.0);
-    pa_ref
-        .settings_panel
+    pam.settings_panel
         .style()
         .set_property("display", "none")
         .unwrap();
-    pa_ref
-        .modal_backdrop
+    pam.modal_backdrop
         .style()
         .set_property("display", "none")
         .unwrap();
 
-    pa_ref.working_area = Point {
+    pam.working_area = Point {
         x: width,
         y: height,
     };
 
-    drop(pa_ref);
+    drop(pam);
     resize_area(pa.clone());
     render(pa.clone());
 }
 fn on_modal_backdrop_click(pa: RefPA, _event: Event) {
-    let pa_ref = pa.borrow_mut();
-    pa_ref
-        .settings_panel
+    let pam = pa.borrow_mut();
+    pam.settings_panel
         .style()
         .set_property("display", "none")
         .unwrap();
-    pa_ref
-        .modal_backdrop
+    pam.modal_backdrop
         .style()
         .set_property("display", "none")
         .unwrap();
-    pa_ref
-        .settings_width_input
-        .set_value(&pa_ref.working_area.x.to_string());
-    pa_ref
-        .settings_height_input
-        .set_value(&pa_ref.working_area.y.to_string());
+    pam.settings_width_input
+        .set_value(&pam.working_area.x.to_string());
+    pam.settings_height_input
+        .set_value(&pam.working_area.y.to_string());
 }
 
 ///////////////
 // Window events
 fn resize_area(pa: RefPA) {
-    let mut pa_ref = pa.borrow_mut();
+    let mut pam = pa.borrow_mut();
     let (window_width, window_height) = {
         (
-            pa_ref.window.inner_width().unwrap().as_f64().unwrap() as u32,
-            pa_ref.window.inner_height().unwrap().as_f64().unwrap() as u32,
+            pam.window.inner_width().unwrap().as_f64().unwrap() as u32,
+            pam.window.inner_height().unwrap().as_f64().unwrap() as u32,
         )
     };
-    let left_panel_width = pa_ref
+    let left_panel_width = pam
         .document
         .get_element_by_id("left-panel")
         .unwrap()
         .get_bounding_client_rect()
         .width() as u32;
-    let status_bar_height = pa_ref
+    let status_bar_height = pam
         .document
         .get_element_by_id("status-bar")
         .unwrap()
         .get_bounding_client_rect()
         .height() as u32;
-    let top_menu_height = pa_ref
+    let top_menu_height = pam
         .document
         .get_element_by_id("top-menu")
         .unwrap()
@@ -1522,48 +1651,46 @@ fn resize_area(pa: RefPA) {
     let canvas_width = window_width - left_panel_width;
     let canvas_height = window_height - top_menu_height - status_bar_height;
 
-    pa_ref
-        .canvas
+    pam.canvas
         .style()
         .set_property("margin-top", &format!("{}px", top_menu_height))
         .unwrap();
-    pa_ref
-        .canvas
+    pam.canvas
         .style()
         .set_property("margin-left", &format!("{}px", left_panel_width))
         .unwrap();
-    pa_ref.canvas.set_width(canvas_width);
-    pa_ref.canvas.set_height(canvas_height);
+    pam.canvas.set_width(canvas_width);
+    pam.canvas.set_height(canvas_height);
 
     // Calculation starting parameters
-    let working_area = pa_ref.working_area;
+    let working_area = pam.working_area;
     let canvas_offset = Point {
         x: (canvas_width as f64 - working_area.x).abs() / 4.,
         y: (canvas_height as f64 - working_area.y).abs() / 3.,
     };
     let dx = canvas_width as f64 / working_area.x / 0.3;
     let dy = canvas_height as f64 / working_area.y / 0.3;
-    pa_ref.canvas_offset = canvas_offset;
-    pa_ref.global_scale = dx.min(dy);
+    pam.canvas_offset = canvas_offset;
+    pam.global_scale = dx.min(dy);
 }
 fn on_window_resize(pa: RefPA, _event: Event) {
     resize_area(pa.clone());
     render(pa.clone());
 }
 fn on_window_click(_pa: RefPA, _event: Event) {
-    // let pa_ref = pa.borrow_mut();
+    // let pam = pa.borrow_mut();
     // if let Ok(mouse_event) = event.clone().dyn_into::<MouseEvent>() {
     //     // Not a right-click
     //     if mouse_event.buttons() == 1 {
     //         let target = event.target().unwrap();
     //         let target = target.dyn_into::<web_sys::Node>().unwrap();
-    //         if !pa_ref.settings_panel.contains(Some(&target)) {
-    //             pa_ref
+    //         if !pam.settings_panel.contains(Some(&target)) {
+    //             pam
     //                 .settings_panel
     //                 .style()
     //                 .set_property("display", "none")
     //                 .unwrap();
-    //             pa_ref
+    //             pam
     //                 .modal_backdrop
     //                 .style()
     //                 .set_property("display", "none")
@@ -1576,36 +1703,34 @@ fn on_window_click(_pa: RefPA, _event: Event) {
 ///////////////
 // Icons events
 fn on_icon_click(pa: RefPA, event: Event) {
-    let mut pa_mut = pa.borrow_mut();
+    let mut pam = pa.borrow_mut();
     if let Some(target) = event.target() {
         if let Some(element) = wasm_bindgen::JsCast::dyn_ref::<Element>(&target) {
             if let Some(id) = element.get_attribute("id") {
-                if let Some(key) = pa_mut.user_icons.keys().find(|&&k| k == id) {
+                if let Some(key) = pam.user_icons.keys().find(|&&k| k == id) {
                     if key == &"icon-cog" {
-                        pa_mut
-                            .settings_panel
+                        pam.settings_panel
                             .style()
                             .set_property("display", "block")
                             .unwrap();
-                        pa_mut
-                            .modal_backdrop
+                        pam.modal_backdrop
                             .style()
                             .set_property("display", "block")
                             .unwrap();
                     } else {
-                        pa_mut.icon_selected = key;
-                        deselect_icons(&pa_mut);
-                        select_icon(&pa_mut, &id);
+                        pam.icon_selected = key;
+                        deselect_icons(&pam);
+                        select_icon(&pam, &id);
                     }
-                    match pa_mut.icon_selected {
+                    match pam.icon_selected {
                         "icon-line" | "icon-quadbezier" | "icon-cubicbezier" | "icon-ellipse"
                         | "icon-rectangle" => {
-                            if let None = pa_mut.draw_vertex {
-                                let v = pa_mut.add_vertex(&Point::ZERO);
-                                pa_mut.draw_vertex = Some(v.id);
+                            if let None = pam.draw_vertex {
+                                let v = pam.add_vertex(&Point::ZERO);
+                                pam.draw_vertex = Some(v.id);
                             }
                         }
-                        _ => pa_mut.draw_vertex = None,
+                        _ => pam.draw_vertex = None,
                     }
                 }
             }
@@ -1613,11 +1738,11 @@ fn on_icon_click(pa: RefPA, event: Event) {
     }
 }
 fn on_icon_mouseover(pa: RefPA, event: Event) {
-    let pa_ref = pa.borrow();
+    let pam = pa.borrow_mut();
     if let Some(target) = event.target() {
         if let Some(element) = wasm_bindgen::JsCast::dyn_ref::<Element>(&target) {
             if let Some(data_tooltip) = element.get_attribute("data-tooltip") {
-                let tooltip_html = &pa_ref.tooltip;
+                let tooltip_html = &pam.tooltip;
                 tooltip_html.set_inner_text(&data_tooltip);
                 tooltip_html
                     .style()
@@ -1649,13 +1774,13 @@ fn on_icon_mouseout(pa: RefPA, _event: Event) {
 
 ///////////////
 // Helpers
-fn go_to_arrow_tool(pa_ref: &mut RefMut<'_, PlayingArea>) {
-    pa_ref.icon_selected = "icon-arrow";
-    deselect_icons(&pa_ref);
-    select_icon(&pa_ref, "icon-arrow");
+fn go_to_arrow_tool(pam: &mut RefMut<'_, PlayingArea>) {
+    pam.icon_selected = "icon-arrow";
+    deselect_icons(&pam);
+    select_icon(&pam, "icon-arrow");
 }
-fn select_icon(pa_ref: &RefMut<'_, PlayingArea>, name: &str) {
-    if let Some(element) = pa_ref.user_icons.get(name).unwrap().clone() {
+fn select_icon(pam: &RefMut<'_, PlayingArea>, name: &str) {
+    if let Some(element) = pam.user_icons.get(name).unwrap().clone() {
         if let Ok(html_element) = element.dyn_into::<HtmlElement>() {
             html_element
                 .set_attribute("class", "icon icon-selected")
@@ -1663,8 +1788,8 @@ fn select_icon(pa_ref: &RefMut<'_, PlayingArea>, name: &str) {
         }
     }
 }
-fn deselect_icons(pa_ref: &RefMut<'_, PlayingArea>) {
-    for (key, oelement) in pa_ref.user_icons.iter() {
+fn deselect_icons(pam: &RefMut<'_, PlayingArea>) {
+    for (key, oelement) in pam.user_icons.iter() {
         if key != &"icon-cog" {
             if let Some(element) = oelement {
                 // let element_cloned = element.clone();
@@ -1687,11 +1812,11 @@ fn get_element(document: &Document, element_id: &str) -> Result<Element, JsValue
 ///////////////
 // Rendering
 fn render(pa: RefPA) {
-    let pa_ref = pa.borrow();
+    let pam = pa.borrow_mut();
 
     // Clear the canvas
-    raw_draw_clear_canvas(&pa_ref);
-    drop(pa_ref);
+    raw_draw_clear_canvas(&pam);
+    drop(pam);
 
     // Then draw all
     draw_all(pa.clone());
@@ -1703,10 +1828,10 @@ fn draw_all(pa: RefPA) {
     draw_selection_area(pa.clone());
 }
 fn draw_working_area(pa: RefPA) {
-    let pa_ref = pa.borrow();
+    let pam = pa.borrow_mut();
     // Draw working area
 
-    let _wa = pa_ref.working_area;
+    let _wa = pam.working_area;
     // Title
     // cst.push(CTText(Point::new(wa.x / 3., -20.), "Working sheet".into()));
 
@@ -1730,12 +1855,12 @@ fn draw_working_area(pa: RefPA) {
     // cst.push(CTSegment(NoSelection, pos, pos + (-wa.x, 0.)));
     // cst.push(CTSegment(NoSelection, pos, pos + (0., -wa.y)));
 
-    // draw_shape(&pa_ref, &cst);
+    // draw_shape(&pam, &cst);
 }
 fn draw_grid(pa: RefPA) {
-    let pa_ref = pa.borrow();
-    let wa = pa_ref.working_area;
-    let w_grid_spacing = pa_ref.working_area_visual_grid;
+    let pam = pa.borrow_mut();
+    let wa = pam.working_area;
+    let w_grid_spacing = pam.working_area_visual_grid;
 
     use PathEl::*;
     let mut v: Vec<PathEl> = vec![];
@@ -1754,7 +1879,7 @@ fn draw_grid(pa: RefPA) {
         wy += w_grid_spacing;
     }
     draw_path(
-        &pa_ref,
+        &pam,
         &ConstructionBezierPath {
             layer: ConstructionLayer::Grid,
             pattern: ConstructionPattern::Normal,
@@ -1764,53 +1889,77 @@ fn draw_grid(pa: RefPA) {
     );
 }
 fn draw_content(pa: RefPA) {
-    let pa_ref = pa.borrow();
-    let scale = pa_ref.global_scale;
-    let size_handle = pa_ref.size_handle;
+    let pam = pa.borrow_mut();
+    let scale = pam.global_scale;
+    let size_handle = pam.size_handle;
     let tol = 0.01;
 
     let layer = ConstructionLayer::Worksheet;
-    for sh in pa_ref.sh_pool.values() {
-        let pattern = pa_ref.get_geobject_construction_pattern(Geobjects::Shape(sh.get_id()));
+    for sh in pam.sh_pool.values() {
+        let pattern_sh = pam.get_geobject_construction_pattern(Geobject::Shape(sh.get_id()));
         // Draw the shape without the handles
         draw_path(
-            &pa_ref,
+            &pam,
             &ConstructionBezierPath {
                 layer,
-                pattern,
-                path: sh.get_path(tol, &pa_ref.v_pool),
+                pattern: pattern_sh,
+                path: sh.get_path(tol, &pam.v_pool),
                 filled: false,
             },
         );
         // Draw the handles
         sh.get_vertices_ids().iter().for_each(|v_id| {
-            let v = pa_ref.v_pool.get(v_id).unwrap();
-            let pattern = pa_ref.get_geobject_construction_pattern(Geobjects::Vertex(v.id));
+            let v = pam.v_pool.get(v_id).unwrap();
+            let pattern_v = if let ConstructionPattern::OnCreation = pattern_sh {
+                ConstructionPattern::OnCreation
+            } else {
+                pam.get_geobject_construction_pattern(Geobject::Vertex(v.id))
+            };
             draw_path(
-                &pa_ref,
+                &pam,
                 &ConstructionBezierPath {
                     layer,
-                    pattern,
+                    pattern: pattern_v,
                     path: prefab::handle(v, size_handle, scale),
                     filled: true,
                 },
             );
         });
+        // Draw binding requested if any
+        if let Some(bind) = pam.binding_requested {
+            use Binding::*;
+            match bind {
+                SamePos(same_pos) => {
+                    let v = pam.v_pool.get(&same_pos.id.0).unwrap();
+                    let pattern_v = ConstructionPattern::Binding(true);
+                    draw_path(
+                        &pam,
+                        &ConstructionBezierPath {
+                            layer,
+                            pattern: pattern_v,
+                            path: prefab::handle(v, size_handle * 2., scale),
+                            filled: false,
+                        },
+                    );
+                }
+                _ => (),
+            };
+        };
         // Draw the geometry helpers
         //     // Draw the geometry helpers
         //     vcst = vec![];
         //     shape.get_helpers_construction(&mut vcst);
-        //     raw_draw(&pa_ref, &vcst);
+        //     raw_draw(&pam, &vcst);
         // }
     }
 
     // Show pick point if requested
-    if let Some(v_id) = pa_ref.draw_vertex {
-        let v = pa_ref.v_pool.get(&v_id).unwrap();
+    if let Some(v_id) = pam.draw_vertex {
+        let v = pam.v_pool.get(&v_id).unwrap();
         let pattern = ConstructionPattern::Normal;
         let path = prefab::handle(&v, size_handle, scale);
         draw_path(
-            &pa_ref,
+            &pam,
             &ConstructionBezierPath {
                 layer,
                 pattern,
@@ -1822,8 +1971,8 @@ fn draw_content(pa: RefPA) {
 }
 fn draw_selection_area(_pa: RefPA) {
     // use ConstructionPattern::*;
-    // let pa_ref = pa.borrow();
-    // if let Some(sa) = pa_ref.selection_area {
+    // let pam = pa.borrow_mut();
+    // if let Some(sa) = pam.selection_area {
     //     let bl = sa[0];
     //     let tr = sa[1];
     //     if bl.x != tr.x && bl.y != tr.y {
@@ -1836,71 +1985,64 @@ fn draw_selection_area(_pa: RefPA) {
     //         cst.push(CTSegment(NoSelection, tl, tr));
     //         cst.push(CTSegment(NoSelection, tr, br));
     //         cst.push(CTSegment(NoSelection, br, bl));
-    //         raw_draw(&pa_ref, &cst, ConstructionLayer::SelectionTool);
+    //         raw_draw(&pam, &cst, ConstructionLayer::SelectionTool);
     //     }
     // }
 }
-fn set_style(pa_ref: &Ref<'_, PlayingArea>, cbp: &ConstructionBezierPath) {
+fn set_style(pam: &RefMut<'_, PlayingArea>, cbp: &ConstructionBezierPath) {
     let (fill_color, stroke_color, stroke_style, stroke_width) =
-        pa_ref.draw_styles.get_default_styles(cbp);
-    pa_ref.ctx.set_font("20px sans-serif");
-    pa_ref.ctx.set_line_dash(stroke_style).unwrap();
-    pa_ref.ctx.set_line_width(stroke_width);
-    pa_ref.ctx.set_stroke_style(&stroke_color.into());
-    pa_ref.ctx.set_fill_style(&fill_color.into());
+        pam.draw_styles.get_default_styles(cbp);
+    pam.ctx.set_font("20px sans-serif");
+    pam.ctx.set_line_dash(stroke_style).unwrap();
+    pam.ctx.set_line_width(stroke_width);
+    pam.ctx.set_stroke_style(&stroke_color.into());
+    pam.ctx.set_fill_style(&fill_color.into());
 }
-fn draw_path(pa_ref: &Ref<'_, PlayingArea>, cbp: &ConstructionBezierPath) {
+fn draw_path(pam: &RefMut<'_, PlayingArea>, cbp: &ConstructionBezierPath) {
     // let p = Path2d::new().unwrap();
-    let scale = pa_ref.global_scale;
-    let offset = pa_ref.canvas_offset;
-    set_style(pa_ref, cbp);
-    pa_ref.ctx.begin_path();
+    let scale = pam.global_scale;
+    let offset = pam.canvas_offset;
+    set_style(pam, cbp);
+    pam.ctx.begin_path();
 
     for cst in cbp.path.iter() {
         match cst {
             PathEl::MoveTo(pt) => {
                 let cpt = to_canvas(&pt, scale, &offset);
-                pa_ref.ctx.move_to(cpt.x, cpt.y);
+                pam.ctx.move_to(cpt.x, cpt.y);
             }
             PathEl::LineTo(pt) => {
                 let cpt = to_canvas(&pt, scale, &offset);
-                pa_ref.ctx.line_to(cpt.x, cpt.y);
+                pam.ctx.line_to(cpt.x, cpt.y);
             }
             PathEl::QuadTo(pt1, pt2) => {
                 let cpt1 = to_canvas(&pt1, scale, &offset);
                 let cpt2 = to_canvas(&pt2, scale, &offset);
-                pa_ref
-                    .ctx
-                    .quadratic_curve_to(cpt1.x, cpt1.y, cpt2.x, cpt2.y);
+                pam.ctx.quadratic_curve_to(cpt1.x, cpt1.y, cpt2.x, cpt2.y);
             }
             PathEl::CurveTo(pt1, pt2, pt3) => {
                 let cpt1 = to_canvas(&pt1, scale, &offset);
                 let cpt2 = to_canvas(&pt2, scale, &offset);
                 let cpt3 = to_canvas(&pt3, scale, &offset);
-                pa_ref
-                    .ctx
+                pam.ctx
                     .bezier_curve_to(cpt1.x, cpt1.y, cpt2.x, cpt2.y, cpt3.x, cpt3.y);
             }
             PathEl::ClosePath => (),
         }
     }
     if cbp.filled {
-        pa_ref.ctx.fill();
+        pam.ctx.fill();
     }
-    pa_ref.ctx.close_path();
-    pa_ref.ctx.stroke();
+    pam.ctx.close_path();
+    pam.ctx.stroke();
 }
-fn raw_draw_clear_canvas(pa_ref: &Ref<'_, PlayingArea>) {
-    pa_ref.ctx.set_stroke_style(&"#F00".into());
-    let background_color = pa_ref.draw_styles.get_background_color();
-    pa_ref
-        .ctx
-        .set_fill_style(&background_color.to_string().into());
+fn raw_draw_clear_canvas(pam: &RefMut<'_, PlayingArea>) {
+    pam.ctx.set_stroke_style(&"#F00".into());
+    let background_color = pam.draw_styles.get_background_color();
+    pam.ctx.set_fill_style(&background_color.to_string().into());
 
-    pa_ref.ctx.fill();
-    let (canvas_width, canvas_height) =
-        { (pa_ref.canvas.width() as f64, pa_ref.canvas.height() as f64) };
-    pa_ref
-        .ctx
+    pam.ctx.fill();
+    let (canvas_width, canvas_height) = { (pam.canvas.width() as f64, pam.canvas.height() as f64) };
+    pam.ctx
         .fill_rect(0., 0., canvas_width as f64, canvas_height as f64);
 }

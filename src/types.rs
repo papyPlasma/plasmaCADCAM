@@ -8,12 +8,13 @@
 use js_sys::Array;
 use kurbo::{BezPath, Point};
 
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wasm_bindgen::prelude::*;
 use web_sys::CssStyleDeclaration;
 
+#[allow(dead_code)]
 pub struct DrawStyles {
     // Drawing colors
     worksheet_color: String,
@@ -24,8 +25,11 @@ pub struct DrawStyles {
     selection_color: String,
     selected_color: String,
     background_color: String,
+    on_construction_color: String,
     fill_color: String,
     highlight_color: String,
+    binding_color: String,
+    binding_requested_color: String,
     // line patterns
     pattern_dashed: JsValue,
     pattern_solid: JsValue,
@@ -40,8 +44,12 @@ impl DrawStyles {
         let selection_color = style.get_property_value("--canvas-selection-color")?;
         let selected_color = style.get_property_value("--canvas-selected-color")?;
         let background_color = style.get_property_value("--canvas-background-color")?;
+        let on_construction_color = style.get_property_value("--canvas-on-construction-color")?;
         let fill_color = style.get_property_value("--canvas-fill-color")?;
         let highlight_color = style.get_property_value("--canvas-highlight-color")?;
+        let binding_color = style.get_property_value("--canvas-binding-color")?;
+        let binding_requested_color =
+            style.get_property_value("--canvas-binding-requested-color")?;
         let dash_pattern = Array::new();
         dash_pattern.push(&JsValue::from_f64(3.0));
         dash_pattern.push(&JsValue::from_f64(3.0));
@@ -55,50 +63,62 @@ impl DrawStyles {
             selection_color,
             selected_color,
             background_color,
+            on_construction_color,
             fill_color,
             highlight_color,
+            binding_color,
+            binding_requested_color,
             pattern_dashed: JsValue::from(dash_pattern),
             pattern_solid: JsValue::from(solid_pattern),
         })
     }
     pub fn get_default_styles(&self, cbp: &ConstructionBezierPath) -> (&str, &str, &JsValue, f64) {
         use ConstructionLayer::*;
+        use ConstructionPattern::*;
         let (fill_color, color, line_dash, line_width) = match cbp.layer {
-            Worksheet => {
-                if let ConstructionPattern::Selected = cbp.pattern {
-                    (
-                        &self.selected_color,
-                        &self.selected_color,
-                        &self.pattern_solid,
-                        1.,
-                    )
-                } else {
-                    if let ConstructionPattern::Highlighted = cbp.pattern {
+            Worksheet => match cbp.pattern {
+                Selected => (
+                    &self.selected_color,
+                    &self.selected_color,
+                    &self.pattern_solid,
+                    1.,
+                ),
+                Highlighted => (
+                    &self.highlight_color,
+                    &self.highlight_color,
+                    &self.pattern_solid,
+                    1.,
+                ),
+                OnCreation => (
+                    &self.on_construction_color,
+                    &self.on_construction_color,
+                    &self.pattern_solid,
+                    1.,
+                ),
+                Binding(requested) => {
+                    if requested {
                         (
-                            &self.highlight_color,
-                            &self.highlight_color,
+                            &self.binding_requested_color,
+                            &self.binding_requested_color,
                             &self.pattern_solid,
                             1.,
                         )
                     } else {
-                        if let ConstructionPattern::OnConstruction = cbp.pattern {
-                            (
-                                &self.geohelper_color,
-                                &self.geohelper_color,
-                                &self.pattern_solid,
-                                1.,
-                            )
-                        } else {
-                            (
-                                &self.fill_color,
-                                &self.worksheet_color,
-                                &self.pattern_solid,
-                                1.,
-                            )
-                        }
+                        (
+                            &self.binding_color,
+                            &self.binding_color,
+                            &self.pattern_solid,
+                            1.,
+                        )
                     }
                 }
-            }
+                Normal => (
+                    &self.geohelper_color,
+                    &self.geohelper_color,
+                    &self.pattern_solid,
+                    1.,
+                ),
+            },
             Dimension => (
                 &self.fill_color,
                 &self.dimension_color,
@@ -142,8 +162,9 @@ pub enum ConstructionLayer {
 #[derive(Debug, Copy, Clone)]
 pub enum ConstructionPattern {
     Normal,
-    OnConstruction,
+    OnCreation,
     Selected,
+    Binding(bool),
     Highlighted,
 }
 #[allow(dead_code)]
@@ -155,12 +176,12 @@ pub struct ConstructionBezierPath {
     pub filled: bool,
 }
 
-#[derive(Clone, Debug)]
-pub enum Geobjects {
+#[derive(Clone, Debug, PartialEq)]
+pub enum Geobject {
     Vertex(VertexId),
     Shape(ShapeId),
 }
-impl Geobjects {}
+impl Geobject {}
 
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
@@ -201,6 +222,48 @@ impl Vertex {
     pub fn is_near_pos(&self, pt: &Point, grab_handle_precision: f64) -> bool {
         self.pt.distance(*pt) < grab_handle_precision / 2.
     }
+    pub fn move_pt(&mut self, dpos: &Point) {
+        self.pt = self.saved_pt + (dpos.x, dpos.y);
+    }
+    pub fn save_pt(&mut self) {
+        self.saved_pt = self.pt;
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct VIds(pub VertexId, pub VertexId, pub VertexId, pub VertexId);
+impl PartialEq for VIds {
+    fn eq(&self, other: &Self) -> bool {
+        ((self.0 == other.0 && self.1 == other.1) || (self.0 == other.1 && self.1 == other.0))
+            && ((self.2 == other.2 && self.3 == other.3)
+                || (self.2 == other.3 && self.3 == other.2))
+    }
+}
+impl Eq for VIds {}
+impl Hash for VIds {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        let hash_a = hasher.finish();
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.1.hash(&mut hasher);
+        let hash_b = hasher.finish();
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.2.hash(&mut hasher);
+        let hash_c = hasher.finish();
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.3.hash(&mut hasher);
+        let hash_d = hasher.finish();
+
+        let hash_ab = hash_a ^ hash_b;
+        let hash_cd = hash_c ^ hash_d;
+
+        hash_ab.hash(state);
+        hash_cd.hash(state);
+    }
 }
 
 static COUNTER_GROUPS: AtomicUsize = AtomicUsize::new(0);
@@ -224,25 +287,25 @@ impl DerefMut for GroupId {
     }
 }
 
-static COUNTER_BINDINGS: AtomicUsize = AtomicUsize::new(0);
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BindingId(usize);
-impl BindingId {
-    pub fn new_id() -> BindingId {
-        BindingId(COUNTER_BINDINGS.fetch_add(1, Ordering::Relaxed))
-    }
-}
-impl Deref for BindingId {
-    type Target = usize;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for BindingId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+// static COUNTER_BINDINGS: AtomicUsize = AtomicUsize::new(0);
+// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// pub struct BindingId(usize);
+// impl BindingId {
+//     pub fn new_id() -> BindingId {
+//         BindingId(COUNTER_BINDINGS.fetch_add(1, Ordering::Relaxed))
+//     }
+// }
+// impl Deref for BindingId {
+//     type Target = usize;
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+// impl DerefMut for BindingId {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
 
 static COUNTER_SHAPES: AtomicUsize = AtomicUsize::new(0);
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

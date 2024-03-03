@@ -1,15 +1,18 @@
 
 :root {
     --canvas-background-color: #dddddd;
-    --canvas-worksheet-color: #000;
+    --canvas-on-construction-color: #0000003d;
+    --canvas-worksheet-color: #2a2a2a;
     --canvas-dimension-color: #552;
-    --canvas-geohelper-color: #5901017f;
+    --canvas-geohelper-color: #3f3f3f;
     --canvas-origin-color: #e0e;
     --canvas-grid-color: #c1c0c0;
     --canvas-selection-color: rgb(255, 255, 0);
     --canvas-selected-color:  #ff0000;
     --canvas-highlight-color:  #ffb700;
-    --canvas-fill-color: rgb(0, 0, 0);
+    --canvas-binding-color:  #007008;
+    --canvas-binding-requested-color:  #00e235;
+    --canvas-fill-color: rgba(0, 0, 0, 0.119);
 }
 
 body, html {

@@ -714,3 +714,26 @@ pub fn to_world(pt: &Point, scale: f64, offset: &Point) -> Point {
         y: (pt.y - offset.y) / scale,
     }
 }
+
+use std::collections::HashMap;
+
+// fn main() {
+//     // Create a HashMap where Ids instances are keys.
+//     let mut map = HashMap::new();
+
+//     // Create instances of Ids.
+//     let id1 = Ids(1, 2);
+//     let id2 = Ids(3, 4);
+
+//     // Insert values into the map using Ids as keys.
+//     map.insert(id1, "Value associated with id1");
+//     map.insert(id2, "Value associated with id2");
+
+//     // Accessing values in the map.
+//     let lookup_id = Ids(1, 2);
+//     if let Some(value) = map.get(&lookup_id) {
+//         println!("Found: {}", value);
+//     } else {
+//         println!("No value found for the given key.");
+//     }
+// }
